@@ -1,0 +1,170 @@
+[
+  {
+    "title": "Dashboard",
+    "route": "/admin/sp/dashboard",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": []
+  },
+  {
+    "title": "Users",
+    "route": "/admin/sp/users",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": [
+      "All Users",
+      "User Bookings",
+      "User Analytics"
+    ]
+  },
+  {
+    "title": "Vendors",
+    "route": "/admin/sp/vendors",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": [
+      "All Vendors",
+      "Vendor Bookings",
+      "Vendor Analytics"
+    ]
+  },
+  {
+    "title": "Workers",
+    "route": "/admin/sp/workers",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": [
+      "All Workers",
+      "Worker Jobs",
+      "Worker Analytics"
+    ]
+  },
+  {
+    "title": "Bookings",
+    "route": "/admin/sp/bookings",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": [
+      "All Bookings",
+      "Booking Tracking"
+    ]
+  },
+  {
+    "title": "Scrap Items",
+    "route": "/admin/sp/scrap",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": []
+  },
+  {
+    "title": "Payments",
+    "route": "/admin/sp/payments",
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": [
+      "Payment Overview",
+      "User Payments",
+      "Worker Payments",
+      "Vendor Payments",
+      "Admin Revenue"
+    ]
+  },
+  {
+    "title": "Settlements",
+    "route": "/admin/sp/settlements",
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": [
+      "Pending",
+      "Withdrawals",
+      "Vendors with Due",
+      "History"
+    ]
+  },
+  {
+    "title": "User Catalog",
+    "route": "/admin/sp/user-categories",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": [
+      "Home",
+      "Manage Categories",
+      "Manage Brands",
+      "Manage Services"
+    ]
+  },
+  {
+    "title": "Reports",
+    "route": "/admin/sp/reports",
+    "isHidden": true,
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": [
+      "Revenue Report",
+      "Booking Report",
+      "Payment Report"
+    ]
+  },
+  {
+    "title": "Reviews",
+    "route": "/admin/sp/reviews",
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": []
+  },
+  {
+    "title": "Plans",
+    "route": "/admin/sp/plans",
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": []
+  },
+  {
+    "title": "Worker Plans",
+    "route": "/admin/sp/worker-plans",
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": []
+  },
+  {
+    "title": "Legal",
+    "route": "/admin/sp/legal",
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": [
+      "Terms & Conditions",
+      "Privacy Policy",
+      "Support"
+    ]
+  },
+  {
+    "title": "Settings",
+    "route": "/admin/sp/settings",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": []
+  }
+]

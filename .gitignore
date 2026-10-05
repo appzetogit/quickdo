@@ -1,0 +1,43 @@
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+
+# --- Safety nets ---
+# Backend/ and Frontend/ have their own .gitignore files that cover these; these
+# root-level rules are a backstop so a new top-level folder can't leak secrets or
+# commit dependencies by accident.
+
+# Secrets — never commit real env files (.env.example is intentionally tracked)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+firebase-service-account.json
+serviceAccount*.json
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+coverage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+Desktop.ini

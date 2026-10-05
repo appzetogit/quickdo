@@ -1,0 +1,69 @@
+import { sendResponse, sendError } from '../../utils/response.js';
+import {
+    resolveNotificationOwnerFromRequest,
+    getInboxNotifications,
+    markNotificationAsRead,
+    dismissNotification,
+    dismissAllNotifications,
+    markAllNotificationsAsRead,
+} from './notification.service.js';
+
+export const getInboxController = async (req, res) => {
+    try {
+        const owner = resolveNotificationOwnerFromRequest(req.user);
+        const data = await getInboxNotifications({
+            ...owner,
+            page: req.query?.page,
+            limit: req.query?.limit
+        });
+        return sendResponse(res, 200, 'Notifications fetched successfully', data);
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to fetch notifications');
+    }
+};
+
+export const markNotificationReadController = async (req, res) => {
+    try {
+        const owner = resolveNotificationOwnerFromRequest(req.user);
+        const data = await markNotificationAsRead({
+            notificationId: req.params?.id,
+            ...owner
+        });
+        return sendResponse(res, 200, 'Notification marked as read', data);
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to update notification');
+    }
+};
+
+export const dismissNotificationController = async (req, res) => {
+    try {
+        const owner = resolveNotificationOwnerFromRequest(req.user);
+        const data = await dismissNotification({
+            notificationId: req.params?.id,
+            ...owner
+        });
+        return sendResponse(res, 200, 'Notification removed successfully', data);
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to remove notification');
+    }
+};
+
+export const dismissAllNotificationsController = async (req, res) => {
+    try {
+        const owner = resolveNotificationOwnerFromRequest(req.user);
+        const data = await dismissAllNotifications(owner);
+        return sendResponse(res, 200, 'All notifications removed successfully', data);
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to clear notifications');
+    }
+};
+
+export const markAllNotificationsReadController = async (req, res) => {
+    try {
+        const owner = resolveNotificationOwnerFromRequest(req.user);
+        const data = await markAllNotificationsAsRead(owner);
+        return sendResponse(res, 200, 'All notifications marked as read', data);
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to update notifications');
+    }
+};

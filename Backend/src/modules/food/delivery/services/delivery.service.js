@@ -1,0 +1,1234 @@
+import mongoose from 'mongoose';
+import { normalizeDriverClass, normalizeDriverIntents, oneTwoWheelerIntent } from '../../../taxi/shared/driverClasses.js';
+import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
+import { DeliverySupportTicket } from '../models/supportTicket.model.js';
+import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
+import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
+import { FoodOrder } from '../../orders/models/order.model.js';
+import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
+import { ValidationError } from '../../../../core/auth/errors.js';
+import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
+
+/**
+ * The documents the admin asked for, as the app sent them.
+ *
+ * Field names are `doc_<key>_front`, `doc_<key>_back` and `docnum_<key>`,
+ * where <key> is the catalogue entry. Uploaded in parallel: a partner with
+ * six documents on a phone connection should not wait for six round trips.
+ *
+ * A document with nothing filled in is skipped rather than stored empty, so
+ * the list says what was actually produced.
+ */
+const collectCatalogueDocuments = async (payload = {}, files = {}) => {
+    const keys = new Set();
+    for (const field of Object.keys(files || {})) {
+        const match = /^doc_(.+)_(front|back)$/.exec(field);
+        if (match) keys.add(match[1]);
+    }
+    for (const field of Object.keys(payload || {})) {
+        const match = /^docnum_(.+)$/.exec(field);
+        if (match) keys.add(match[1]);
+    }
+    if (!keys.size) return [];
+
+    const entries = await Promise.all(
+        [...keys].map(async (key) => {
+            const front = files?.[`doc_${key}_front`]?.[0];
+            const back = files?.[`doc_${key}_back`]?.[0];
+            const [frontUrl, backUrl] = await Promise.all([
+                front ? uploadImageBuffer(front.buffer, 'food/delivery/documents') : '',
+                back ? uploadImageBuffer(back.buffer, 'food/delivery/documents') : '',
+            ]);
+            return {
+                key,
+                name: String(payload?.[`docname_${key}`] || '').trim(),
+                number: String(payload?.[`docnum_${key}`] || '').trim(),
+                frontUrl: frontUrl || '',
+                backUrl: backUrl || '',
+            };
+        }),
+    );
+
+    return entries.filter((entry) => entry.frontUrl || entry.backUrl || entry.number);
+};
+
+/*
+ * The three papers the admin panel reads BY NAME (aadharPhoto, panPhoto,
+ * drivingLicensePhoto and their numbers) everywhere a partner is reviewed.
+ * When one of them arrives through the catalogue instead -- keyed by its slug,
+ * e.g. doc_aadhar-card_front -- it is copied into the named field too, if that
+ * is empty, so the review screens show it whichever way the app sent it.
+ */
+const LEGACY_DOCUMENTS = [
+    { match: /aadha?a?r/i, photo: 'aadharPhoto', number: 'aadharNumber' },
+    { match: /(^|[-_ ])pan([-_ ]|$)|pan[-_ ]?card/i, photo: 'panPhoto', number: 'panNumber' },
+    { match: /licen[cs]e|(^|[-_ ])dl([-_ ]|$)/i, photo: 'drivingLicensePhoto', number: 'drivingLicenseNumber' },
+];
+
+export const mirrorLegacyDocuments = (catalogueDocs = [], images = {}, numbers = {}) => {
+    for (const doc of catalogueDocs) {
+        const legacy = LEGACY_DOCUMENTS.find((l) => l.match.test(`${doc.key} ${doc.name}`));
+        if (!legacy) continue;
+        if (!images[legacy.photo] && doc.frontUrl) images[legacy.photo] = doc.frontUrl;
+        if (!numbers[legacy.number] && doc.number) numbers[legacy.number] = doc.number;
+    }
+    return { images, numbers };
+};
+
+export const registerDeliveryPartner = async (payload, files) => {
+    const { 
+        name, phone, email, countryCode, address, city, state, 
+        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
+        fcmToken, platform, driverClass, serviceIntents,
+        profilePhoto: preExistingProfilePhoto,
+        aadharPhoto: preExistingAadharPhoto,
+        panPhoto: preExistingPanPhoto,
+        drivingLicensePhoto: preExistingDrivingLicensePhoto
+    } = payload;
+    const refRaw = typeof payload?.ref === 'string' ? String(payload.ref).trim() : '';
+
+    const digits = String(phone || '').replace(/\D/g, '');
+    const last10 = digits.slice(-10);
+    const phoneCandidates = [phone, digits, last10].filter(Boolean);
+    const existing = await FoodDeliveryPartner.findOne({
+        $or: [
+            { phone: { $in: phoneCandidates } },
+            ...(last10 ? [{ phone: { $regex: new RegExp(last10 + "$") } }] : [])
+        ]
+    });
+    // A rider deleted before delete became permanent is still on file as
+    // 'deactivated'. Signing up again removes that old account for good and
+    // starts a new one: reusing it brought the old wallet, earnings and
+    // history back into the new rider's app.
+    if (existing?.status === 'deactivated') {
+        const { deleteDeliveryPartnerPermanently } = await import('../../admin/services/admin.service.js');
+        await deleteDeliveryPartnerPermanently(String(existing._id), { force: true, skipBusyCheck: true });
+    }
+    const reactivating = null;
+    if (existing && existing.status !== 'deactivated') {
+        if (existing.status !== 'rejected') {
+            throw new ValidationError('Delivery partner with this phone already exists');
+        }
+        // If rejected, delete the old record so they can start fresh with same phone
+        await FoodDeliveryPartner.deleteMany({
+            $or: [
+                { phone: { $in: phoneCandidates } },
+                ...(last10 ? [{ phone: { $regex: new RegExp(last10 + "$") } }] : [])
+            ]
+        });
+    }
+
+    const images = {
+        profilePhoto: preExistingProfilePhoto || '',
+        aadharPhoto: preExistingAadharPhoto || '',
+        panPhoto: preExistingPanPhoto || '',
+        drivingLicensePhoto: preExistingDrivingLicensePhoto || ''
+    };
+
+    if (files?.profilePhoto?.[0]) {
+        images.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
+    }
+    if (files?.aadharPhoto?.[0]) {
+        images.aadharPhoto = await uploadImageBuffer(files.aadharPhoto[0].buffer, 'food/delivery/aadhar');
+    }
+    if (files?.panPhoto?.[0]) {
+        images.panPhoto = await uploadImageBuffer(files.panPhoto[0].buffer, 'food/delivery/pan');
+    }
+    if (files?.drivingLicensePhoto?.[0]) {
+        images.drivingLicensePhoto = await uploadImageBuffer(
+            files.drivingLicensePhoto[0].buffer,
+            'food/delivery/license'
+        );
+    }
+
+    const onboardingDocuments = await collectCatalogueDocuments(payload, files);
+    const { numbers: legacyNumbers } = mirrorLegacyDocuments(onboardingDocuments, images, {
+        aadharNumber, panNumber, drivingLicenseNumber,
+    });
+
+    const partnerFields = {
+        name,
+        phone,
+        email: email && String(email).trim() ? String(email).trim() : undefined,
+        countryCode,
+        address,
+        city,
+        state,
+        vehicleType,
+        vehicleName,
+        vehicleNumber,
+        drivingLicenseNumber: legacyNumbers.drivingLicenseNumber,
+        panNumber: legacyNumbers.panNumber,
+        aadharNumber: legacyNumbers.aadharNumber,
+        // Recorded as asked, filtered to the options that belong to the
+        // class. A cross-class pick is dropped rather than refused: it
+        // means a confused client, not a bad applicant.
+        onboardingDocuments,
+        driverClass: normalizeDriverClass(driverClass) || '',
+        // A 2-wheeler rider picks one of the two options (oneTwoWheelerIntent).
+        serviceIntents: oneTwoWheelerIntent(normalizeDriverIntents(
+            typeof serviceIntents === 'string' ? serviceIntents.split(',') : serviceIntents,
+            driverClass,
+        )),
+        status: 'pending',
+        ...images
+    };
+    let partner;
+    if (reactivating) {
+        Object.assign(reactivating, partnerFields, {
+            availabilityStatus: 'offline',
+            approvedAt: undefined,
+            rejectedAt: undefined,
+            rejectionReason: undefined,
+        });
+        partner = await reactivating.save();
+    } else {
+        partner = await FoodDeliveryPartner.create(partnerFields);
+    }
+
+    // Update FCM token if provided
+    if (fcmToken) {
+        if (platform === 'mobile') {
+            partner.fcmTokenMobile = [fcmToken];
+        } else {
+            partner.fcmTokens = [fcmToken];
+        }
+    }
+
+    // Ensure referralCode exists for sharing.
+    if (!partner.referralCode) {
+        partner.referralCode = String(partner._id);
+    }
+
+    // Store referredBy (no credit here; credit happens on admin approval).
+    if (refRaw && mongoose.Types.ObjectId.isValid(refRaw) && String(refRaw) !== String(partner._id)) {
+        const referrer = await FoodDeliveryPartner.findById(refRaw).select('_id').lean();
+        if (referrer) {
+            partner.referredBy = referrer._id;
+        }
+    }
+
+    await partner.save();
+
+    try {
+        const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
+        void notifyAdminsSafely({
+            title: 'New Delivery Partner Registration 🚲',
+            body: `A new delivery partner "${partner.name}" has signed up and is pending approval.`,
+            data: {
+                type: 'new_registration',
+                subType: 'delivery_partner',
+                id: String(partner._id)
+            }
+        });
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to notify admins of new delivery partner registration:', e);
+    }
+
+    return partner.toObject();
+};
+
+export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
+    const partner = await FoodDeliveryPartner.findById(userId);
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+
+    const {
+        name, countryCode, address, city, state,
+        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
+        fcmToken, platform
+    } = payload;
+
+    if (name) partner.name = name;
+    if (countryCode !== undefined) partner.countryCode = countryCode;
+    if (address !== undefined) partner.address = address;
+    if (city !== undefined) partner.city = city;
+    if (state !== undefined) partner.state = state;
+    if (vehicleType !== undefined) partner.vehicleType = vehicleType;
+    if (vehicleName !== undefined) partner.vehicleName = vehicleName;
+    if (vehicleNumber !== undefined) partner.vehicleNumber = vehicleNumber;
+    if (drivingLicenseNumber !== undefined) partner.drivingLicenseNumber = drivingLicenseNumber;
+
+    if (fcmToken) {
+        if (platform === 'mobile') {
+            if (!partner.fcmTokenMobile) partner.fcmTokenMobile = [];
+            if (!partner.fcmTokenMobile.includes(fcmToken)) {
+                partner.fcmTokenMobile.push(fcmToken);
+            }
+        } else {
+            if (!partner.fcmTokens) partner.fcmTokens = [];
+            if (!partner.fcmTokens.includes(fcmToken)) {
+                partner.fcmTokens.push(fcmToken);
+            }
+        }
+    }
+
+    let updatedDocsRequiringReapproval = false;
+
+    if (files?.profilePhoto?.[0]) {
+        partner.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
+    }
+
+    await partner.save();
+    return {
+        partner: partner.toObject(),
+        requiresReapproval: false
+    };
+};
+
+export const updateDeliveryPartnerDetails = async (userId, payload) => {
+    const partner = await FoodDeliveryPartner.findById(userId);
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+
+    const vehicle = payload?.vehicle;
+    if (vehicle && typeof vehicle === 'object') {
+        if (vehicle.number !== undefined) partner.vehicleNumber = String(vehicle.number || '').trim();
+        if (vehicle.type !== undefined) partner.vehicleType = String(vehicle.type || '').trim();
+        if (vehicle.brand !== undefined) partner.vehicleName = String(vehicle.brand || '').trim();
+        if (vehicle.model !== undefined) partner.vehicleName = String(vehicle.model || '').trim();
+    }
+
+    if (payload?.profilePhoto !== undefined) {
+        partner.profilePhoto = payload.profilePhoto ? String(payload.profilePhoto).trim() : '';
+    }
+
+    await partner.save();
+    return partner.toObject();
+};
+
+export const updateDeliveryPartnerProfilePhotoBase64 = async (userId, payload) => {
+    const partner = await FoodDeliveryPartner.findById(userId);
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    const base64 = payload?.base64;
+    const mimeType = payload?.mimeType || 'image/jpeg';
+    if (!base64 || typeof base64 !== 'string') {
+        throw new ValidationError('base64 is required');
+    }
+    const buffer = Buffer.from(base64, 'base64');
+    if (!buffer || !buffer.length) {
+        throw new ValidationError('Invalid base64 image');
+    }
+    if (buffer.length > 8 * 1024 * 1024) {
+        throw new ValidationError('Image too large (max 8MB)');
+    }
+    // uploadImageBuffer expects raw bytes; mimeType is ignored by current implementation, but buffer is valid.
+    partner.profilePhoto = await uploadImageBuffer(buffer, 'food/delivery/profile');
+    await partner.save();
+    return partner.toObject();
+};
+
+export const updateDeliveryPartnerBankDetails = async (userId, payload, files) => {
+    const partner = await FoodDeliveryPartner.findById(userId);
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+
+    // Handle both nested JSON and flat FormData from multer
+    let bankDetails = payload?.documents?.bankDetails;
+    let panDetails = payload?.documents?.pan;
+
+    // Multer flattens FormData keys like 'documents[bankDetails][accountNumber]'
+    if (!bankDetails && payload) {
+        const b = {};
+        if (payload['documents[bankDetails][accountHolderName]'] !== undefined) b.accountHolderName = payload['documents[bankDetails][accountHolderName]'];
+        if (payload['documents[bankDetails][accountNumber]'] !== undefined) b.accountNumber = payload['documents[bankDetails][accountNumber]'];
+        if (payload['documents[bankDetails][ifscCode]'] !== undefined) b.ifscCode = payload['documents[bankDetails][ifscCode]'];
+        if (payload['documents[bankDetails][bankName]'] !== undefined) b.bankName = payload['documents[bankDetails][bankName]'];
+        if (payload['documents[bankDetails][upiId]'] !== undefined) b.upiId = payload['documents[bankDetails][upiId]'];
+        if (Object.keys(b).length > 0) bankDetails = b;
+    }
+
+    if (!panDetails && payload?.['documents[pan][number]'] !== undefined) {
+        panDetails = { number: payload['documents[pan][number]'] };
+    }
+
+    if (bankDetails) {
+        const b = bankDetails;
+        const before = [partner.bankAccountNumber, partner.bankIfscCode, partner.upiId].map((v) => String(v || ''));
+        if (b.accountHolderName !== undefined) partner.bankAccountHolderName = b.accountHolderName ? String(b.accountHolderName).trim() : '';
+        if (b.accountNumber !== undefined) partner.bankAccountNumber = b.accountNumber ? String(b.accountNumber).trim() : '';
+        if (b.ifscCode !== undefined) partner.bankIfscCode = b.ifscCode ? String(b.ifscCode).trim().toUpperCase() : '';
+        if (b.bankName !== undefined) partner.bankName = b.bankName ? String(b.bankName).trim() : '';
+        if (b.upiId !== undefined) partner.upiId = b.upiId ? String(b.upiId).trim() : '';
+        // Where payouts go changed: withdrawals pause for 24 hours. A stolen
+        // rider login could otherwise redirect the balance in one sitting --
+        // these changes need no re-review, so the pause is the brake.
+        const after = [partner.bankAccountNumber, partner.bankIfscCode, partner.upiId].map((v) => String(v || ''));
+        if (before.some((v, i) => v && v !== after[i])) partner.bankDetailsChangedAt = new Date();
+    }
+
+    if (panDetails?.number !== undefined) {
+        partner.panNumber = panDetails.number ? String(panDetails.number).trim().toUpperCase() : '';
+    }
+
+    if (files?.upiQrCode?.[0]) {
+        partner.upiQrCode = await uploadImageBuffer(files.upiQrCode[0].buffer, 'food/delivery/upi');
+    }
+
+    await partner.save();
+    return partner.toObject();
+};
+
+function generateTicketId() {
+    const n = Date.now().toString(36).slice(-6).toUpperCase();
+    const r = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `TKT-${n}${r}`;
+}
+
+export const listSupportTicketsByPartner = async (deliveryPartnerId) => {
+    const list = await DeliverySupportTicket.find({ deliveryPartnerId })
+        .sort({ createdAt: -1 })
+        .lean();
+    return list;
+};
+
+export const createSupportTicket = async (deliveryPartnerId, payload) => {
+    const { subject, description, category = 'other', priority = 'medium' } = payload;
+    if (!subject || !description || subject.trim().length < 3) {
+        throw new ValidationError('Subject is required (min 3 characters)');
+    }
+    if (description.trim().length < 10) {
+        throw new ValidationError('Description must be at least 10 characters');
+    }
+    let ticketId = generateTicketId();
+    let exists = await DeliverySupportTicket.findOne({ ticketId }).lean();
+    while (exists) {
+        ticketId = generateTicketId();
+        exists = await DeliverySupportTicket.findOne({ ticketId }).lean();
+    }
+    const ticket = await DeliverySupportTicket.create({
+        deliveryPartnerId,
+        ticketId,
+        subject: subject.trim(),
+        description: description.trim(),
+        category: ['payment', 'account', 'technical', 'order', 'other'].includes(category) ? category : 'other',
+        priority: ['low', 'medium', 'high', 'urgent'].includes(priority) ? priority : 'medium',
+        status: 'open'
+    });
+    return ticket.toObject();
+};
+
+export const getSupportTicketByIdAndPartner = async (ticketId, deliveryPartnerId) => {
+    const ticket = await DeliverySupportTicket.findOne({
+        _id: ticketId,
+        deliveryPartnerId
+    }).lean();
+    return ticket;
+};
+
+export const updateDeliveryAvailability = async (userId, payload) => {
+    const partner = await FoodDeliveryPartner.findById(userId);
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    const { status, latitude, longitude } = payload || {};
+    let validStatus = 'offline';
+    if (status === 'online' || status === true) validStatus = 'online';
+    else if (status === 'offline' || status === false) validStatus = 'offline';
+    
+    partner.availabilityStatus = validStatus;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+        partner.lastLocation = {
+            type: 'Point',
+            coordinates: [longitude, latitude]
+        };
+        partner.lastLat = latitude;
+        partner.lastLng = longitude;
+        partner.lastLocationAt = new Date();
+    }
+    await partner.save();
+    // The same rider takes Quick & Medical orders: keep that record in step.
+    const { syncQcRiderFromFood } = await import('../../../../core/delivery/qcRiderLink.js');
+    void syncQcRiderFromFood(userId, { availabilityStatus: validStatus, lat: latitude, lng: longitude });
+    return { availabilityStatus: partner.availabilityStatus };
+};
+
+// ----- Delivery partner wallet (Pocket / requests page) -----
+export const getDeliveryPartnerWallet = async (deliveryPartnerId) => {
+    if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).lean();
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+
+    const cashLimitSettings = await getDeliveryCashLimitSettings();
+    const totalCashLimit = Number(cashLimitSettings.deliveryCashLimit) || 0;
+    const deliveryWithdrawalLimit = Number(cashLimitSettings.deliveryWithdrawalLimit) || 100;
+
+    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+
+    // Earnings paid to rider through completed deliveries
+    const [earningsAgg, cashAgg] = await Promise.all([
+        FoodOrder.aggregate([
+            {
+                $match: {
+                    'dispatch.deliveryPartnerId': partnerId,
+                    orderStatus: 'delivered',
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalEarned: { $sum: { $ifNull: ['$riderEarning', 0] } }
+                }
+            }
+        ]),
+        FoodOrder.aggregate([
+            {
+                $match: {
+                    'dispatch.deliveryPartnerId': partnerId,
+                    orderStatus: 'delivered',
+                    'payment.method': 'cash',
+                    'payment.status': 'paid'
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    cashInHand: { $sum: { $ifNull: ['$riderEarning', 0] } }
+                }
+            }
+        ])
+    ]);
+
+    const totalEarned = Number(earningsAgg?.[0]?.totalEarned) || 0;
+    const cashInHand = Number(cashAgg?.[0]?.cashInHand) || 0;
+
+    // Admin-set delivery bonuses / earning addons
+    const bonusAgg = await DeliveryBonusTransaction.aggregate([
+        { $match: { deliveryPartnerId: partnerId } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalBonus = bonusAgg?.[0] ? Number(bonusAgg[0].total) : 0;
+
+    // Keep transactions list reasonably small (UI only needs recent data for charts)
+    const [paymentTxList, bonusTxList] = await Promise.all([
+        FoodOrder.find({
+            'dispatch.deliveryPartnerId': partnerId,
+            orderStatus: 'delivered',
+        })
+            .sort({ 'deliveryState.deliveredAt': -1, createdAt: -1 })
+            .select('orderId riderEarning payment orderStatus deliveryState createdAt deliveryState.deliveredAt')
+            .limit(2000)
+            .lean(),
+        DeliveryBonusTransaction.find({ deliveryPartnerId: partnerId })
+            .sort({ createdAt: -1 })
+            .limit(1000)
+            .lean(),
+    ]);
+
+    const paymentTransactions = (paymentTxList || []).map((o) => {
+        const deliveredAt = o?.deliveryState?.deliveredAt || o?.deliveredAt || null;
+        const date = deliveredAt || o?.createdAt || new Date();
+        return {
+            _id: o._id,
+            type: 'payment',
+            amount: Number(o.riderEarning) || 0,
+            status: 'Completed',
+            date,
+            createdAt: date,
+            orderId: o.orderId || String(o._id),
+            paymentMethod: o?.payment?.method || '',
+            metadata: { orderId: o.orderId || String(o._id) },
+            description: o?.payment?.method === 'cash' ? 'COD delivery earning' : 'Online delivery earning'
+        };
+    });
+
+    // Frontend weekly earnings expects bonus transactions as `earning_addon`.
+    const bonusTransactions = (bonusTxList || []).map((t) => ({
+        _id: t._id,
+        type: 'earning_addon',
+        amount: Number(t.amount) || 0,
+        status: 'Completed',
+        date: t.createdAt,
+        createdAt: t.createdAt,
+        metadata: { reference: t.reference || '' },
+        description: t.reference ? `Bonus - ${t.reference}` : 'Bonus'
+    }));
+
+    const totalWithdrawn = 0;
+    const totalBalance = totalEarned + totalBonus;
+    const availableCashLimit = Math.max(0, totalCashLimit - cashInHand);
+
+    return {
+        totalBalance,
+        pocketBalance: totalBalance,
+        cashInHand,
+        totalWithdrawn,
+        totalEarned,
+        totalCashLimit,
+        availableCashLimit,
+        deliveryWithdrawalLimit,
+        transactions: [...paymentTransactions, ...bonusTransactions].sort((a, b) => {
+            const ad = a?.date ? new Date(a.date).getTime() : 0;
+            const bd = b?.date ? new Date(b.date).getTime() : 0;
+            return bd - ad;
+        }),
+        joiningBonusClaimed: false,
+        joiningBonusAmount: 0
+    };
+};
+
+// ----- Delivery partner earnings summary (Pocket / requests page) -----
+export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) => {
+    if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    const period = String(query.period || 'week').toLowerCase();
+    const date = query.date ? new Date(query.date) : new Date();
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
+
+    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+
+    let range = null;
+    if (period === 'today') {
+        range = { start: toStartOfDay(date), end: toEndOfDay(date) };
+    } else if (period === 'week') {
+        range = getWeekRange(date);
+    } else if (period === 'month') {
+        range = getMonthRange(date);
+    } else if (period === 'all') {
+        range = null;
+    } else {
+        // fallback to week
+        range = getWeekRange(date);
+    }
+
+    const match = {
+        'dispatch.deliveryPartnerId': partnerId,
+        orderStatus: 'delivered',
+    };
+    if (range) {
+        match['deliveryState.deliveredAt'] = { $gte: range.start, $lte: range.end };
+    }
+
+    const [totalOrders, agg] = await Promise.all([
+        FoodOrder.countDocuments(match),
+        FoodOrder.aggregate([
+            { $match: match },
+            {
+                $group: {
+                    _id: null,
+                    totalEarnings: { $sum: { $ifNull: ['$riderEarning', 0] } }
+                }
+            }
+        ])
+    ]);
+
+    const foodEarnings = Number(agg?.[0]?.totalEarnings) || 0;
+
+    // Quick & Medical deliveries this rider made through the Food app, as the
+    // linked QC rider record (core/delivery/qcRiderLink). They are stored in
+    // qc_orders, so a Food-only sum left "Today's earning" at 0 after a
+    // Medical delivery.
+    let qcOrders = 0;
+    let qcEarnings = 0;
+    try {
+        const { qcRiderIdForFoodRider } = await import('../../../../core/delivery/qcRiderLink.js');
+        const qcId = await qcRiderIdForFoodRider(partnerId);
+        if (qcId && mongoose.Types.ObjectId.isValid(qcId)) {
+            const { FoodOrder: QcOrder } = await import('../../../quickCommerce/modules/food/orders/models/order.model.js');
+            const qcMatch = { ...match, 'dispatch.deliveryPartnerId': new mongoose.Types.ObjectId(qcId) };
+            const [count, qcAgg] = await Promise.all([
+                QcOrder.countDocuments(qcMatch),
+                QcOrder.aggregate([
+                    { $match: qcMatch },
+                    { $group: { _id: null, total: { $sum: { $ifNull: ['$riderEarning', 0] } } } },
+                ]),
+            ]);
+            qcOrders = count;
+            qcEarnings = Number(qcAgg?.[0]?.total) || 0;
+        }
+    } catch {
+        /* Food figures alone */
+    }
+
+    // Target incentives paid in this period (delivery bonuses, transactionId INC-...).
+    let incentive = 0;
+    try {
+        const bonusMatch = { deliveryPartnerId: partnerId, transactionId: /^INC-/ };
+        if (range) bonusMatch.createdAt = { $gte: range.start, $lte: range.end };
+        const bonusAgg = await DeliveryBonusTransaction.aggregate([
+            { $match: bonusMatch },
+            { $group: { _id: null, total: { $sum: { $ifNull: ['$amount', 0] } } } },
+        ]);
+        incentive = Number(bonusAgg?.[0]?.total) || 0;
+    } catch {
+        /* no incentive figure */
+    }
+
+    // Bike parcels / rides done as the linked taxi driver.
+    const rideTrips = await linkedRideTrips(partnerId, range);
+    const rideEarnings = rideTrips.reduce((sum, t) => sum + (Number(t.earningAmount) || 0), 0);
+
+    const orderEarning = Math.round((foodEarnings + qcEarnings + rideEarnings) * 100) / 100;
+    const totalEarnings = Math.round((orderEarning + incentive) * 100) / 100;
+    const allOrders = totalOrders + qcOrders + rideTrips.length;
+
+    // Frontend only strongly relies on totalEarnings + totalOrders.
+    const summary = {
+        totalEarnings,
+        totalOrders: allOrders,
+        totalHours: 0,
+        totalMinutes: 0,
+        orderEarning,
+        incentive,
+        otherEarnings: 0
+    };
+
+    return {
+        summary,
+        period,
+        date: date.toISOString(),
+        pagination: { page, limit, total: allOrders }
+    };
+};
+
+const normalizeStatusFilter = (status) => {
+    if (!status) return null;
+    const s = String(status || '').trim();
+    if (!s || s.toUpperCase() === 'ALL TRIPS') return null;
+    // UI uses Completed/Cancelled/Pending
+    return s;
+};
+
+const toStartOfDay = (d) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+};
+
+const toEndOfDay = (d) => {
+    const x = new Date(d);
+    x.setHours(23, 59, 59, 999);
+    return x;
+};
+
+const getWeekRange = (anchorDate) => {
+    const d = new Date(anchorDate);
+    const start = toStartOfDay(d);
+    start.setDate(start.getDate() - start.getDay()); // Sunday
+    const end = toEndOfDay(start);
+    end.setDate(start.getDate() + 6);
+    return { start, end };
+};
+
+const getMonthRange = (anchorDate) => {
+    const d = new Date(anchorDate);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+};
+
+const computeRange = (period, date) => {
+    const p = String(period || 'daily').toLowerCase();
+    const anchor = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+    if (p === 'weekly' || p === 'week') return getWeekRange(anchor);
+    if (p === 'monthly' || p === 'month') return getMonthRange(anchor);
+    // daily
+    return { start: toStartOfDay(anchor), end: toEndOfDay(anchor) };
+};
+
+const toTripDto = (order) => {
+    const createdAt = order?.createdAt || null;
+    const deliveredAt = order?.deliveryState?.deliveredAt || order?.deliveredAt || order?.completedAt || null;
+    const dateForUi = deliveredAt || createdAt || order?.updatedAt || null;
+
+    const time = dateForUi
+        ? new Date(dateForUi).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+        : '';
+
+    const orderStatus = String(order?.orderStatus || order?.status || '').toLowerCase();
+    const isDelivered = orderStatus === 'delivered' || String(order?.deliveryState?.currentPhase || '').toLowerCase() === 'delivered';
+    const isCancelled = orderStatus.startsWith('cancelled') || String(order?.deliveryState?.status || '').toLowerCase().includes('cancel');
+
+    const status = isDelivered ? 'Completed' : isCancelled ? 'Cancelled' : 'Pending';
+
+    const restaurantName =
+        order?.restaurantId?.restaurantName ||
+        order?.restaurantName ||
+        order?.restaurant?.restaurantName ||
+        '';
+
+    const paymentMethod = order?.payment?.method || order?.paymentMethod || '';
+    const pricingTotal = Number(order?.pricing?.total) || Number(order?.totalAmount) || 0;
+
+    const earningAmount = Number(order?.riderEarning ?? order?.deliveryEarning ?? 0) || 0;
+    const riderBasePay = Number(order?.riderBasePay) || Number(order?.pricing?.deliveryFeeBreakdown?.basePayout) || 0;
+    const riderDeliveryFeeShare = Number(order?.riderDeliveryFeeShare) || Number(order?.pricing?.riderDeliveryEarningAfterAdminCommission) || 0;
+    const riderSurgePay = Number(order?.riderSurgePay) || Number(order?.pricing?.surgeAmount) || 0;
+    const riderIncentivePay = Number(order?.riderIncentivePay) || Number(order?.pricing?.deliveryPartnerIncentiveAmount) || 0;
+    const computedTotalPayout = Math.round((riderBasePay + riderDeliveryFeeShare + riderSurgePay + riderIncentivePay) * 100) / 100;
+    const riderTotalPayout =
+        Number(order?.riderTotalPayout) ||
+        computedTotalPayout ||
+        earningAmount;
+    const codAmount = paymentMethod === 'cash' ? Number(order?.payment?.amountDue) || 0 : 0;
+    const codCollectedAmount = paymentMethod === 'cash' && order?.payment?.status === 'paid' ? codAmount : 0;
+    return {
+        id: order?._id,
+        _id: order?._id,
+        orderId: order?.orderId || order?._id,
+        status,
+        restaurantName,
+        restaurant: restaurantName,
+        items: order?.items || order?.orderItems || [],
+        orderItems: order?.orderItems || order?.items || [],
+        paymentMethod,
+        totalAmount: pricingTotal,
+        orderTotal: pricingTotal,
+        codAmount: codAmount,
+        codCollectedAmount,
+        deliveryEarning: riderTotalPayout,
+        earningAmount: riderTotalPayout,
+        amount: riderTotalPayout, // legacy fallback
+        riderBasePay,
+        riderDeliveryFeeShare,
+        riderSurgePay,
+        riderIncentivePay,
+        riderTotalPayout,
+        createdAt: order?.createdAt,
+        deliveredAt: deliveredAt,
+        completedAt: deliveredAt,
+        date: dateForUi,
+        time
+    };
+};
+
+/**
+ * Bike parcels (and rides) this rider completed on the taxi side, as trips.
+ *
+ * A Food + Daily needs + Medical + Bike parcel rider does parcels as their
+ * linked taxi driver, stored in rides, not orders, so "Today's earning",
+ * "Today's trips", the week's pocket and history all read 0 after a parcel.
+ * Earning is the ride's driverEarnings (fare less commission), what the taxi
+ * side recorded for it.
+ */
+const linkedRideTrips = async (partnerId, range = null) => {
+    try {
+        const partner = await FoodDeliveryPartner.findById(partnerId).select('driverId').lean();
+        if (!partner?.driverId) return [];
+        const { Ride } = await import('../../../taxi/user/models/Ride.js');
+        const match = { driverId: partner.driverId, liveStatus: 'completed' };
+        if (range) match.completedAt = { $gte: range.start, $lte: range.end };
+        const rides = await Ride.find(match)
+            .select('_id serviceType fare driverEarnings commissionAmount paymentMethod completedAt createdAt pickupAddress dropAddress')
+            .sort({ completedAt: -1 })
+            .limit(1000)
+            .lean();
+        return rides.map((r) => {
+            const fare = Number(r.fare) || 0;
+            const earning = Math.round((Number(r.driverEarnings ?? (fare - (Number(r.commissionAmount) || 0))) || 0) * 100) / 100;
+            const when = r.completedAt || r.createdAt;
+            const label = String(r.serviceType || '').toLowerCase() === 'parcel' ? 'Bike parcel' : 'Ride';
+            const cash = String(r.paymentMethod || '').toLowerCase() === 'cash';
+            return {
+                id: r._id,
+                _id: r._id,
+                orderId: `${label} ${String(r._id).slice(-6).toUpperCase()}`,
+                type: String(r.serviceType || 'ride').toLowerCase(),
+                status: 'Completed',
+                restaurantName: label,
+                restaurant: label,
+                items: [],
+                orderItems: [],
+                paymentMethod: r.paymentMethod || '',
+                totalAmount: fare,
+                orderTotal: fare,
+                codAmount: cash ? fare : 0,
+                codCollectedAmount: cash ? fare : 0,
+                deliveryEarning: earning,
+                earningAmount: earning,
+                amount: earning,
+                riderBasePay: earning,
+                riderDeliveryFeeShare: 0,
+                riderSurgePay: 0,
+                riderIncentivePay: 0,
+                riderTotalPayout: earning,
+                createdAt: r.createdAt,
+                deliveredAt: when,
+                completedAt: when,
+                date: when,
+                time: when ? new Date(when).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
+            };
+        });
+    } catch {
+        return [];
+    }
+};
+
+/**
+ * Bonuses credited to the rider (target incentives, referral and admin
+ * bonuses), as rows for the History screen, which otherwise lists trips only.
+ */
+const bonusHistoryRows = async (partnerId, range) => {
+    try {
+        const rows = await DeliveryBonusTransaction.find({
+            deliveryPartnerId: partnerId,
+            createdAt: { $gte: range.start, $lte: range.end },
+        })
+            .sort({ createdAt: -1 })
+            .limit(200)
+            .lean();
+        return rows.map((t) => {
+            const amount = Number(t.amount) || 0;
+            const isIncentive = /^INC-/.test(String(t.transactionId || ''));
+            const label = isIncentive ? 'Incentive bonus' : 'Bonus';
+            const reference = String(t.reference || '').trim();
+            return {
+                id: t._id,
+                _id: t._id,
+                orderId: t.transactionId || String(t._id),
+                type: 'bonus',
+                category: 'bonus',
+                status: 'Completed',
+                restaurantName: reference ? `${label} · ${reference}` : label,
+                restaurant: label,
+                items: [],
+                orderItems: [],
+                paymentMethod: '',
+                totalAmount: 0,
+                orderTotal: 0,
+                codAmount: 0,
+                codCollectedAmount: 0,
+                deliveryEarning: amount,
+                earningAmount: amount,
+                amount,
+                riderTotalPayout: amount,
+                createdAt: t.createdAt,
+                deliveredAt: t.createdAt,
+                completedAt: t.createdAt,
+                date: t.createdAt,
+                time: t.createdAt ? new Date(t.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '',
+            };
+        });
+    } catch {
+        return [];
+    }
+};
+
+/** Quick & Medical deliveries this rider made as their linked QC rider, as trips. */
+const linkedQcTrips = async (partnerId, range = null) => {
+    try {
+        const { qcRiderIdForFoodRider } = await import('../../../../core/delivery/qcRiderLink.js');
+        const qcId = await qcRiderIdForFoodRider(partnerId);
+        if (!qcId || !mongoose.Types.ObjectId.isValid(qcId)) return [];
+        const { FoodOrder: QcOrder } = await import('../../../quickCommerce/modules/food/orders/models/order.model.js');
+        // Registers the store model the populate below needs.
+        await import('../../../quickCommerce/modules/food/restaurant/models/restaurant.model.js');
+        const match = { 'dispatch.deliveryPartnerId': new mongoose.Types.ObjectId(qcId), orderStatus: 'delivered' };
+        if (range) match['deliveryState.deliveredAt'] = { $gte: range.start, $lte: range.end };
+        // The store's name, so history and earnings say which pharmacy/shop
+        // (toTripDto reads restaurantId.restaurantName).
+        const orders = await QcOrder.find(match)
+            .populate({ path: 'restaurantId', select: 'restaurantName storeType' })
+            .sort({ 'deliveryState.deliveredAt': -1 })
+            .limit(1000)
+            .lean();
+        return orders.map((o) => {
+            const trip = toTripDto(o);
+            const medical = String(o.order_id || '').startsWith('MED-') || o.restaurantId?.storeType === 'pharmacy';
+            // The History screen tags a card by `category` (Medical / Quick
+            // Commerce); without it these showed as Food.
+            const tagged = { ...trip, category: medical ? 'medical' : 'quick_commerce' };
+            if (!trip.restaurantName) {
+                const label = medical ? 'Medical order' : 'Quick order';
+                return { ...tagged, restaurantName: label, restaurant: label };
+            }
+            return tagged;
+        });
+    } catch {
+        return [];
+    }
+};
+
+export const getDeliveryPartnerTripHistory = async (deliveryPartnerId, query = {}) => {
+    if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    const period = query.period || 'daily';
+    const date = query.date ? new Date(query.date) : new Date();
+    const statusFilter = normalizeStatusFilter(query.status);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
+
+    const { start, end } = computeRange(period, date);
+
+    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+    const match = { 'dispatch.deliveryPartnerId': partnerId };
+
+    const sf = String(statusFilter || '').toLowerCase();
+    if (sf === 'completed') {
+        match.orderStatus = 'delivered';
+        match['deliveryState.deliveredAt'] = { $gte: start, $lte: end };
+    } else if (sf === 'cancelled') {
+        match.orderStatus = { $regex: '^cancelled', $options: 'i' };
+        match.createdAt = { $gte: start, $lte: end };
+    } else if (sf === 'pending') {
+        match.createdAt = { $gte: start, $lte: end };
+        // Pending = not delivered and not cancelled
+        match.$and = [
+            { orderStatus: { $ne: 'delivered' } },
+            { orderStatus: { $not: { $regex: '^cancelled', $options: 'i' } } },
+        ];
+    } else {
+        // ALL TRIPS: show anything created in range, and compute earnings only for delivered orders.
+        match.createdAt = { $gte: start, $lte: end };
+    }
+
+    const orders = await FoodOrder.find(match)
+        .populate({ path: 'restaurantId', select: 'restaurantName' })
+        .sort({ 'deliveryState.deliveredAt': -1, createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+    // Completed Medical/Quick deliveries and the bonuses credited in the period
+    // belong in history too; a "cancelled" or "pending" filter has none to add.
+    // Parcels/rides are NOT added here: the History screen loads them itself
+    // from the ride history, and adding them listed every parcel twice.
+    const extra = sf === 'cancelled' || sf === 'pending'
+        ? []
+        : [
+            ...(await linkedQcTrips(partnerId, { start, end })),
+            ...(await bonusHistoryRows(partnerId, { start, end })),
+        ];
+    const trips = [...(orders || []).map(toTripDto), ...extra]
+        .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+        .slice(0, limit);
+
+    return {
+        period,
+        date: (date || new Date()).toISOString(),
+        range: { start: start.toISOString(), end: end.toISOString() },
+        trips
+    };
+};
+
+export const getDeliveryPocketDetails = async (deliveryPartnerId, query = {}) => {
+    if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    const date = query.date ? new Date(query.date) : new Date();
+    const { start, end } = getWeekRange(date);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 1000, 1), 2000);
+
+    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+
+    const orders = await FoodOrder.find({
+        'dispatch.deliveryPartnerId': partnerId,
+        orderStatus: 'delivered',
+        $or: [
+            { 'deliveryState.deliveredAt': { $gte: start, $lte: end } },
+            { deliveredAt: { $gte: start, $lte: end } },
+            { completedAt: { $gte: start, $lte: end } },
+            { updatedAt: { $gte: start, $lte: end } },
+            { createdAt: { $gte: start, $lte: end } }
+        ]
+    })
+        .populate({ path: 'restaurantId', select: 'restaurantName' })
+        .sort({ 'deliveryState.deliveredAt': -1, deliveredAt: -1, completedAt: -1, updatedAt: -1, createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+    const bonusTxList = await DeliveryBonusTransaction.find({
+        deliveryPartnerId: partnerId,
+        createdAt: { $gte: start, $lte: end }
+    })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+    // Medical/Quick deliveries and bike parcels count in the week too.
+    const [qcTrips, rideTrips] = await Promise.all([
+        linkedQcTrips(partnerId, { start, end }),
+        linkedRideTrips(partnerId, { start, end }),
+    ]);
+    const extraTrips = [...qcTrips, ...rideTrips];
+
+    const trips = [...(orders || []).map(toTripDto), ...extraTrips]
+        .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+    const extraPayments = extraTrips.map((t) => ({
+        _id: t._id,
+        type: 'payment',
+        amount: Number(t.earningAmount) || 0,
+        status: 'Completed',
+        date: t.date,
+        createdAt: t.date,
+        orderId: String(t.orderId),
+        metadata: { orderId: String(t.orderId) },
+        description: `${t.restaurantName ? `${t.restaurantName} earning` : 'Order earning'}`,
+    }));
+
+    const paymentTransactions = [...extraPayments, ...(orders || []).map((o) => ({
+        _id: o._id,
+        type: 'payment',
+        amount: Number(o.riderEarning) || 0,
+        status: 'Completed',
+        date: o?.deliveryState?.deliveredAt || o?.deliveredAt || o?.createdAt,
+        createdAt: o?.deliveryState?.deliveredAt || o?.deliveredAt || o?.createdAt,
+        orderId: o.orderId || String(o._id),
+        metadata: { orderId: o.orderId || String(o._id) },
+        description: o?.restaurantId?.restaurantName ? `Order earning - ${o.restaurantId.restaurantName}` : 'Order earning'
+    }))];
+
+    const bonusTransactions = (bonusTxList || []).map((t) => ({
+        _id: t._id,
+        type: 'bonus',
+        amount: Number(t.amount) || 0,
+        status: 'Completed',
+        date: t.createdAt,
+        createdAt: t.createdAt,
+        metadata: { reference: t.reference || '' },
+        description: t.reference ? `Bonus - ${t.reference}` : 'Bonus'
+    }));
+
+    const totalEarning = paymentTransactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    const totalBonus = bonusTransactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+    return {
+        week: { start: start.toISOString(), end: end.toISOString() },
+        summary: { totalEarning, totalBonus, grandTotal: totalEarning + totalBonus },
+        trips,
+        transactions: {
+            payment: paymentTransactions,
+            bonus: bonusTransactions
+        }
+    };
+};
+
+export const getActiveEarningAddonsForPartner = async (deliveryPartnerId) => {
+    if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    // Retired: the rider's one incentive is the Master ladder (core/incentives),
+    // so no per-service offer is shown next to it.
+    return { activeOffer: null, offers: [] };
+
+    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+    const now = new Date();
+
+    const addons = await FoodEarningAddon.find({
+        status: 'active',
+        startDate: { $lte: now },
+        endDate: { $gte: now }
+    })
+        .sort({ endDate: 1, createdAt: 1 })
+        .lean();
+
+    const liveAddons = (addons || []).filter((addon) => {
+        if (!addon) return false;
+        const maxRedemptions = Number(addon.maxRedemptions);
+        if (!Number.isFinite(maxRedemptions) || maxRedemptions <= 0) return true;
+        return Number(addon.currentRedemptions || 0) < maxRedemptions;
+    });
+
+    const offers = await Promise.all(
+        liveAddons.map(async (addon) => {
+            const startDate = addon.startDate ? new Date(addon.startDate) : null;
+            const endDate = addon.endDate ? new Date(addon.endDate) : null;
+
+            const baseMatch = {
+                'dispatch.deliveryPartnerId': partnerId,
+                orderStatus: 'delivered'
+            };
+
+            if (startDate && endDate) {
+                baseMatch['deliveryState.deliveredAt'] = { $gte: startDate, $lte: endDate };
+            }
+
+            const [currentOrders, earningsAgg] = await Promise.all([
+                FoodOrder.countDocuments(baseMatch),
+                FoodOrder.aggregate([
+                    { $match: baseMatch },
+                    {
+                        $group: {
+                            _id: null,
+                            total: { $sum: { $ifNull: ['$riderEarning', 0] } }
+                        }
+                    }
+                ])
+            ]);
+
+            const currentEarnings = Number(earningsAgg?.[0]?.total) || 0;
+
+            return {
+                id: addon._id,
+                title: addon.title || 'Earnings Guarantee',
+                description: addon.description || '',
+                targetAmount: Number(addon.earningAmount) || 0,
+                targetOrders: Number(addon.requiredOrders) || 0,
+                currentOrders: Number(currentOrders) || 0,
+                currentEarnings,
+                startDate,
+                endDate,
+                validTill: endDate ? endDate.toISOString() : null,
+                isLive: true
+            };
+        })
+    );
+
+    return {
+        activeOffer: offers[0] || null,
+        offers
+    };
+};
+
+
+/**
+ * Delete a delivery partner and all associated data (wallet, tickets) permanently.
+ */
+export const deleteDeliveryPartnerAccount = async (partnerId) => {
+    // Dynamic imports
+    const { DeliverySupportTicket } = await import('../models/supportTicket.model.js');
+    const { FoodDeliveryWallet } = await import('../models/deliveryWallet.model.js');
+
+    const partner = await FoodDeliveryPartner.findById(partnerId);
+    if (!partner) throw new ValidationError('Delivery partner not found');
+
+    /*
+     * Not with a job in hand or money owed. Deleting removed the partner and
+     * the wallet outright, so a rider holding COD cash erased the record of
+     * what they owed, and an active order was left pointing at nobody.
+     */
+    const active = await FoodOrder.exists({
+        'dispatch.deliveryPartnerId': partner._id,
+        'dispatch.status': 'accepted',
+        orderStatus: { $nin: ['delivered', 'cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'] },
+    });
+    if (active) {
+        throw new ValidationError('Finish or hand back your current delivery before deleting your account.');
+    }
+    try {
+        const { getRiderFinance } = await import('../../../../core/finance/riderFinance.service.js');
+        const finance = await getRiderFinance(partner._id);
+        if (Number(finance?.cashInHand || 0) > 0) {
+            throw new ValidationError(`Deposit the Rs ${finance.cashInHand} cash you are holding before deleting your account.`);
+        }
+        if (Number(finance?.breakdown?.delivery?.pendingWithdrawals || 0) > 0) {
+            throw new ValidationError('Wait for your pending withdrawal to finish before deleting your account.');
+        }
+    } catch (err) {
+        if (err instanceof ValidationError) throw err;
+        throw new ValidationError('Could not check your balance right now. Please try again.');
+    }
+
+    // Remove associated documents
+    await FoodDeliveryWallet.findOneAndDelete({ deliveryPartnerId: partnerId });
+    await DeliverySupportTicket.deleteMany({ deliveryPartnerId: partnerId });
+
+    // Remove Partner
+    await FoodDeliveryPartner.findByIdAndDelete(partnerId);
+
+    return { success: true };
+};

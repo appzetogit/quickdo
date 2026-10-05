@@ -1,0 +1,7 @@
+{
+  "name": "sp-module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Service-Provider (Homster) module. Node scopes module type by the nearest package.json, so every .js under this folder stays CommonJS while the rest of the backend is ESM. Do not remove this file -- without it all require() calls here throw.",
+  "type": "commonjs"
+}

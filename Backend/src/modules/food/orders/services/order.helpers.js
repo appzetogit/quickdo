@@ -1,0 +1,457 @@
+import mongoose from 'mongoose';
+import { buildOrderEta } from './orderEta.service.js';
+import { config } from '../../../../config/env.js';
+import { logger } from '../../../../utils/logger.js';
+import {
+  notifyOwnersActionableAlert,
+  sendNotificationToOwner,
+  sendNotificationToOwners,
+} from "../../../../core/notifications/firebase.service.js";
+import { getIO, rooms } from '../../../../config/socket.js';
+import { FoodOrder } from '../models/order.model.js';
+import { holdIfConfigured, registerHoldTarget } from '../../../../core/orders/orderHold.js';
+import { addOrderJob } from '../../../../queues/producers/order.producer.js';
+import { STATUS_PRIORITY } from '../../../../constants/orderStatus.js';
+
+export function enqueueOrderEvent(action, payload = {}) {
+  try {
+    void addOrderJob({ action, ...payload }).catch((err) => {
+      logger.warn(`BullMQ enqueue order event failed: ${action} - ${err?.message || err}`);
+    });
+
+    // Intercept and sync with Petpooja if enabled
+    if (config.petpoojaEnabled) {
+      const orderMongoId = payload.orderMongoId || payload.orderId;
+      if (orderMongoId) {
+        if (action === 'picked_up') {
+          void addOrderJob({
+            action: 'PETPOOJA_STATUS_UPDATE',
+            orderMongoId,
+            status: 'picked_up'
+          }).catch(err => logger.warn(`[Petpooja] Enqueue picked_up status failed: ${err.message}`));
+        } else if (action === 'delivery_completed') {
+          void addOrderJob({
+            action: 'PETPOOJA_STATUS_UPDATE',
+            orderMongoId,
+            status: 'delivered'
+          }).catch(err => logger.warn(`[Petpooja] Enqueue delivery_completed status failed: ${err.message}`));
+        } else if (action === 'order_cancelled_by_user' || action === 'order_deleted_by_admin') {
+          void addOrderJob({
+            action: 'PETPOOJA_STATUS_UPDATE',
+            orderMongoId,
+            status: 'cancelled_by_user'
+          }).catch(err => logger.warn(`[Petpooja] Enqueue cancellation status failed: ${err.message}`));
+        } else if (action === 'restaurant_order_status_updated') {
+          const newStatus = payload.to || '';
+          let petpoojaStatus = '';
+          if (newStatus === 'confirmed') {
+            petpoojaStatus = 'confirmed';
+          } else if (newStatus === 'ready_for_pickup') {
+            petpoojaStatus = 'ready_for_pickup';
+          } else if (newStatus.startsWith('cancelled')) {
+            petpoojaStatus = newStatus;
+          }
+
+          if (petpoojaStatus) {
+            void addOrderJob({
+              action: 'PETPOOJA_STATUS_UPDATE',
+              orderMongoId,
+              status: petpoojaStatus
+            }).catch(err => logger.warn(`[Petpooja] Enqueue restaurant status update failed: ${err.message}`));
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn(`BullMQ enqueue order event failed (sync): ${action} - ${err?.message || err}`);
+  }
+}
+
+export function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+export function generateFourDigitDeliveryOtp() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+export function sanitizeOrderForExternal(orderDoc) {
+  const o = orderDoc?.toObject ? orderDoc.toObject() : { ...(orderDoc || {}) };
+  delete o.deliveryOtp;
+
+  // How long until it arrives, measured from the rider when there is one
+  // and from the restaurant when there is not. Computed on every read
+  // rather than stored: the only input that moves is the rider, and a
+  // stored figure would be stale the moment they did.
+  o.eta = buildOrderEta(o);
+  const dv = o.deliveryVerification;
+  if (dv && dv.dropOtp != null) {
+    const d = dv.dropOtp;
+    o.deliveryVerification = {
+      ...dv,
+      dropOtp: {
+        required: Boolean(d.required),
+        verified: Boolean(d.verified),
+      },
+    };
+  }
+  o.orderMongoId = (o._id || orderDoc?._id || "").toString();
+  // Ensure orderId field for UI always contains the pretty ID
+  o.orderId = o.order_id || o.orderMongoId; 
+  return o;
+}
+
+export function emitDeliveryDropOtpToUser(order, plainOtp) {
+  try {
+    const io = getIO();
+    if (!io || !plainOtp || !order?.userId) return;
+    io.to(rooms.user(order.userId)).emit("delivery_drop_otp", {
+      orderMongoId: order._id?.toString?.(),
+      orderId: order.order_id || order._id?.toString?.(),
+      otp: plainOtp,
+      message:
+        "Share this OTP with your delivery partner to hand over the order.",
+    });
+  } catch (e) {
+    logger.warn(`emitDeliveryDropOtpToUser failed: ${e?.message || e}`);
+  }
+}
+
+export async function notifyOwnersSafely(targets, payload) {
+  // Run in the background so it does not block the API thread
+  sendNotificationToOwners(targets, payload).catch((error) => {
+    logger.warn(`FCM notification failed: ${error?.message || error}`);
+  });
+}
+
+export async function notifyOwnerSafely(target, payload) {
+  // Run in the background so it does not block the API thread
+  sendNotificationToOwner({ ...target, payload }).catch((error) => {
+    logger.warn(`FCM notification failed: ${error?.message || error}`);
+  });
+}
+
+export function buildOrderIdentityFilter(orderIdOrMongoId) {
+  const raw = String(orderIdOrMongoId || "").trim();
+  if (!raw) return null;
+  
+  const conditions = [
+    { order_id: raw },
+    { orderId: raw }
+  ];
+
+  if (mongoose.isValidObjectId(raw)) {
+    conditions.push({ _id: new mongoose.Types.ObjectId(raw) });
+  }
+  
+  // Search BOTH underscore and camelCase variants for robust lookup, plus _id if valid
+  return { $or: conditions };
+}
+
+export function toGeoPoint(lat, lng) {
+  if (lat == null || lng == null) return undefined;
+  const a = Number(lat);
+  const b = Number(lng);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return undefined;
+  return { type: "Point", coordinates: [b, a] };
+}
+
+export function pushStatusHistory(order, { byRole, byId, from, to, note = "" }) {
+  order.statusHistory.push({
+    at: new Date(),
+    byRole,
+    byId: byId || undefined,
+    from,
+    to,
+    note,
+  });
+}
+
+export function normalizeOrderForClient(orderDoc) {
+  const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
+  const mongoId = (order._id || orderDoc?._id || "").toString();
+  const displayId = order.order_id || mongoId;
+  return {
+    ...order,
+    orderMongoId: mongoId,
+    orderId: displayId,
+    status: order?.orderStatus || order?.status || "",
+    deliveredAt:
+      order?.deliveryState?.deliveredAt || order?.deliveredAt || null,
+    deliveryPartnerId:
+      order?.dispatch?.deliveryPartnerId || order?.deliveryPartnerId || null,
+    rating: order?.ratings?.restaurant?.rating ?? order?.rating ?? null,
+    deliveryState: {
+      ...(order?.deliveryState || {}),
+      currentLocation: order?.lastRiderLocation?.coordinates?.length >= 2 ? {
+        lat: order.lastRiderLocation.coordinates[1],
+        lng: order.lastRiderLocation.coordinates[0]
+      } : (order?.deliveryState?.currentLocation || null)
+    }
+  };
+}
+
+export async function applyAggregateRating(model, entityId, newRating) {
+  if (!entityId) return;
+  const doc = await model.findById(entityId).select("rating totalRatings");
+  if (!doc) return;
+
+  const totalRatings = Number(doc.totalRatings || 0);
+  const currentAverage = Number(doc.rating || 0);
+  const nextTotal = totalRatings + 1;
+  const nextAverage = Number(
+    ((currentAverage * totalRatings + Number(newRating)) / nextTotal).toFixed(1),
+  );
+
+  doc.totalRatings = nextTotal;
+  doc.rating = nextAverage;
+  await doc.save();
+}
+
+export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
+  const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
+  const restaurant = restaurantDoc || order?.restaurantId || null;
+  const restaurantLocation = restaurant?.location || {};
+  const deliveryAddress = order?.deliveryAddress || {};
+  const customerAddressParts = [
+    deliveryAddress.street,
+    deliveryAddress.additionalDetails,
+    deliveryAddress.city,
+    deliveryAddress.state,
+    deliveryAddress.zipCode,
+  ]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+
+  // Restaurant to customer, so the rider sees the size of the job before
+  // they accept it.
+  const tripEta = buildOrderEta({
+    ...order,
+    restaurantId: restaurant,
+  });
+
+  return {
+    orderMongoId:
+      orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
+    orderId: order?.order_id || order?._id?.toString?.(),
+    status: orderDoc?.orderStatus || order?.orderStatus,
+    items: order?.items || [],
+    pricing: order?.pricing,
+    total: order?.pricing?.total,
+    payment: order?.payment,
+    paymentMethod: order?.payment?.method,
+    restaurantId:
+      order?.restaurantId?._id?.toString?.() ||
+      order?.restaurantId?.toString?.() ||
+      order?.restaurantId,
+    restaurantName: restaurant?.restaurantName || order?.restaurantName,
+    restaurantAddress:
+      restaurantLocation?.address ||
+      restaurantLocation?.formattedAddress ||
+      restaurant?.addressLine1 ||
+      "",
+    // The restaurant's own contact number first: ownerPhone is the owner's
+    // login number, which riders were ringing instead of the outlet.
+    restaurantPhone:
+      restaurant?.primaryContactNumber ||
+      restaurant?.phone ||
+      restaurant?.ownerPhone ||
+      "",
+    restaurantLocation: {
+      latitude: restaurantLocation?.latitude,
+      longitude: restaurantLocation?.longitude,
+      address:
+        restaurantLocation?.address ||
+        restaurantLocation?.formattedAddress ||
+        restaurant?.addressLine1 ||
+        "",
+      area: restaurantLocation?.area || restaurant?.area || "",
+      city: restaurantLocation?.city || restaurant?.city || "",
+      state: restaurantLocation?.state || restaurant?.state || "",
+    },
+    deliveryAddress: order?.deliveryAddress,
+    customerAddress: customerAddressParts.length ? customerAddressParts.join(', ') : "",
+    customerName: order?.customerName || order?.deliveryAddress?.fullName || order?.deliveryAddress?.name || order?.userId?.name || "",
+    customerPhone: order?.customerPhone || order?.deliveryAddress?.phone || order?.userId?.phone || "",
+    userName: order?.customerName || order?.deliveryAddress?.fullName || order?.deliveryAddress?.name || order?.userId?.name || "",
+    userPhone: order?.customerPhone || order?.deliveryAddress?.phone || order?.userId?.phone || "",
+    note: order?.note || "",
+    deliveryInstructions: order?.deliveryInstructions || [],
+    riderEarning: order?.riderEarning || 0,
+    earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
+    // The alert reads this key; without it the Km line on the offer was
+    // blank and the rider judged the job on nothing.
+    earningAmount: order?.riderEarning || order?.pricing?.deliveryFee || 0,
+    tripDistanceKm: tripEta?.tripDistanceKm ?? null,
+    tripDurationMins: tripEta?.minutes ?? null,
+    deliveryFee: order?.pricing?.deliveryFee || 0,
+    deliveryFleet: order?.deliveryFleet,
+    dispatch: order?.dispatch,
+    createdAt: order?.createdAt,
+    updatedAt: order?.updatedAt,
+  };
+}
+
+export function canExposeOrderToRestaurant(orderLike) {
+  if (String(orderLike?.orderStatus || "").toLowerCase() === "pending_payment") return false;
+  const method = String(orderLike?.payment?.method || "").toLowerCase();
+  const status = String(orderLike?.payment?.status || "").toLowerCase();
+  if (["cash", "wallet"].includes(method)) return true;
+  return ["paid", "authorized", "captured", "settled"].includes(status);
+}
+
+export async function notifyRestaurantNewOrder(orderDoc, { released = false } = {}) {
+  try {
+    if (!orderDoc || !canExposeOrderToRestaurant(orderDoc)) return;
+    // Master > Cancellation policy may hold new orders for a few seconds first;
+    // the restaurant is then alerted when the hold ends (core/orders/orderHold.js).
+    if (!released && (await holdIfConfigured({ name: 'food', order: orderDoc, vertical: 'food' }))) return;
+
+    const io = getIO();
+    if (io) {
+      const payload = {
+        ...orderDoc.toObject(),
+        orderMongoId: orderDoc._id?.toString?.() || undefined,
+        orderId: orderDoc.order_id || orderDoc._id?.toString?.(),
+      };
+      logger.info(
+        `[RestaurantOrders] Emitting new_order to ${rooms.restaurant(orderDoc.restaurantId)} for order ${orderDoc._id?.toString?.() || ''}`,
+      );
+      io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
+    }
+
+    // Two messages, not one — see notifyOwnersActionableAlert.
+    //
+    // A single message carrying both a notification block and data is
+    // intercepted by Android's FCM client whenever the app is backgrounded or
+    // killed: it renders the plain notification itself and never wakes the
+    // app's background handler, so this used to reach the restaurant (if at
+    // all) as a bare "New order received" with no Accept/Reject buttons, no
+    // order details, and on the platform's default channel rather than the
+    // one the app actually created for orders — which Android silently
+    // demotes to low importance, i.e. no sound and no heads-up.
+    const str = (v) => (v === undefined || v === null ? "" : String(v));
+    const itemCount = Array.isArray(orderDoc.items)
+      ? orderDoc.items.reduce((sum, it) => sum + (Number(it?.quantity) || 0), 0)
+      : 0;
+    const itemsList = Array.isArray(orderDoc.items)
+      ? orderDoc.items.map((it) => `${it.quantity}x ${it.name}`).join(", ")
+      : "";
+    // deliveryAddressSchema has street/additionalDetails/city — there is no
+    // `address` or `area` field on it.
+    const addressStr = orderDoc.deliveryAddress
+      ? [
+          orderDoc.deliveryAddress.street,
+          orderDoc.deliveryAddress.additionalDetails,
+          orderDoc.deliveryAddress.city,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    const total = orderDoc.pricing?.total ?? 0;
+
+    let bodyText = `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`;
+    if (itemsList) bodyText += `
+Items: ${itemsList}`;
+    if (total > 0) bodyText += `
+Total: ₹${total}`;
+    if (orderDoc.customerName) bodyText += `
+Customer: ${orderDoc.customerName}`;
+    if (addressStr) bodyText += `
+Address: ${addressStr}`;
+
+    await notifyOwnersActionableAlert(
+      [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
+      {
+        title: "New Food order received",
+        body: bodyText,
+        androidTag: `order_${orderDoc._id?.toString?.() || ""}`,
+        // Must match the channel id the app itself creates
+        // (core/services/local_notification_service.dart) — an id Android has
+        // never seen is silently demoted to low importance.
+        // Bumped to _v3 alongside the app's own channel definition
+        // (local_notification_service.dart) -- Android permanently locks a
+        // channel's sound/importance the first time it's created on a
+        // device, so a device that got "_v2" under any earlier, subtly
+        // different settings is stuck silent forever no matter what this
+        // string says until the id itself changes.
+        androidChannelId: "new_order_channel_v3",
+        data: {
+          type: "new_order",
+          title: "New Food order received",
+          body: bodyText,
+          orderId: orderDoc._id.toString(),
+          orderMongoId: orderDoc._id?.toString?.() || "",
+          orderDisplayId: str(orderDoc.order_id || orderDoc._id),
+          link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
+          // Everything the notification needs to render without a follow-up
+          // API call, which matters when the device is locked or the app was
+          // killed.
+          customerName: str(orderDoc.customerName),
+          itemCount: str(itemCount),
+          itemsList: str(itemsList),
+          address: str(addressStr),
+          total: str(total),
+          paymentMethod: str(orderDoc.payment?.method),
+          acceptanceDeadlineAt: str(orderDoc.acceptanceDeadlineAt?.toISOString?.() || ""),
+        },
+      },
+    );
+
+    // Trigger Petpooja Order Push (Asynchronous / Non-blocking).
+    // Use the admin-managed setting (DB, with env fallback) — not just config.petpoojaEnabled —
+    // so enabling PetPooja from the admin UI actually pushes orders. Dynamic import avoids a
+    // circular dependency between order.helpers and petpooja.service.
+    try {
+      const { getPetpoojaSettings } = await import('./petpooja.service.js');
+      const petpoojaSettings = await getPetpoojaSettings();
+      if (petpoojaSettings.enabled) {
+        enqueueOrderEvent('PETPOOJA_ORDER_PUSH', {
+          orderMongoId: orderDoc._id.toString(),
+          orderId: orderDoc.order_id || orderDoc._id.toString()
+        });
+      }
+    } catch (petpoojaErr) {
+      logger.warn(`[Petpooja] Could not resolve settings for order push: ${petpoojaErr.message}`);
+    }
+  } catch {
+    // Do not block order/payment flow if notification fails.
+  }
+}
+
+// Re-exported from the single source of truth (constants/orderStatus.js).
+export { STATUS_PRIORITY };
+
+/**
+ * Returns true if the next status is a valid forward progression from the current status.
+ * Prevents "reversing" order status (e.g. from Preparing back to Created).
+ */
+export function isStatusAdvance(current, next) {
+  // If current status is missing, it's effectively 'created' or start of flow
+  if (!current) return true;
+  
+  const currentPrio = STATUS_PRIORITY[current] || 0;
+  const nextPrio = STATUS_PRIORITY[next] || 0;
+
+  // Terminal states (100) cannot transition to anything else
+  if (currentPrio >= 100) return false;
+  
+  // Delivered (80) cannot transition to anything (except maybe cancellation if allowed, but here we say no)
+  if (currentPrio === 80) return false;
+
+  // Special case: Cancellation is almost always an advance unless already delivered
+  if (nextPrio === 100 && currentPrio < 80) return true;
+
+  return nextPrio > currentPrio;
+}
+
+// Lets the hold sweeper (core/orders/orderHold.js) alert the restaurant when a held order is due.
+registerHoldTarget('food', FoodOrder, (order) => notifyRestaurantNewOrder(order, { released: true }));
