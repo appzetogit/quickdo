@@ -248,6 +248,12 @@ const restaurantSchema = new mongoose.Schema(
       set: normalizeRatingValue,
     },
     totalRatings: { type: Number, default: 0, min: 0 },
+    /**
+     * @deprecated Table booking (dining) was removed: it is not in the SOW.
+     * Retained only so existing food_restaurants documents keep a declared shape;
+     * nothing reads or writes it any more. Drop it when the collection is next
+     * migrated.
+     */
     diningSettings: {
       isEnabled: { type: Boolean, default: false },
       maxGuests: { type: Number, default: 6 },

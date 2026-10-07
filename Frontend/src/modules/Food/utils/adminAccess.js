@@ -209,7 +209,6 @@ const PAGE_RULES = [
   ["/banners", "cms"],
   ["/broadcast-notification", "cms"],
   ["/pages-social-media", "cms"],
-  ["/dining", "dining"],
   ["/business-setup", "settings"],
   ["/map-settings", "settings"],
   ["/petpooja-settings", "settings"],

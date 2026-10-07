@@ -8,22 +8,11 @@ import ProtectedRoute from "@food/components/ProtectedRoute"
 
 // Home & Discovery
 import Home from "@food/pages/user/Home"
-const Dining = lazy(() => import("@food/pages/user/Dining"))
-const DiningRestaurants = lazy(() => import("@food/pages/user/DiningRestaurants"))
-const DiningCategory = lazy(() => import("@food/pages/user/DiningCategory"))
-const DiningExplore50 = lazy(() => import("@food/pages/user/DiningExplore50"))
-const DiningExploreNear = lazy(() => import("@food/pages/user/DiningExploreNear"))
-const Coffee = lazy(() => import("@food/pages/user/Coffee"))
 const Under250 = lazy(() => import("@food/pages/user/Under250"))
 const Categories = lazy(() => import("@food/pages/user/Categories"))
 const CategoryPage = lazy(() => import("@food/pages/user/CategoryPage"))
 const Restaurants = lazy(() => import("@food/pages/user/restaurants/Restaurants"))
 import RestaurantDetails from "@food/pages/user/restaurants/RestaurantDetails"
-const DiningRestaurantDetails = lazy(() => import("@food/pages/user/dining/DiningRestaurantDetails"))
-const TableBooking = lazy(() => import("@food/pages/user/dining/TableBooking"))
-const TableBookingConfirmation = lazy(() => import("@food/pages/user/dining/TableBookingConfirmation"))
-const TableBookingSuccess = lazy(() => import("@food/pages/user/dining/TableBookingSuccess"))
-const MyBookings = lazy(() => import("@food/pages/user/dining/MyBookings"))
 const SearchResults = lazy(() => import("@food/pages/user/search/ProfessionalSearch"))
 const ProductDetail = lazy(() => import("@food/pages/user/ProductDetail"))
 
@@ -97,24 +86,6 @@ export default function UserRouter() {
         <Route element={<UserLayout />}>
           {/* Home & Discovery */}
           <Route path="" element={<Home />} />
-          <Route path="dining" element={<Dining />} />
-          <Route path="dining/restaurants" element={<DiningRestaurants />} />
-          <Route path="dining/:category" element={<DiningCategory />} />
-          <Route path="dining/explore/upto50" element={<DiningExplore50 />} />
-          <Route path="dining/explore/near-rated" element={<DiningExploreNear />} />
-          <Route path="dining/coffee" element={<Coffee />} />
-          <Route path="dining/:diningType/:slug" element={<DiningRestaurantDetails />} />
-          <Route path="dining/book/:slug" element={<TableBooking />} />
-          <Route path="dining/book-confirmation" element={<TableBookingConfirmation />} />
-          <Route path="dining/book-success" element={<TableBookingSuccess />} />
-          <Route
-            path="bookings"
-            element={
-              <ProtectedRoute requiredRole="user" loginPath="/login">
-                <MyBookings />
-              </ProtectedRoute>
-            }
-          />
           <Route path="under-250" element={<Under250 />} />
           <Route path="categories" element={<Categories />} />
           <Route path="category/:category" element={<CategoryPage />} />

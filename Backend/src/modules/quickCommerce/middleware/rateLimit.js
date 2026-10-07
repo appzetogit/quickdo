@@ -57,11 +57,6 @@ export const shouldSkipGlobalRateLimit = (req) => {
         return true;
     }
 
-    // Dining browse listings
-    if (req.method === 'GET' && /\/food\/dining\/(categories|restaurants)\/public/.test(path)) {
-        return true;
-    }
-
     // Search reads (unified search on every keystroke / page load)
     if (req.method === 'GET' && /\/food\/search\//.test(path)) {
         return true;
@@ -222,7 +217,6 @@ export const getRateLimitSummary = () => ({
             'GET */public/*',
             'GET */zones/detect',
             'GET /api/v1/food/restaurant/restaurants/*',
-            'GET /api/v1/food/dining/*/public',
             'GET /api/v1/food/search/*',
             'GET /api/v1/food/auth/me',
             'POST /api/v1/food/auth/refresh-token',

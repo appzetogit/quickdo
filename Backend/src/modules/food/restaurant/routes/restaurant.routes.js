@@ -20,7 +20,6 @@ import {
     deleteComboController,
     updateRestaurantProfileController,
     updateRestaurantAcceptingOrdersController,
-    updateCurrentRestaurantDiningSettingsController,
     uploadRestaurantProfileImageController,
     uploadRestaurantMenuImageController,
     uploadRestaurantCoverImagesController,
@@ -184,7 +183,6 @@ router.delete('/profile/account', authMiddleware, requireRestaurant, deleteCurre
 // than teaching the client that one path is special.
 router.delete('/current', authMiddleware, requireRestaurant, deleteCurrentRestaurantAccountController);
 router.patch('/availability', authMiddleware, requireRestaurant, updateRestaurantAcceptingOrdersController);
-router.patch('/dining-settings', authMiddleware, requireRestaurant, updateCurrentRestaurantDiningSettingsController);
 router.get('/outlet-timings', authMiddleware, requireRestaurant, getCurrentRestaurantOutletTimingsController);
 router.put('/outlet-timings', authMiddleware, requireRestaurant, upsertCurrentRestaurantOutletTimingsController);
 router.get('/finance', authMiddleware, requireRestaurant, getRestaurantFinanceController);

@@ -23,7 +23,6 @@ const getNavSections = (base) => [
       // Stores and medical stores count stock per size; restaurants do not.
       ...(isQcStore() ? [{ label: "Stock", path: `${base}/stock`, icon: Boxes }] : []),
       { label: "Menu categories", path: `${base}/menu-categories`, icon: Utensils },
-      { label: "Reservations", path: `${base}/reservations`, icon: Store },
     ],
   },
   {

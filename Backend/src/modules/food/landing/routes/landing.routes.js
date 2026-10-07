@@ -18,13 +18,6 @@ import {
     toggleUnder250BannerStatusController
 } from '../controllers/under250Banner.controller.js';
 import {
-    listDiningBannersController,
-    uploadDiningBannersController,
-    deleteDiningBannerController,
-    updateDiningBannerOrderController,
-    toggleDiningBannerStatusController
-} from '../controllers/diningBanner.controller.js';
-import {
     listHomePromotionBannersController,
     createHomePromotionBannerController,
     updateHomePromotionBannerController,
@@ -47,7 +40,6 @@ import {
 import {
     getPublicHeroBannersController,
     getPublicUnder250BannersController,
-    getPublicDiningBannersController,
     getPublicExploreIconsController,
     getPublicHomePromotionBannersController,
     getPublicGourmetController,
@@ -117,18 +109,6 @@ router.delete('/hero-banners/under-250/:id', adminOnly, deleteUnder250BannerCont
 router.patch('/hero-banners/under-250/:id/order', adminOnly, updateUnder250BannerOrderController);
 router.patch('/hero-banners/under-250/:id/status', adminOnly, toggleUnder250BannerStatusController);
 
-// Admin dining banners
-router.get('/hero-banners/dining', adminOnly, listDiningBannersController);
-router.post(
-    '/hero-banners/dining/multiple',
-    adminOnly,
-    upload.array('files'),
-    uploadDiningBannersController
-);
-router.delete('/hero-banners/dining/:id', adminOnly, deleteDiningBannerController);
-router.patch('/hero-banners/dining/:id/order', adminOnly, updateDiningBannerOrderController);
-router.patch('/hero-banners/dining/:id/status', adminOnly, toggleDiningBannerStatusController);
-
 // Admin Home Promotion banners
 router.get('/hero-banners/home-promotion', adminOnly, listHomePromotionBannersController);
 router.post(
@@ -194,7 +174,6 @@ router.get('/hero-banners/home-header-video/public', async (_req, res, next) => 
     }
 });
 router.get('/hero-banners/under-250/public', getPublicUnder250BannersController);
-router.get('/hero-banners/dining/public', getPublicDiningBannersController);
 router.get('/explore-icons/public', getPublicExploreIconsController);
 router.get('/hero-banners/home-promotion/public', getPublicHomePromotionBannersController);
 router.get('/hero-banners/gourmet/public', getPublicGourmetController);

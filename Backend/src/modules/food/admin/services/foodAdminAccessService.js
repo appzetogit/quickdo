@@ -15,7 +15,6 @@ export const FOOD_PERMISSION_RESOURCES = [
   'delivery',
   'customers',
   'support',
-  'dining',
   
   // Finance & Reports
   'wallet',

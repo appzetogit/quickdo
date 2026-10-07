@@ -30,7 +30,6 @@ export const FOOD_PERMISSION_RESOURCES = [
   'delivery',
   'customers',
   'support',
-  'dining',
   
   // Finance & Reports
   'wallet',
@@ -220,9 +219,6 @@ export const PATH_RESOURCE_RULES = {
   '/admin/food/hero-banner-management': 'cms',
   '/admin/food/promotional-banner': 'cms',
   '/admin/food/banners': 'cms',
-  
-  '/admin/food/dining-management': 'dining',
-  '/admin/food/dining-list': 'dining',
   
   '/admin/food/broadcast-notification': 'cms',
   '/admin/food/business-setup': 'settings',

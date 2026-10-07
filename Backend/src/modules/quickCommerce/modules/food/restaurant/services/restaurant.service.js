@@ -394,11 +394,6 @@ const toRestaurantProfile = (doc) => {
             Number.isFinite(Number(doc.estimatedDeliveryTimeMinutes))
                 ? Number(doc.estimatedDeliveryTimeMinutes)
                 : null,
-        diningSettings: {
-            isEnabled: doc.diningSettings?.isEnabled !== false,
-            maxGuests: Math.max(1, parseInt(doc.diningSettings?.maxGuests, 10) || 6),
-            diningType: String(doc.diningSettings?.diningType || 'family-dining').trim() || 'family-dining'
-        },
         isAcceptingOrders: doc.isAcceptingOrders !== false,
         outsideHoursOverride: doc.outsideHoursOverride === true,
         subscriptionPlan: doc.subscriptionPlan || '',
@@ -1254,7 +1249,6 @@ export const getCurrentRestaurantProfile = async (restaurantId) => {
                 'openDays',
                 'estimatedDeliveryTime',
                 'estimatedDeliveryTimeMinutes',
-                'diningSettings',
                 'isAcceptingOrders',
                 'outsideHoursOverride',
                 'subscriptionPlan',
@@ -1343,7 +1337,6 @@ export const updateRestaurantAcceptingOrders = async (restaurantId, isAcceptingO
                 'openingTime',
                 'closingTime',
                 'openDays',
-                'diningSettings',
                 'isAcceptingOrders',
                 'outsideHoursOverride',
                 'status',
@@ -1354,132 +1347,6 @@ export const updateRestaurantAcceptingOrders = async (restaurantId, isAcceptingO
     ).lean();
     const profile = toRestaurantProfile(doc);
     return enrichRestaurantProfileWithAvailability(profile, doc);
-};
-
-export const updateCurrentRestaurantDiningSettings = async (restaurantId, body = {}) => {
-    if (!restaurantId) {
-        throw new ValidationError('Invalid restaurant id');
-    }
-
-    const currentRestaurant = await FoodRestaurant.findById(restaurantId)
-        .select('diningSettings status')
-        .lean();
-
-    if (!currentRestaurant) {
-        throw new ValidationError('Restaurant not found');
-    }
-
-    const currentDiningSettings =
-        currentRestaurant.diningSettings && typeof currentRestaurant.diningSettings === 'object'
-            ? currentRestaurant.diningSettings
-            : {};
-
-    const parseBoolean = (value, fallback = false) => {
-        if (value === undefined || value === null) return Boolean(fallback);
-        if (typeof value === 'boolean') return value;
-        const normalized = String(value).trim().toLowerCase();
-        if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
-        if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
-        return Boolean(fallback);
-    };
-
-    const maxGuests = Math.max(
-        1,
-        parseInt(body.maxGuests ?? currentDiningSettings.maxGuests ?? 6, 10) || 6
-    );
-    const diningType =
-        String(body.diningType ?? currentDiningSettings.diningType ?? 'family-dining').trim() ||
-        'family-dining';
-
-    const doc = await FoodRestaurant.findByIdAndUpdate(
-        restaurantId,
-        {
-            $set: {
-                diningSettings: {
-                    isEnabled: parseBoolean(body.isEnabled, currentDiningSettings.isEnabled),
-                    maxGuests,
-                    diningType
-                }
-            }
-        },
-        {
-            new: true,
-            runValidators: true,
-            projection: [
-                'restaurantName',
-                'cuisines',
-                'location',
-                'addressLine1',
-                'addressLine2',
-                'area',
-                'city',
-                'state',
-                'pincode',
-                'landmark',
-                'ownerName',
-                'ownerEmail',
-                'ownerPhone',
-                'primaryContactNumber',
-                'accountNumber',
-                'ifscCode',
-                'accountHolderName',
-                'accountType',
-                'upiId',
-                'upiQrImage',
-                'pureVegRestaurant',
-                'profileImage',
-                'coverImages',
-                'menuImages',
-                'openingTime',
-                'closingTime',
-                'openDays',
-                'estimatedDeliveryTime',
-                'estimatedDeliveryTimeMinutes',
-                'diningSettings',
-                'isAcceptingOrders',
-                'outsideHoursOverride',
-                'status',
-                'createdAt',
-                'updatedAt'
-            ].join(' ')
-        }
-    ).lean();
-
-    // Sync with FoodDiningRestaurant for public visibility (Dining Section)
-    try {
-        const { FoodDiningRestaurant } = await import('../../dining/models/diningRestaurant.model.js');
-        const { FoodDiningCategory } = await import('../../dining/models/diningCategory.model.js');
-
-        const isEnabled = parseBoolean(body.isEnabled, currentDiningSettings.isEnabled);
-
-        let primaryCategoryId = null;
-        if (diningType) {
-            // Find category by slug (diningType) to link correctly
-            const category = await FoodDiningCategory.findOne({ slug: diningType }).select('_id').lean();
-            if (category) {
-                primaryCategoryId = category._id;
-            }
-        }
-
-        await FoodDiningRestaurant.findOneAndUpdate(
-            { restaurantId },
-            {
-                $set: {
-                    isEnabled,
-                    maxGuests,
-                    primaryCategoryId,
-                    categoryIds: primaryCategoryId ? [primaryCategoryId] : [],
-                    pureVegRestaurant: doc.pureVegRestaurant === true
-                }
-            },
-            { upsert: true }
-        );
-    } catch (syncError) {
-        console.error('[DINING_SYNC_ERROR] Failed to sync with FoodDiningRestaurant:', syncError);
-    }
-
-    return toRestaurantProfile(doc);
-
 };
 
 export const updateRestaurantProfile = async (restaurantId, body = {}) => {
@@ -2444,7 +2311,7 @@ export const PUBLIC_RESTAURANT_SELECT = [
     'estimatedDeliveryTime', 'estimatedDeliveryTimeMinutes',
     'isAcceptingOrders', 'isVerified', 'openingTime', 'closingTime', 'openDays',
     'outletTimings', 'deliveryTimings', 'outsideHoursOverride',
-    'pureVegRestaurant', 'diningSettings', 'offer', 'featuredDish',
+    'pureVegRestaurant', 'offer', 'featuredDish',
     'featuredPrice', 'status', 'zoneId', 'createdAt',
     // What kind of shop this is. Public because the customer app has to be able
     // to tell a pharmacy from a grocer before it decides which screens to offer:

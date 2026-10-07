@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { Tag, User, Truck, UtensilsCrossed } from "lucide-react"
+import { Tag, User, Truck } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useValueShelfCap, valueShelfName } from "@food/utils/valueShelf"
 
@@ -13,24 +13,20 @@ export default function BottomNavigation() {
   const valueShelfCap = useValueShelfCap()
 
   // active routes
-  const isDining = pathname === "/food/dining" || pathname.startsWith("/food/user/dining")
   const isUnder250 = pathname === "/food/under-250" || pathname.startsWith("/food/user/under-250")
   const isProfile = pathname.startsWith("/food/profile") || pathname.startsWith("/food/user/profile")
   const isDelivery =
-    !isDining &&
     !isUnder250 &&
     !isProfile &&
     (pathname === "/food" ||
       pathname === "/food/" ||
       pathname === "/food/user" ||
       (pathname.startsWith("/food/user") &&
-        !pathname.includes("/dining") &&
         !pathname.includes("/under-250") &&
         !pathname.includes("/profile")))
 
   const navItems = [
     { icon: Truck, label: "Delivery", path: "/food/user", isActive: isDelivery },
-    { icon: UtensilsCrossed, label: "Dining", path: "/food/user/dining", isActive: isDining },
     { icon: Tag, label: valueShelfName(valueShelfCap), path: "/food/user/under-250", isActive: isUnder250, isValueShelf: true },
     { icon: User, label: "Profile", path: "/food/user/profile", isActive: isProfile },
   ]

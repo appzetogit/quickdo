@@ -3,7 +3,6 @@ import authRoutes from '../core/auth/auth.routes.js';
 import deliveryRoutes from '../modules/food/delivery/routes/delivery.routes.js';
 import restaurantRoutes from '../modules/food/restaurant/routes/restaurant.routes.js';
 import landingRoutes from '../modules/food/landing/routes/landing.routes.js';
-import { getPublicDiningRestaurants } from '../modules/food/dining/controllers/diningPublic.controller.js';
 import uploadRoutes from '../modules/uploads/routes/upload.routes.js';
 import restaurantAdminRoutes from '../modules/food/admin/routes/admin.routes.js';
 import userRoutes from '../modules/food/user/routes/user.routes.js';
@@ -59,7 +58,7 @@ const router = express.Router();
  * uBlock Origin, AdBlock and friends match substrings like "banner", "addon" and
  * "promo" in a request URL and abort the XHR with ERR_BLOCKED_BY_CLIENT. The
  * server never sees the request, so the affected admin screens (hero banners,
- * dining/gourmet/landing banners, add-ons) just render empty with no error --
+ * gourmet/landing banners, add-ons) just render empty with no error --
  * which is exactly how they were being reported as "broken".
  *
  * Clients call the neutral alias; this rewrites it back to the real path before
@@ -148,7 +147,6 @@ router.use('/v1/food/restaurant', restaurantRoutes);
 // Landing & hero-banners for Food user app (paths start with /food/hero-banners/...)
 router.use('/v1/food', landingRoutes);
 router.use('/v1/food/search', searchRoutes);
-router.get('/v1/food/dining/restaurants/public', getPublicDiningRestaurants);
 router.use('/v1/uploads', uploadRoutes);
 
 // Admin-managed configuration the customer app has to read before it can sign in.

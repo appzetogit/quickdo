@@ -314,7 +314,7 @@ function onRefreshFailed(module) {
  *
  * The WHOLE /food namespace moves, not just /food/admin. quick-commerce mounts the
  * same routers master mounts under /v1/food -- admin, restaurant, delivery, orders,
- * user, notifications, search, dining and the landing router that owns hero-banners --
+ * user, notifications, search and the landing router that owns hero-banners --
  * so /food/<x> and /qc/<x> are the same endpoint in two verticals.
  *
  * Rewriting only /food/admin (as this first did) left every other screen writing into

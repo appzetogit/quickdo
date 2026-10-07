@@ -47,7 +47,6 @@ for (const [from, to] of [
     ['/food/user/profile', '/qc/user/profile'],
     ['/food/notifications', '/qc/notifications'],
     ['/food/search?q=x', '/qc/search?q=x'],
-    ['/food/dining/restaurants', '/qc/dining/restaurants'],
     ['/food/zones', '/qc/zones'],
     ['/food/pages-social-media/terms', '/qc/pages-social-media/terms'],
 ]) {

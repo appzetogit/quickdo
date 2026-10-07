@@ -11,7 +11,6 @@ import * as addonsApprovalController from '../controllers/addonsApproval.control
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
 import * as feedbackExperienceController from '../controllers/feedbackExperience.controller.js';
 import * as notificationBroadcastController from '../controllers/notificationBroadcast.controller.js';
-import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
 import * as subscriptionBillingController from '../controllers/subscriptionBilling.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { manualAssignControllers } from '../../../../../../core/delivery/manualAssign.controller.js';
@@ -470,14 +469,6 @@ router.get(
 router.post('/zones', adminController.createZone);
 router.patch('/zones/:id', adminController.updateZone);
 router.delete('/zones/:id', adminController.deleteZone);
-
-// ----- Dining -----
-router.get('/dining/categories', diningAdminController.getDiningCategories);
-router.post('/dining/categories', diningAdminController.createDiningCategory);
-router.patch('/dining/categories/:id', diningAdminController.updateDiningCategory);
-router.delete('/dining/categories/:id', diningAdminController.deleteDiningCategory);
-router.get('/dining/restaurants', diningAdminController.getDiningRestaurants);
-router.patch('/dining/restaurants/:restaurantId', diningAdminController.updateDiningRestaurant);
 
 // ----- Medical -----
 // The two screens that exist only in the Medical panel: the prescription queue
