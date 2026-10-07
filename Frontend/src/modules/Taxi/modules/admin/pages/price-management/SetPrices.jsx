@@ -69,7 +69,6 @@ const normalizePaymentTypes = (value) => {
 const normalizeTransportType = (value = '') => {
    const normalized = String(value || '').trim().toLowerCase();
    if (normalized === 'delivery') return 'delivery';
-   if (normalized === 'pooling') return 'pooling';
    if (normalized === 'both' || normalized === 'all') return 'both';
    return normalized === 'taxi' ? 'taxi' : '';
 };
@@ -122,11 +121,6 @@ const initialFormState = {
    outstation_base_distance: '',
    outstation_price_per_distance: '',
    outstation_time_price: '',
-   enable_ride_sharing: false,
-   enable_shared_ride: 0,
-   price_per_seat: '',
-   shared_price_per_distance: '',
-   shared_cancel_fee: '',
    user_cancellation_fee: '',
    user_cancellation_fee_type: 'percentage',
    driver_cancellation_fee: '',
@@ -190,7 +184,7 @@ const SetPrices = ({ mode }) => {
          normalized.set('both', { id: 'both', name: 'both', display_name: 'Both' });
       }
 
-      return Array.from(normalized.values()).filter(t => t.name !== 'pooling');
+      return Array.from(normalized.values());
    }, [transportTypes]);
 
    const [formData, setFormData] = useState(initialFormState);
@@ -281,11 +275,6 @@ const SetPrices = ({ mode }) => {
          const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
          const basePayload = {
             ...formData,
-            enable_ride_sharing: false,
-            enable_shared_ride: 0,
-            price_per_seat: 0,
-            shared_price_per_distance: 0,
-            shared_cancel_fee: 0,
             pricing_scope: 'ride',
             transport_type: normalizeTransportType(formData.transport_type),
             payment_type: normalizePaymentTypes(formData.payment_type).length ? normalizePaymentTypes(formData.payment_type) : ['cash'],

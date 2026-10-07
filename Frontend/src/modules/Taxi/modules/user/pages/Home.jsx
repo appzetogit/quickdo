@@ -13,7 +13,6 @@ import BottomNavbar from '../components/BottomNavbar';
 import indiaGateRealImg from '@/assets/india_gate_real.png';
 import api from '../../../shared/api/axiosInstance';
 import { useSettings } from '../../../shared/context/SettingsContext';
-import { userService } from '../services/userService';
 import {
   CURRENT_RIDE_UPDATED_EVENT,
   getCurrentRide,
@@ -93,82 +92,6 @@ const getScheduledCountdownLabel = (value, now = Date.now()) => {
   return `Starts in ${minutes}m ${seconds}s`;
 };
 
-const normalizeRentalCurrentRideSnapshot = (ride = {}, previousRide = {}) => {
-  if (!ride) {
-    return null;
-  }
-
-  const assignedVehicle = ride.assignedVehicle || previousRide.assignedVehicle || {};
-  const selectedPackage = ride.selectedPackage || previousRide.selectedPackage || null;
-  const rideMetrics = ride.rideMetrics || previousRide.rideMetrics || {};
-  const serviceLocation = ride.serviceLocation || previousRide.serviceLocation || null;
-  const bookingReference = ride.bookingReference || previousRide.bookingReference || '';
-  const vehicleName =
-    assignedVehicle?.name ||
-    ride.vehicleName ||
-    previousRide.vehicleName ||
-    previousRide?.vehicle?.name ||
-    'Assigned Vehicle';
-  const vehicleImage =
-    assignedVehicle?.image ||
-    ride.vehicleImage ||
-    previousRide.vehicleImage ||
-    previousRide?.vehicle?.image ||
-    '';
-  const vehicleCategory =
-    assignedVehicle?.vehicleCategory ||
-    ride.vehicleCategory ||
-    previousRide.vehicleCategory ||
-    previousRide?.driver?.vehicle ||
-    'Rental';
-
-  return {
-    ...previousRide,
-    ...ride,
-    rideId: ride.id || ride.rideId || previousRide.rideId || '',
-    bookingReference,
-    fare: rideMetrics?.currentCharge ?? ride.fare ?? previousRide.fare ?? ride.payableNow ?? 0,
-    totalCost: ride.totalCost ?? previousRide.totalCost ?? 0,
-    advancePaid: ride.payableNow ?? ride.advancePaid ?? previousRide.advancePaid ?? 0,
-    status: ride.status || previousRide.status || 'assigned',
-    liveStatus: ride.status || ride.liveStatus || previousRide.liveStatus || 'assigned',
-    serviceType: 'rental',
-    vehicleName,
-    vehicleImage,
-    vehicleCategory,
-    vehicle: {
-      ...(previousRide.vehicle || {}),
-      name: vehicleName,
-      image: vehicleImage,
-      vehicleIconUrl: vehicleImage,
-    },
-    driver: {
-      ...(previousRide.driver || {}),
-      name: vehicleName,
-      vehicle: vehicleCategory,
-      vehicleType: vehicleCategory,
-      vehicleIconUrl: vehicleImage,
-    },
-    vehicleIconUrl: vehicleImage || previousRide.vehicleIconUrl || '',
-    assignedAt: ride.assignedAt || previousRide.assignedAt || ride.createdAt || null,
-    completionRequestedAt: ride.completionRequestedAt || previousRide.completionRequestedAt || null,
-    hourlyRate: rideMetrics?.hourlyRate ?? ride.hourlyRate ?? previousRide.hourlyRate ?? 0,
-    includedHours: rideMetrics?.includedHours ?? ride.includedHours ?? previousRide.includedHours ?? selectedPackage?.durationHours ?? 0,
-    basePrice: rideMetrics?.basePrice ?? ride.basePrice ?? previousRide.basePrice ?? selectedPackage?.price ?? ride.totalCost ?? 0,
-    extraHourRate: rideMetrics?.extraHourRate ?? ride.extraHourRate ?? previousRide.extraHourRate ?? selectedPackage?.extraHourPrice ?? 0,
-    elapsedMinutes: rideMetrics?.elapsedMinutes ?? ride.elapsedMinutes ?? previousRide.elapsedMinutes ?? 0,
-    remainingDue: rideMetrics?.remainingDue ?? ride.remainingDue ?? previousRide.remainingDue ?? 0,
-    requestedHours: ride.requestedHours ?? previousRide.requestedHours ?? selectedPackage?.durationHours ?? 0,
-    selectedPackage,
-    paymentMethodLabel: ride.paymentMethodLabel || previousRide.paymentMethodLabel || '',
-    serviceLocation,
-    assignedVehicle,
-    finalCharge: ride.finalCharge ?? previousRide.finalCharge ?? 0,
-    finalElapsedMinutes: ride.finalElapsedMinutes ?? previousRide.finalElapsedMinutes ?? 0,
-    updatedAt: ride.updatedAt || previousRide.updatedAt || Date.now(),
-  };
-};
-
 const Home = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -187,7 +110,6 @@ const Home = () => {
     return isActiveCurrentRide(ride) ? ride : null;
   });
   const [clockNow, setClockNow] = useState(() => Date.now());
-  const [endingRide, setEndingRide] = useState(false);
   const [showDeferredSections, setShowDeferredSections] = useState(false);
   const [bgIndex, setBgIndex] = useState(0);
   const footerImages = useMemo(() => ['/food/taxi1.jpeg', '/food/taxi2.jpeg'], []);
@@ -217,31 +139,6 @@ const Home = () => {
     currentRideRef.current = currentRide;
   }, [currentRide]);
 
-  const handleEndRide = async () => {
-    if (!currentRide?.rideId) return;
-
-    try {
-      setEndingRide(true);
-      const response = await userService.endRentalRide(currentRide.rideId);
-      const payload = response?.data || null;
-      const nextRideState = {
-        ...currentRide,
-        ...payload,
-        rideId: payload?.id || currentRide.rideId,
-        status: payload?.status || 'end_requested',
-        liveStatus: payload?.status || 'end_requested',
-      };
-      persistCurrentRide(nextRideState);
-      navigate(`${routePrefix}/rental/confirmed`, {
-        state: nextRideState,
-      });
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setEndingRide(false);
-    }
-  };
-
   useEffect(() => {
     const token = localStorage.getItem('userToken') || localStorage.getItem('token');
     if (!token) {
@@ -250,8 +147,7 @@ const Home = () => {
   }, [navigate]);
 
   const shouldTickClock =
-    String(currentRide?.serviceType || '').toLowerCase() === 'rental'
-    || Number.isFinite(currentRide?.scheduledAt ? new Date(currentRide.scheduledAt).getTime() : NaN);
+    Number.isFinite(currentRide?.scheduledAt ? new Date(currentRide.scheduledAt).getTime() : NaN);
 
   useEffect(() => {
     if (!shouldTickClock) {
@@ -293,11 +189,6 @@ const Home = () => {
   useEffect(() => {
     const refreshCurrentRide = () => {
       const ride = getCurrentRide();
-      if (String(ride?.serviceType || '').toLowerCase() === 'rental') {
-        const normalizedRentalRide = normalizeRentalCurrentRideSnapshot(ride, currentRideRef.current || {});
-        setCurrentRide(isActiveCurrentRide(normalizedRentalRide) ? normalizedRentalRide : null);
-        return;
-      }
       setCurrentRide(isActiveCurrentRide(ride) ? ride : null);
     };
 
@@ -369,44 +260,6 @@ const Home = () => {
           return;
         }
 
-      /*
-      try {
-        const rentalResponse = await userService.getActiveRentalBooking();
-        const rentalRide = rentalResponse?.id ? rentalResponse : (rentalResponse?.data || null);
-
-        if (rentalRide?.id) {
-          const status = String(rentalRide.status || '').toLowerCase();
-          const isTerminal = ['completed', 'cancelled', 'delivered'].includes(status);
-
-          if (isTerminal) {
-            if (cancelled) return;
-            clearCurrentRide();
-            currentRideRef.current = null;
-            return;
-          }
-
-          if (cancelled) return;
-          const previousRentalRide = currentRideRef.current && String(currentRideRef.current.serviceType || '').toLowerCase() === 'rental'
-            ? currentRideRef.current
-            : {};
-          const nextRentalRide = normalizeRentalCurrentRideSnapshot({
-            ...rentalRide,
-            pickup: rentalRide.serviceLocation?.name || rentalRide.serviceLocation?.address || 'Rental pickup',
-            drop: rentalRide.assignedVehicle?.name || rentalRide.vehicleName || 'Assigned vehicle',
-          }, previousRentalRide);
-          persistCurrentRide(nextRentalRide);
-          currentRideRef.current = nextRentalRide;
-          return;
-        }
-      } catch (error) {
-        const status = Number(error?.response?.status || 0);
-        if (status !== 404) {
-          // Keep the previous card on transient failures, but don't block normal cleanup on 404/not found.
-          return;
-        }
-      }
-      */
-
         if (cancelled) return;
         persistCurrentRide(null);
         currentRideRef.current = null;
@@ -440,14 +293,12 @@ const Home = () => {
 
   const driverName = currentRide?.driver?.name || 'Captain';
   const serviceType = String(currentRide?.serviceType || currentRide?.type || 'ride').toLowerCase();
-  const vehicleLabel = currentRide?.driver?.vehicle || currentRide?.driver?.vehicleType || (serviceType === 'parcel' ? 'Parcel' : serviceType === 'rental' ? 'Rental' : 'Taxi');
+  const vehicleLabel = currentRide?.driver?.vehicle || currentRide?.driver?.vehicleType || (serviceType === 'parcel' ? 'Parcel' : 'Taxi');
   const currentRideIcon = getCurrentRideIcon(currentRide);
   const trackingPath =
     serviceType === 'parcel'
       ? `${routePrefix}/parcel/tracking`
-      : serviceType === 'rental'
-        ? `${routePrefix}/rental/confirmed`
-        : `${routePrefix}/ride/tracking`;
+      : `${routePrefix}/ride/tracking`;
   const rideStage = String(currentRide?.liveStatus || currentRide?.status || 'accepted').toLowerCase();
   const hasAssignedDriver = Boolean(currentRide?.driver?._id || currentRide?.driver?.id || currentRide?.driver?.name);
   const scheduledTimestamp = currentRide?.scheduledAt ? new Date(currentRide.scheduledAt).getTime() : NaN;
@@ -455,13 +306,7 @@ const Home = () => {
   const isScheduledUpcoming = isScheduledRide && scheduledTimestamp > clockNow;
   const isScheduledAcceptedRide = ['ride', 'intercity'].includes(serviceType) && isScheduledUpcoming && hasAssignedDriver && ['accepted', 'arriving'].includes(rideStage);
   const rideStageLabel =
-    serviceType === 'rental'
-      ? rideStage === 'end_requested'
-        ? 'End ride review pending'
-        : rideStage === 'assigned'
-          ? 'Rental in progress'
-          : 'Rental booking active'
-      : rideStage === 'started'
+    rideStage === 'started'
         ? serviceType === 'parcel' ? 'Parcel in transit' : 'Ride in progress'
         : rideStage === 'arrived'
         ? serviceType === 'parcel' ? 'Parcel reached destination' : `${driverName} reached destination`
@@ -475,52 +320,6 @@ const Home = () => {
     : rideStageLabel;
   const scheduledDateLabel = formatScheduledDateTime(currentRide?.scheduledAt);
   const scheduledCountdown = getScheduledCountdownLabel(currentRide?.scheduledAt, clockNow);
-  const rentalElapsedSeconds = serviceType === 'rental' && currentRide?.assignedAt
-    ? String(currentRide?.status || '').toLowerCase() === 'end_requested' && Number(currentRide?.finalElapsedMinutes || 0) > 0
-      ? Number(currentRide.finalElapsedMinutes || 0) * 60
-      : Math.max(1, Math.floor((clockNow - new Date(currentRide.assignedAt).getTime()) / 1000))
-    : Number(currentRide?.elapsedMinutes || 0) * 60;
-
-  const computeRentalLiveCharge = (ride = {}, elapsedSeconds = 0) => {
-    const basePrice = Math.max(
-      Number(ride?.basePrice || 0),
-      Number(ride?.selectedPackage?.price || 0),
-      Number(ride?.advancePaid || 0),
-      0,
-    );
-    const includedHours = Math.max(
-      Number(ride?.includedHours || 0),
-      Number(ride?.selectedPackage?.durationHours || 0),
-      Number(ride?.requestedHours || 0) > 0 && Number(ride?.extraHourRate || 0) <= 0 ? Number(ride.requestedHours) : 0,
-      1,
-    );
-    const extraHourRate = Math.max(
-      Number(ride?.extraHourRate || 0),
-      Number(ride?.selectedPackage?.extraHourPrice || 0),
-      0,
-    );
-    const elapsedHours = Math.max(0, elapsedSeconds / 3600);
-    const packageCharge = elapsedHours <= includedHours
-      ? basePrice
-      : basePrice + Math.ceil(Math.max(0, elapsedHours - includedHours)) * extraHourRate;
-
-    return Math.max(Number(ride?.advancePaid || 0), packageCharge);
-  };
-
-  const rentalCurrentCharge = serviceType === 'rental'
-    ? String(currentRide?.status || '').toLowerCase() === 'end_requested' && Number(currentRide?.finalCharge || 0) > 0
-      ? Number(currentRide.finalCharge || 0)
-      : computeRentalLiveCharge(currentRide, rentalElapsedSeconds)
-    : Number(currentRide?.fare || 0);
-
-  const formatRentalTime = (totalSeconds) => {
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
-  };
-
-  const rentalTimerLabel = serviceType === 'rental' ? formatRentalTime(rentalElapsedSeconds) : '';
   const footerIllustrationBg = {
     backgroundImage: `url(${footerImages[bgIndex]})`,
     backgroundRepeat: 'no-repeat',
@@ -634,57 +433,6 @@ const Home = () => {
           </motion.button>
         )}
         
-        {/* Active Rental Dashboard - Only visible during active rentals */}
-        {serviceType === 'rental' && (
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mx-5 overflow-hidden rounded-[32px] border border-white/60 bg-white/50 p-5 shadow-[0_20px_40px_rgba(0,0,0,0.06)] backdrop-blur-2xl relative"
-          >
-            <div className="relative z-10 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="h-20 w-24 flex items-center justify-center shrink-0">
-                  <img src={currentRideIcon} alt="" className="h-full w-full object-contain scale-110" />
-                </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
-                    {rideStage === 'end_requested' ? 'Review Pending' : 'Live Rental'}
-                  </p>
-                  <h2 className="text-[24px] font-black tracking-tight text-slate-900 leading-none mt-1">
-                    {rentalTimerLabel}
-                  </h2>
-                  <div className="flex items-center gap-1.5 mt-1.5">
-                    <div className="h-1.5 w-1.5 rounded-full bg-primary-orange/50 animate-pulse" />
-                    <p className="text-[12px] font-black text-slate-900">
-                      {currentRide.vehicle?.name || 'Assigned Vehicle'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="text-right space-y-2.5">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Current Fare</p>
-                  <p className="text-[18px] font-black text-slate-900 tracking-tight">Rs {rentalCurrentCharge.toFixed(0)}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleEndRide();
-                  }}
-                  disabled={endingRide || rideStage === 'end_requested'}
-                  className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl shadow-[0_8px_16px_rgba(15,23,42,0.2)] active:scale-95 disabled:opacity-50 disabled:grayscale transition-all"
-                >
-                  {endingRide ? 'Ending...' : rideStage === 'end_requested' ? 'Pending' : 'End Ride'}
-                </button>
-              </div>
-            </div>
-            
-            <div className="absolute -right-6 -bottom-6 h-24 w-24 rounded-full bg-primary-orange/10/40 blur-3xl pointer-events-none" />
-            <div className="absolute -left-6 -top-6 h-24 w-24 rounded-full bg-emerald-100/40 blur-3xl pointer-events-none" />
-          </motion.div>
-        )}
         {showDeferredSections ? (
           <>
             <LocationMapSection />
@@ -798,11 +546,9 @@ const Home = () => {
               {/* Title and Subtitle Status */}
               <div className="min-w-0">
                 <h4 className="text-[16px] font-black text-slate-900 leading-tight tracking-tight">
-                  {serviceType === 'rental' 
-                    ? 'Rental booking' 
-                    : serviceType === 'parcel' 
-                      ? 'Parcel Delivery' 
-                      : 'Quick Drop'}
+                  {serviceType === 'parcel' 
+                    ? 'Parcel Delivery' 
+                    : 'Quick Drop'}
                 </h4>
                 <p 
                   className="text-[12px] font-bold mt-1 flex items-center gap-0.5 leading-none"

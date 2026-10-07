@@ -858,8 +858,8 @@ export const cancelRideByUser = async ({ rideId, userId, reason = '' }) => {
       User.findByIdAndUpdate(ride.userId, {
         $set: { currentRideId: null }
       }, { session }),
-      (ride.driverId && !ride.isPoolRide) ? Driver.findByIdAndUpdate(ride.driverId, { isOnRide: false }, { session }) : Promise.resolve(),
-      (ride.driverId && !ride.isPoolRide) ? releaseDriverAssignment(ride.driverId, ride._id, session) : Promise.resolve(),
+      ride.driverId ? Driver.findByIdAndUpdate(ride.driverId, { isOnRide: false }, { session }) : Promise.resolve(),
+      ride.driverId ? releaseDriverAssignment(ride.driverId, ride._id, session) : Promise.resolve(),
     ]);
 
     await session.commitTransaction();
@@ -868,11 +868,6 @@ export const cancelRideByUser = async ({ rideId, userId, reason = '' }) => {
     throw error;
   } finally {
     session.endSession();
-  }
-
-  if (ride.isPoolRide && ride.poolGroupId) {
-    const { removeRideFromPoolGroup } = await import('./instantPoolingService.js');
-    await removeRideFromPoolGroup(ride.poolGroupId, ride._id, reason || 'User cancelled');
   }
 
   // Socket emissions (outside the transaction)
@@ -1123,7 +1118,7 @@ export const cancelScheduledRideByDriver = async ({ rideId, driverId }) => {
  * has arrived, or the trip has started, cancellation is blocked. Applies the admin-configured
  * driver cancellation penalty (debit driver, credit rider), then re-opens the request and
  * re-dispatches to another driver (the canceller is excluded via rejectedDriverIds) so the
- * rider isn't stranded. Pool rides are not handled here (different lifecycle).
+ * rider isn't stranded.
  * @returns {Promise<{ride: object, settlement: object|null}>}
  */
 export const cancelActiveRideByDriver = async ({ rideId, driverId, reason = '' }) => {
@@ -1138,10 +1133,6 @@ export const cancelActiveRideByDriver = async ({ rideId, driverId, reason = '' }
     if (!ride) {
       await session.abortTransaction();
       return { ride: null, settlement: null };
-    }
-
-    if (ride.isPoolRide) {
-      throw new ApiError(409, 'Pool rides cannot be cancelled from here.');
     }
 
     // Block cancellation once the driver is en route or beyond — only a freshly ACCEPTED ride

@@ -217,18 +217,17 @@ console.log('\n[9] service-provider mirrors gateway payments — and only those'
     });
 }
 
-console.log('\n[10] taxi — all five gateway flows mirrored');
+console.log('\n[10] taxi — all four gateway flows mirrored');
 {
     const readFile = (await import('node:fs/promises')).readFile;
     const rel = (p) => readFile(new URL(p, import.meta.url), 'utf8');
 
     const { mirrorTaxiPayment } = await import('../src/modules/taxi/services/paymentMirror.service.js');
 
-    // Taxi verifies inline in five handlers rather than through one choke point, so
+    // Taxi verifies inline in four handlers rather than through one choke point, so
     // the risk is missing one. Assert each file is wired.
     const wiring = {
         'rideController (completion + tip)': ['../src/modules/taxi/user/controllers/rideController.js', 2],
-        'poolingController': ['../src/modules/taxi/user/controllers/poolingController.js', 1],
         'userController (wallet top-up)': ['../src/modules/taxi/user/controllers/userController.js', 1],
         'driverController (driver top-up)': ['../src/modules/taxi/driver/controllers/driverController.js', 1],
     };

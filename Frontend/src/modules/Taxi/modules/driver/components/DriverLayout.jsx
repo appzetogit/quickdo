@@ -23,11 +23,6 @@ const isDriverApproved = (driver) => {
         return false;
     }
 
-    const role = String(driver?.onboarding?.role || getStoredDriverRole() || 'driver').toLowerCase();
-    if (role === 'service_center' || role === 'service_center_staff') {
-        return driver.status !== 'inactive';
-    }
-
     const approval = String(driver.approve ?? '').toLowerCase();
     const status = String(driver.status || '').toLowerCase();
 
@@ -82,18 +77,10 @@ const getAuthenticatedRole = () => String(getAuthenticatedDriverRole() || 'drive
 const getAuthenticatedDriverHome = (pathname = '') => (
     getAuthenticatedRole() === 'owner'
         ? `${getPortalPrefix(pathname, 'owner')}/dashboard`
-        : getAuthenticatedRole() === 'service_center'
-            ? '/taxi/driver/service-center'
-            : getAuthenticatedRole() === 'service_center_staff'
-                ? '/taxi/driver/service-center'
-                : getAuthenticatedRole() === 'bus_driver'
-                    ? '/taxi/driver/bus-home'
-                    : '/taxi/driver/home'
+        : '/taxi/driver/home'
 );
 
 const getPendingDriverRoute = (pathname = '') => `${getPortalPrefix(pathname)}/registration-status`;
-const isBusConsoleRoute = (pathname = '') => pathname.startsWith('/taxi/driver/bus-home');
-const isServiceCenterRoute = (pathname = '') => pathname.startsWith('/taxi/driver/service-center');
 const isPendingAllowedRoute = (pathname = '') =>
     [
         '/taxi/driver/documents',
@@ -147,21 +134,6 @@ const DriverLayout = () => {
             return;
         }
 
-        if (isBusConsoleRoute(currentPath) && authenticatedRole !== 'bus_driver') {
-            setIsAllowed(false);
-            navigate(authenticatedHome, { replace: true });
-            return;
-        }
-
-        if (
-            isServiceCenterRoute(currentPath)
-            && !['service_center', 'service_center_staff'].includes(authenticatedRole)
-        ) {
-            setIsAllowed(false);
-            navigate(authenticatedHome, { replace: true });
-            return;
-        }
-
         if (verifiedTokenRef.current === token && verifiedApprovalRef.current && isAllowed) {
             setIsChecking(false);
             return;
@@ -176,7 +148,6 @@ const DriverLayout = () => {
                 const response = await getCurrentDriver();
                 const driver = unwrapDriver(response);
                 const isApproved = isDriverApproved(driver);
-                const effectiveRole = String(driver?.role || driver?.onboarding?.role || authenticatedRole || '').toLowerCase();
 
                 if (!active) {
                     return;
@@ -201,19 +172,6 @@ const DriverLayout = () => {
                 setIsAllowed(true);
                 verifiedTokenRef.current = token;
                 verifiedApprovalRef.current = true;
-
-                if (isBusConsoleRoute(currentPath) && effectiveRole !== 'bus_driver') {
-                    navigate(getAuthenticatedDriverHome(currentPath), { replace: true });
-                    return;
-                }
-
-                if (
-                    isServiceCenterRoute(currentPath)
-                    && !['service_center', 'service_center_staff'].includes(effectiveRole)
-                ) {
-                    navigate(getAuthenticatedDriverHome(currentPath), { replace: true });
-                    return;
-                }
 
                 if (softEntryRoutes.has(currentPath)) {
                     navigate(authenticatedHome, { replace: true });

@@ -460,16 +460,7 @@ export const settleCompletedRideWallet = async ({ rideId }) => {
      * commissionable fare and the driver's earnings, so the driver funded it.
      */
     const promoDiscountAmount = resolvePlatformFundedPromoDiscount(ride);
-    /*
-     * Ride insurance is the platform's (owed to the insurer), like the
-     * recovered fee: in the fare the rider pays, out of what the driver is
-     * settled on. On a cash ride he hands it over with the commission.
-     */
-    const insuranceFee = Math.min(
-      Math.max(0, fare - recoveredDue),
-      Math.max(0, normalizeAmount(ride.insurance_fee || 0, 'insuranceFee')),
-    );
-    const grossFare = Math.max(0, normalizeAmount(fare - recoveredDue - insuranceFee + promoDiscountAmount, 'grossFare'));
+    const grossFare = Math.max(0, normalizeAmount(fare - recoveredDue + promoDiscountAmount, 'grossFare'));
 
     const surgeAmount = Math.max(0, normalizeAmount(ride?.pricingSnapshot?.ride_surge_amount || 0, 'surgeAmount'));
     const commissionableFare = Math.max(0, normalizeAmount(grossFare - surgeAmount, 'commissionableFare'));
@@ -590,7 +581,6 @@ export const settleCompletedRideWallet = async ({ rideId }) => {
         commissionType: normalizeCommissionType(commissionConfig.type),
         commissionValue: Number(commissionConfig.value || 0),
         recoveredCancellationDue: recoveredDue,
-        insuranceFee,
         cancellationFeeGoesTo,
       },
       session,

@@ -26,7 +26,7 @@ import { logger } from '../../../utils/logger.js';
  * @param {number}  p.amount           amount in RUPEES, already verified against the gateway
  * @param {string}  p.userId           payer
  * @param {string} [p.subjectId]       ride / booking this relates to
- * @param {string}  p.purpose          'ride' | 'tip' | 'pooling' | 'wallet_topup' | 'driver_wallet_topup'
+ * @param {string}  p.purpose          'ride' | 'tip' | 'wallet_topup' | 'driver_wallet_topup'
  * @param {boolean} [p.mock=false]     mock/dev order — skipped, never counted as revenue
  */
 export const mirrorTaxiPayment = async ({

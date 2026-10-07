@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   Briefcase,
-  Bus,
   Car,
   CreditCard,
   IndianRupee,
@@ -16,7 +15,6 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useSettings } from '../../../shared/context/SettingsContext';
 import DriverBottomNav from '../../shared/components/DriverBottomNav';
 import { getOwnerFleetDashboard } from '../services/registrationService';
 
@@ -86,7 +84,6 @@ const StatCard = ({ icon, label, value, sub, tone = 'slate' }) => {
 
 const OwnerDashboard = () => {
   const navigate = useNavigate();
-  const { settings } = useSettings();
   const [dashboard, setDashboard] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -123,11 +120,8 @@ const OwnerDashboard = () => {
   const serviceLocation = dashboard?.serviceLocation || null;
   const recentDrivers = dashboard?.recentDrivers || [];
   const recentVehicles = dashboard?.recentVehicles || [];
-  const recentBusBookings = dashboard?.recentBusBookings || [];
-  const busOverview = dashboard?.busOverview || {};
   const recentRides = dashboard?.recentRides || [];
   const transportBreakdown = dashboard?.transportBreakdown || [];
-  const busEnabled = String(settings.transportRide?.enable_bus_service || '0') === '1';
 
   const businessSubtitle = useMemo(() => {
     const ownerName = profile.ownerName || profile.companyName || 'Owner';
@@ -213,98 +207,6 @@ const OwnerDashboard = () => {
             sub={`${money(earnings.ownerEarnings)} net driver earnings`}
           />
         </section>
-
-        {busEnabled ? (
-          <>
-            <section className="mt-5 rounded-[30px] bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Bus Business</p>
-                  <h2 className="mt-1 text-[20px] font-black text-slate-950">Owner bus snapshot</h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate('/taxi/owner/bus-service')}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-3 py-2 text-[11px] font-black text-white active:scale-95 transition-transform"
-                >
-                  <Bus size={14} />
-                  Open Bus
-                </button>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Buses</p>
-                  <p className="mt-2 text-[18px] font-black text-slate-900">{busOverview.totalBuses || 0}</p>
-                  <p className="mt-1 text-[10px] font-bold text-slate-500">{busOverview.activeBuses || 0} active</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Bus Bookings</p>
-                  <p className="mt-2 text-[18px] font-black text-slate-900">{busOverview.totalBookings || 0}</p>
-                  <p className="mt-1 text-[10px] font-bold text-slate-500">{busOverview.upcomingBookings || 0} upcoming</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Confirmed</p>
-                  <p className="mt-2 text-[18px] font-black text-slate-900">{busOverview.confirmedBookings || 0}</p>
-                  <p className="mt-1 text-[10px] font-bold text-slate-500">live paid seats</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Bus Revenue</p>
-                  <p className="mt-2 text-[18px] font-black text-slate-900">{money(busOverview.grossRevenue)}</p>
-                  <p className="mt-1 text-[10px] font-bold text-slate-500">pending + confirmed</p>
-                </div>
-              </div>
-            </section>
-
-            <section className="mt-5 rounded-[30px] bg-white p-5 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Recent Bus Bookings</p>
-                  <h2 className="mt-1 text-[20px] font-black text-slate-950">Latest seat reservations</h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate('/taxi/owner/bus-bookings')}
-                  className="text-[11px] font-black text-blue-600 active:opacity-70"
-                >
-                  View all
-                </button>
-              </div>
-              <div className="mt-4 flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-smooth -mx-5 px-5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-                {recentBusBookings.length === 0 ? (
-                  <div className="rounded-2xl bg-slate-50 px-4 py-6 text-[12px] font-bold text-slate-400 w-full text-center">
-                    No bus bookings found yet.
-                  </div>
-                ) : (
-                  recentBusBookings.map((booking) => (
-                    <div key={booking.id} className="w-[85%] sm:w-[320px] shrink-0 snap-start bg-slate-50 border border-slate-100 rounded-3xl p-5 hover:bg-slate-100/50 transition-all flex flex-col justify-between shadow-sm">
-                      <div>
-                        <div className="flex items-start justify-between gap-3">
-                          <p className="text-[13px] font-black text-slate-900 truncate">
-                            {booking.busService?.busName || booking.routeSnapshot?.busName || 'Bus Service'}
-                          </p>
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest shrink-0 ${statusTone(booking.status)}`}>
-                            {booking.status || 'pending'}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-[11px] font-bold text-slate-500">
-                          {booking.routeSnapshot?.originCity || 'Origin'} to {booking.routeSnapshot?.destinationCity || 'Destination'}
-                        </p>
-                        <p className="mt-1 text-[11px] font-semibold text-slate-400">
-                          {booking.passenger?.name || 'Passenger'} • {booking.seatLabels?.length || booking.seatIds?.length || 0} seats • {booking.travelDate || '-'}
-                        </p>
-                      </div>
-                      <div className="mt-4 pt-3 border-t border-slate-200/50 flex items-center justify-between">
-                        <p className="text-[10px] font-bold text-slate-400">{formatRelativeDate(booking.createdAt)}</p>
-                        <p className="text-[13px] font-black text-emerald-600">{money(booking.amount)}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </>
-        ) : null}
 
         <section className="mt-5 rounded-[30px] bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">

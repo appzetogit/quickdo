@@ -2,25 +2,12 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
-import { useSettings } from '../../../../shared/context/SettingsContext';
 
-import imgShared    from '@/assets/3d images/AutoCab/taxi.png';
 import imgAirport   from '@/assets/3d images/AutoCab/airoplan.png';
 import imgSpiritual from '@/assets/3d images/AutoCab/temple.png';
 import imgOneWay    from '@/assets/3d images/AutoCab/one way.png';
-import imgBus       from '@/assets/3d images/AutoCab/bus.png';
 
 const services = [
-  {
-    id: 'shared',
-    title: 'Shared Taxi',
-    sub: 'Split fare with co-passengers',
-    img: imgShared,
-    path: '/cab/shared',
-    accent: 'bg-[linear-gradient(135deg,#F0FDF4_0%,#BBF7D0_100%)]',
-    tag: '50% cheaper',
-    tagColor: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-  },
   {
     id: 'airport',
     title: 'Airport Cab',
@@ -51,24 +38,11 @@ const services = [
     tag: 'No return charge',
     tagColor: 'bg-primary-orange/5 text-accent-orange border-primary-orange/10',
   },
-  {
-    id: 'bus',
-    title: 'Bus Booking',
-    sub: 'Comfortable intercity buses',
-    img: imgBus,
-    path: '/bus',
-    accent: 'bg-[linear-gradient(135deg,#FFF1F2_0%,#FECDD3_100%)]',
-    tag: 'Sleeper & Seater',
-    tagColor: 'bg-rose-50 text-rose-600 border-rose-100',
-  },
 ];
 
 const CabHome = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { settings } = useSettings();
-  const showBusService = String(settings.transportRide?.enable_bus_service || '0') === '1';
-  const visibleServices = services.filter((service) => showBusService || service.id !== 'bus');
   const routePrefix = location.pathname.startsWith('/taxi/user') ? '/taxi/user' : '';
 
   return (
@@ -94,11 +68,11 @@ const CabHome = () => {
 
       <div className="px-5 pt-5 space-y-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">{visibleServices.length} services available</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">{services.length} services available</p>
           <h2 className="mt-0.5 text-[16px] font-black tracking-tight text-slate-900">What do you need?</h2>
         </div>
 
-        {visibleServices.map((s, i) => (
+        {services.map((s, i) => (
           <motion.button key={s.id} type="button"
             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.06 + i * 0.07 }}

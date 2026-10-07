@@ -28,8 +28,6 @@ import { computeRideFare } from '../common/rideFare.js';
 import { resolveWeightSlot } from './weightSlotService.js';
 import { pickSurgeSlot, surgeFromPercent } from '../common/surgeSlot.js';
 import { SurgeSlot } from '../admin/models/SurgeSlot.js';
-import { RideInsurancePlan } from '../admin/models/RideInsurancePlan.js';
-import { availablePlans, insuranceSnapshot, planApplies } from '../common/rideInsurance.js';
 import { measureTrip, measureTripRoad } from '../common/tripMeasure.js';
 
 import { taxiReferralFor } from '../../../core/referral/referralSettings.service.js';
@@ -1032,8 +1030,6 @@ export const quoteRideFares = async ({
   }
   const surgeZone = await findSurgeZoneForPickup({ pickupPoint, serviceLocationId, transportType });
   const surgeSlots = await loadZoneSurgeSlots(surgeZone?._id);
-  // Parcels carry no ride insurance.
-  const insurancePlans = transportType === 'delivery' ? [] : await RideInsurancePlan.find({ active: true }).lean();
   // Measured exactly as createRideRecord measures it.
   const trip = await measureTripRoad({ pickup: pickupPoint, drop: dropPoint, stops });
   const distanceMeters = trip ? trip.distanceMeters : 0;
@@ -1067,11 +1063,6 @@ export const quoteRideFares = async ({
       vehicleTypeId,
       available: Boolean(fare),
       fare,
-      // Plans the rider may add; `premium` is for this fare. Send the chosen id
-      // as insurancePlanId when booking.
-      insuranceOptions: fare
-        ? availablePlans(insurancePlans, { vehicleTypeId, zoneId: surgeZone?._id, fare: fare.total })
-        : [],
       measuredDistanceMeters: distanceMeters,
       measuredDurationMinutes: durationMinutes,
       distanceSource: trip ? (trip.source || 'straight_line') : 'unknown',
@@ -1161,7 +1152,6 @@ export const createRideRecord = async ({
   bookingMode,
   userMaxBidFare,
   bidStepAmount,
-  insurancePlanId = null,
 }) => {
   const user = await User.findById(userId);
 
@@ -1360,25 +1350,6 @@ export const createRideRecord = async ({
     ? effectiveUserMaxBidFare
     : safeFare;
   const effectiveStartingFare = effectiveStartingFareWithoutSurge + rideSurgeAmount;
-  /*
-   * Ride insurance the rider chose. The premium is priced here from the fare
-   * (surge in, promo not taken off), never taken from the app, and charged
-   * only at completion -- see common/rideInsurance.js.
-   */
-  let rideInsurance = null;
-  if (insurancePlanId) {
-    const plan = mongoose.Types.ObjectId.isValid(String(insurancePlanId))
-      ? await RideInsurancePlan.findById(insurancePlanId).lean()
-      : null;
-    if (
-      !plan
-      || normalizedTransportType === 'delivery'
-      || !planApplies(plan, { vehicleTypeId: primaryVehicleTypeId, zoneId: surgeZone?._id })
-    ) {
-      throw new ApiError(400, 'This insurance plan is not available for this ride');
-    }
-    rideInsurance = insuranceSnapshot(plan, effectiveStartingFare);
-  }
   const effectiveBidFloorFareWithSurge = effectiveBidFloorFare + rideSurgeAmount;
   const effectiveUserMaxBidFareWithSurge = effectiveUserMaxBidFare + rideSurgeAmount;
   const effectiveBidCeilingMaxFareWithSurge = effectiveBidCeilingMaxFare + rideSurgeAmount;
@@ -1400,7 +1371,6 @@ export const createRideRecord = async ({
     ride_surge_enabled: rideSurgeAmount > 0,
     ride_surge_amount: rideSurgeAmount,
     surge_percent: rideSurge.percent,
-    insurance: rideInsurance,
     surge_slot_id: rideSurge.slotId,
     surge_slot_name: rideSurge.slotName,
     fare_before_surge: effectiveStartingFareWithoutSurge,
@@ -1663,24 +1633,6 @@ export const getRideDetails = async (rideId) => {
   return ride;
 };
 
-/*
- * The insurance on a ride, for the apps. `charged` turns true at completion,
- * when the premium is added to `fare`; until then show fare + premium as the
- * amount payable.
- */
-export const serializeRideInsurance = (ride) => {
-  const insurance = ride?.pricingSnapshot?.insurance;
-  if (!insurance?.plan_id) return null;
-  return {
-    plan_id: String(insurance.plan_id),
-    name: insurance.name || '',
-    provider: insurance.provider || '',
-    cover_amount: Number(insurance.cover_amount || 0),
-    premium: Number(insurance.premium || 0),
-    charged: Number(ride.insurance_fee || 0) > 0,
-  };
-};
-
 export const getRideRoom = (rideId) => `ride_${rideId}`;
 
 const activeRideStatuses = [RIDE_STATUS.SEARCHING, RIDE_STATUS.ACCEPTED, RIDE_STATUS.ONGOING];
@@ -1723,7 +1675,6 @@ export const serializeRideRealtime = (ride) => ({
     reason: ride.adminExtraCharge.reason || '',
   } : null,
   recovered_cancellation_due: Number(ride.recovered_cancellation_due || 0),
-  insurance: serializeRideInsurance(ride),
   bookingMode: ride.bookingMode || 'normal',
   pricingNegotiationMode: ride.pricingNegotiationMode || 'none',
   biddingStatus: ride.biddingStatus || 'none',
@@ -1847,7 +1798,6 @@ export const serializeRideRealtime = (ride) => ({
   recovered_at: ride.recovered_at || null,
   cancellation_time: ride.cancellation_time || null,
   recovered_cancellation_due: Number(ride.recovered_cancellation_due || 0),
-  insurance: serializeRideInsurance(ride),
   messages: (ride.messages || []).slice(-30).map((message) => ({
     id: String(message._id),
     senderRole: message.senderRole,
@@ -1992,7 +1942,6 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
       'recovered_at',
       'cancellation_time',
       'recovered_cancellation_due',
-      'insurance_fee',
     ].join(' '))
     .sort({ createdAt: -1 })
     .skip((safePage - 1) * safeLimit)
@@ -2068,7 +2017,6 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
       recovered_at: ride.recovered_at || null,
       cancellation_time: ride.cancellation_time || null,
       recovered_cancellation_due: Number(ride.recovered_cancellation_due || 0),
-      insurance: serializeRideInsurance(ride),
     })),
     pagination: {
       page: safePage,
@@ -2105,7 +2053,6 @@ export const acceptRideAssignment = async ({ rideId, driverId }) => {
       }
 
       const driverVehicleFilter = await buildDriverVehicleAcceptFilter(ride);
-      const isPooling = ride.isPoolRide || ride.transport_type === 'pooling';
 
       const driverFilter = {
         _id: driverId,
@@ -2114,17 +2061,9 @@ export const acceptRideAssignment = async ({ rideId, driverId }) => {
         // Suspended drivers accepted rides over the socket, which checks no approval.
         approve: { $ne: false },
         deletedAt: null,
+        isOnRide: false,
         ...driverVehicleFilter,
       };
-
-      if (isPooling) {
-        driverFilter.$or = [
-          { isOnRide: false },
-          { isOnRide: true, activePoolGroupId: { $ne: null } },
-        ];
-      } else {
-        driverFilter.isOnRide = false;
-      }
 
       const driver = await Driver.findOne(driverFilter).session(session);
 
@@ -2153,15 +2092,12 @@ export const acceptRideAssignment = async ({ rideId, driverId }) => {
       ride.status = RIDE_STATUS.ACCEPTED;
       ride.liveStatus = RIDE_LIVE_STATUS.ACCEPTED;
       ride.acceptedAt = new Date();
-      if (isPooling) {
-        ride.isPoolRide = true;
-      }
       driver.isOnRide = !isRideScheduledForFuture(ride);
 
       // Driver unification: claim the cross-service busy-lock so this driver cannot also be
-      // assigned a food delivery. Pool rides are exempt (one driver holds a whole pool group).
+      // assigned a food delivery.
       // Flag-gated: no-op until UNIFIED_DISPATCH_ENABLED is on.
-      if (env.unifiedDispatchEnabled && !isPooling && !isRideScheduledForFuture(ride)) {
+      if (env.unifiedDispatchEnabled && !isRideScheduledForFuture(ride)) {
         const { acquireDriverAssignment } = await import('../driver/services/driverAssignmentService.js');
         const locked = await acquireDriverAssignment(driver._id, 'ride', ride._id, session);
         if (!locked) {
@@ -2173,29 +2109,6 @@ export const acceptRideAssignment = async ({ rideId, driverId }) => {
       await driver.save({ session });
       await session.commitTransaction();
       await syncDeliveryWithRide(ride);
-
-      if (isPooling) {
-        const { createPoolGroup, addRideToPoolGroup } = await import('./instantPoolingService.js');
-        if (driver.activePoolGroupId) {
-          const success = await addRideToPoolGroup(driver.activePoolGroupId, ride);
-          if (!success) {
-            // ponytail: a driver runs exactly ONE pool group. If the ride can't join the existing
-            // group (full / detour violated), don't spin up a second group (that orphaned the first
-            // group + its passengers). The acceptance is already committed, so compensate: release
-            // the ride back to searching and free the driver, then surface the failure.
-            await Ride.findByIdAndUpdate(ride._id, {
-              $set: { status: RIDE_STATUS.SEARCHING, liveStatus: RIDE_LIVE_STATUS.SEARCHING, isPoolRide: true },
-              $unset: { driverId: '', acceptedAt: '' },
-            });
-            await Driver.findByIdAndUpdate(driver._id, { isOnRide: false });
-            const revertedRide = await Ride.findById(ride._id);
-            if (revertedRide) await syncDeliveryWithRide(revertedRide);
-            throw new ApiError(409, 'Ride cannot be added to the driver\'s active pool group');
-          }
-        } else {
-          await createPoolGroup(driver._id, driver.vehicleTypeId, ride);
-        }
-      }
 
       return ride;
     } catch (error) {
@@ -2323,60 +2236,13 @@ export const updateRideLifecycle = async ({ rideId, driverId, nextStatus, paymen
 
   // Task 7: Verify OTP on ride start.
   // ponytail: enforce for every ride that has an OTP (all rides get one at creation),
-  // not just pooled rides — otherwise a driver can start without the rider present.
+  // otherwise a driver can start without the rider present.
   if (nextStatus === RIDE_LIVE_STATUS.STARTED && ride.otp) {
     if (!otp) {
       throw new ApiError(400, 'OTP is required to start the ride');
     }
     if (String(ride.otp) !== String(otp)) {
       throw new ApiError(400, 'Invalid OTP code');
-    }
-  }
-
-  // Task 2: Intercept complete status for pooling
-  if (nextStatus === RIDE_LIVE_STATUS.COMPLETED && ride.isPoolRide) {
-    const { completePassengerRide } = await import('./instantPoolingService.js');
-    await completePassengerRide(ride._id);
-    return populateRideRealtime(ride._id);
-  }
-
-  // Task 2: Update sequence on ride start
-  if (nextStatus === RIDE_LIVE_STATUS.STARTED && ride.isPoolRide && ride.poolGroupId) {
-    const { InstantPoolGroup } = await import('../admin/models/InstantPoolGroup.js');
-    const group = await InstantPoolGroup.findById(ride.poolGroupId);
-    if (group) {
-      group.routeSequence = group.routeSequence.map(stop => {
-        if (String(stop.rideId) === String(ride._id) && stop.type === 'pickup') {
-          return { ...stop, status: 'completed' };
-        }
-        return stop;
-      });
-      group.routeVersion += 1;
-      await group.save();
-
-      // Re-optimize route sequence based on current coordinates of driver
-      const { findOptimalRouteSequence } = await import('./routeOptimizer.js');
-      const { getInstantPoolingSettings } = await import('./transportSettingsService.js');
-      const { Driver } = await import('../driver/models/Driver.js');
-      const driver = await Driver.findById(driverId);
-      const settings = await getInstantPoolingSettings();
-      const remainingRides = await Ride.find({ _id: { $in: group.activeRides } }).populate('userId', 'name');
-
-      // Guard: a driver with no GPS fix would throw on .location.coordinates and block the start.
-      if (driver?.location?.coordinates) {
-        group.routeSequence = findOptimalRouteSequence(
-          driver.location.coordinates,
-          remainingRides,
-          {
-            maxDetourMeters: Number(settings.max_detour_meters || 5000),
-            maxEtaIncreaseMinutes: Number(settings.max_eta_increase_minutes || 15),
-          }
-        );
-        await group.save();
-      }
-
-      const { broadcastPoolUpdate } = await import('./instantPoolingService.js');
-      broadcastPoolUpdate(group);
     }
   }
 
@@ -2488,10 +2354,7 @@ export const updateRideLifecycle = async ({ rideId, driverId, nextStatus, paymen
     ride.waitingChargeAmount = waitingCharge;
     ride.timeChargeAmount = 0;
     ride.distanceChargeAmount = 0;
-    // Ride insurance is charged now, on a ride that actually ran.
-    const insuranceFee = roundRideMoney(Math.max(0, Number(ride.pricingSnapshot?.insurance?.premium || 0)));
-    ride.insurance_fee = insuranceFee;
-    ride.fare = roundRideMoney(agreedFare + waitingCharge + adminAdditionalCharge + recoveredDue + insuranceFee);
+    ride.fare = roundRideMoney(agreedFare + waitingCharge + adminAdditionalCharge + recoveredDue);
   }
 
   /*

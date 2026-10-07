@@ -73,7 +73,7 @@ await check('the five sets the app shows, from their own collections', async () 
 await check('header artwork is split by section; empty sections still listed', async () => {
   const { sections } = (await groupsOf()).header;
   const by = Object.fromEntries(sections.map((s) => [s.id, s.items.length]));
-  assert.deepEqual(by, { food: 1, taxi: 1, quick_commerce: 0, medical: 1, porter: 0, rental: 0, services: 0 });
+  assert.deepEqual(by, { food: 1, taxi: 1, quick_commerce: 0, medical: 1, porter: 0, services: 0 });
   assert.equal(sections.find((s) => s.id === 'taxi').label, 'Rides');
 });
 await check('an old banner with no section is Food\'s, as the app treats it', async () => {

@@ -1,19 +1,15 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Home, Clock, Map, User, BusFront } from 'lucide-react';
-import { useSettings } from '../../../shared/context/SettingsContext';
+import { Home, Clock, Map, User } from 'lucide-react';
 
 const BottomNavbar = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { settings } = useSettings();
-  const showBusService = String(settings.transportRide?.enable_bus_service || '0') === '1';
 
   const navItems = [
     { icon: Home, label: 'Ride', path: '/taxi/user' },
     { icon: Clock, label: 'Rides', path: '/taxi/user/activity' },
-    ...(showBusService ? [{ icon: BusFront, label: 'Bus', path: '/taxi/user/bus' }] : []),
     { icon: Map, label: 'Support', path: '/taxi/user/support' },
     { icon: User, label: 'Profile', path: '/taxi/user/profile' },
   ];

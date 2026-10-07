@@ -34,7 +34,7 @@ const STORES = ['food', 'quickCommerce', 'medical'];
 
 /**
  * What a sub-admin can be given. `services` decides which panels a resource is
- * offered for, so the form does not show "Dining" to a taxi-only admin.
+ * offered for, so the form does not show "Point of sale" to a taxi-only admin.
  */
 export const ADMIN_PERMISSION_CATALOG = [
   {
@@ -53,10 +53,9 @@ export const ADMIN_PERMISSION_CATALOG = [
       { key: 'foods', label: 'Menu & products', hint: 'Items, add-ons, approvals, price adjustment', services: STORES },
       { key: 'categories', label: 'Categories', hint: 'Item categories', services: STORES },
       { key: 'delivery', label: 'Riders & drivers', hint: 'Join requests, documents, bonus, earnings', services: ALL },
-      { key: 'fleet', label: 'Vehicles & fleet', hint: 'Vehicle types, rental, owners, pooling, bus', services: ['taxi'] },
+      { key: 'fleet', label: 'Vehicles & fleet', hint: 'Vehicle types, rental packages, owners', services: ['taxi'] },
       { key: 'zones', label: 'Zones & service areas', hint: 'Zones, service locations, airports', services: ALL },
       { key: 'support', label: 'Support & safety', hint: 'Tickets, complaints, SOS reports, chat', services: ALL },
-      { key: 'dining', label: 'Dining', hint: 'Dine-in listings and banners', services: ['food'] },
       { key: 'pos', label: 'Point of sale', hint: 'Place orders from the panel', services: ['food'] },
     ],
   },
@@ -117,12 +116,9 @@ const LEGACY_ALIASES = {
   'zones.view': ['zones.write'],
   'airports.view': ['zones.write'],
   'geofencing.view': ['zones.write'],
-  'service_stores.view': ['fleet.write'],
   'vehicle_types.view': ['fleet.write'],
   'rental.view': ['fleet.write'],
   'goods_types.view': ['fleet.write'],
-  'bus_service.view': ['fleet.write'],
-  'pooling.view': ['fleet.write'],
   'set_prices.view': ['fee_settings.write'],
   'trips.view': ['orders.write'],
   'deliveries.view': ['orders.write'],
@@ -317,7 +313,6 @@ const STORE_ADMIN_RULES = [
   rule(/^\/(delivery|delivery-cash-limit|delivery-emergency-help|delivery-instructions|driver-registration-fields)(\/|$)/, 'delivery'),
   rule(/^\/zones(\/|$)/, 'zones'),
   rule(/^\/(fee-settings|packaging-charges)(\/|$)/, 'fee_settings'),
-  rule(/^\/dining(\/|$)/, 'dining'),
   rule(/^\/pos(\/|$)/, 'pos'),
 
   rule(/^\/(pages-social-media|notifications\/broadcast|notifications|restaurant-app-banners|banners|hero-banners|promotional-banners|landing)(\/|$)/, 'cms'),
@@ -336,9 +331,9 @@ const TAXI_ADMIN_RULES = [
   rule(/^\/admin\/(users|user-subscriptions)(\/|$)/, 'customers'),
   rule(/^\/admin\/wallet(\/|$)/, 'wallet'),
   rule(/^\/admin\/(drivers|driver-ratings|driver-subscriptions)(\/|$)/, 'delivery'),
-  rule(/^\/admin\/(owner-management|types|service-stores|pooling-vehicles|pooling-routes|bus-services|preferences|goods-types)(\/|$)/, 'fleet'),
+  rule(/^\/admin\/(owner-management|types|preferences|goods-types)(\/|$)/, 'fleet'),
   rule(/^\/admin\/(zones|service-locations|airports)(\/|$)/, 'zones'),
-  rule(/^\/admin\/(trips|ride-requests|ongoing-rides|deliveries|rental-quote-requests|rental-booking-requests|rental-tracking|pooling-bookings|bus-bookings)(\/|$)/, 'orders'),
+  rule(/^\/admin\/(trips|ride-requests|ongoing-rides|deliveries)(\/|$)/, 'orders'),
   rule(/^\/admin\/(safety|chat|support)(\/|$)/, 'support'),
   rule(/^\/admin\/(referrals|referral)(\/|$)/, 'referrals'),
   rule(/^\/admin\/(promotions|promos?|coupons|banners)(\/|$)/, 'promotions'),

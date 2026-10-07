@@ -81,15 +81,6 @@ export const normalizeDriverPortalRole = (role) => {
   if (!normalized) return "";
 
   if (normalized === "owner") return "owner";
-  if (normalized === "service_center" || normalized === "service-center" || normalized === "servicecenter") {
-    return "service_center";
-  }
-  if (normalized === "service_center_staff" || normalized === "service-center-staff" || normalized === "servicecenterstaff") {
-    return "service_center_staff";
-  }
-  if (normalized === "bus_driver" || normalized === "bus-driver" || normalized === "busdriver") {
-    return "bus_driver";
-  }
 
   return "driver";
 };
@@ -147,22 +138,22 @@ const getTokenPayload = (token) => {
 
 const readLocalDriverToken = () => {
   const direct = readSessionValue("driverToken");
-  if (["driver", "owner", "bus_driver", "service_center", "service_center_staff"].includes(getTokenPayload(direct)?.role)) {
+  if (["driver", "owner"].includes(getTokenPayload(direct)?.role)) {
     return direct;
   }
 
   const fallback = readSessionValue("token");
-  if (["driver", "owner", "bus_driver", "service_center", "service_center_staff"].includes(getTokenPayload(fallback)?.role)) {
+  if (["driver", "owner"].includes(getTokenPayload(fallback)?.role)) {
     return fallback;
   }
 
   const persistedDriverToken = String(localStorage.getItem("driverToken") || "");
-  if (["driver", "owner", "bus_driver", "service_center", "service_center_staff"].includes(getTokenPayload(persistedDriverToken)?.role)) {
+  if (["driver", "owner"].includes(getTokenPayload(persistedDriverToken)?.role)) {
     return persistedDriverToken;
   }
 
   const persistedGenericToken = String(localStorage.getItem("token") || "");
-  if (["driver", "owner", "bus_driver", "service_center", "service_center_staff"].includes(getTokenPayload(persistedGenericToken)?.role)) {
+  if (["driver", "owner"].includes(getTokenPayload(persistedGenericToken)?.role)) {
     return persistedGenericToken;
   }
 
@@ -289,27 +280,6 @@ export const updateOwnerFleetDriver = (driverId, payload) =>
 export const getOwnerFleetVehicles = () =>
   api.get("/drivers/fleet/vehicles", withDriverAuth());
 
-export const getOwnerBusServices = () =>
-  api.get("/drivers/fleet/bus-services", withDriverAuth());
-
-export const getOwnerBusBookings = (params = {}) =>
-  api.get("/drivers/fleet/bus-bookings", withDriverAuth({ params }));
-
-export const getOwnerBusBookingCalendar = (params = {}) =>
-  api.get("/drivers/fleet/bus-bookings/calendar", withDriverAuth({ params }));
-
-export const cancelOwnerBusBookingSeats = (bookingId, payload = {}) =>
-  api.post(`/drivers/fleet/bus-bookings/${bookingId}/cancel`, payload, withDriverAuth());
-
-export const createOwnerBusService = (payload) =>
-  api.post("/drivers/fleet/bus-services", payload, withDriverAuth());
-
-export const updateOwnerBusService = (busId, payload) =>
-  api.patch(`/drivers/fleet/bus-services/${busId}`, payload, withDriverAuth());
-
-export const deleteOwnerBusService = (busId) =>
-  api.delete(`/drivers/fleet/bus-services/${busId}`, withDriverAuth());
-
 export const createOwnerFleetVehicle = (payload) =>
   api.post("/drivers/fleet/vehicles", payload, withDriverAuth());
 
@@ -318,57 +288,6 @@ export const updateOwnerFleetVehicle = (vehicleId, payload) =>
 
 export const deleteOwnerFleetVehicle = (vehicleId) =>
   api.delete(`/drivers/fleet/vehicles/${vehicleId}`, withDriverAuth());
-
-export const getServiceCenterVehicles = () =>
-  api.get("/drivers/service-center/vehicles", withDriverAuth());
-
-export const createServiceCenterVehicle = (payload) =>
-  api.post("/drivers/service-center/vehicles", payload, withDriverAuth());
-
-export const updateServiceCenterVehicle = (vehicleId, payload) =>
-  api.patch(`/drivers/service-center/vehicles/${vehicleId}`, payload, withDriverAuth());
-
-export const deleteServiceCenterVehicle = (vehicleId) =>
-  api.delete(`/drivers/service-center/vehicles/${vehicleId}`, withDriverAuth());
-
-export const getServiceCenterStaff = () =>
-  api.get("/drivers/service-center/staff", withDriverAuth());
-
-export const createServiceCenterStaff = (payload) =>
-  api.post("/drivers/service-center/staff", payload, withDriverAuth());
-
-export const updateServiceCenterStaff = (staffId, payload) =>
-  api.patch(`/drivers/service-center/staff/${staffId}`, payload, withDriverAuth());
-
-export const deleteServiceCenterStaff = (staffId) =>
-  api.delete(`/drivers/service-center/staff/${staffId}`, withDriverAuth());
-
-export const getServiceCenterStaffBiometrics = (staffId) =>
-  api.get(`/drivers/service-center/staff/${staffId}/biometrics`, withDriverAuth());
-
-export const enrollServiceCenterStaffBiometric = (payload) =>
-  api.post("/drivers/service-center/staff/biometrics/enroll", payload, withDriverAuth());
-
-export const getServiceCenterBookings = () =>
-  api.get("/drivers/service-center/bookings", withDriverAuth());
-
-export const getServiceCenterBookingBiometrics = (bookingId) =>
-  api.get(`/drivers/service-center/bookings/${bookingId}/biometrics`, withDriverAuth());
-
-export const updateServiceCenterBookingBiometrics = (bookingId, payload) =>
-  api.patch(`/drivers/service-center/bookings/${bookingId}/biometrics`, payload, withDriverAuth());
-
-export const captureServiceCenterBookingFingerprint = (bookingId, payload) =>
-  api.post(`/drivers/service-center/bookings/${bookingId}/biometrics/fingers`, payload, withDriverAuth());
-
-export const deleteServiceCenterBookingFingerprint = (bookingId, fingerCode) =>
-  api.delete(`/drivers/service-center/bookings/${bookingId}/biometrics/fingers/${encodeURIComponent(String(fingerCode || '').trim().toUpperCase())}`, withDriverAuth());
-
-export const verifyServiceCenterBookingFingerprint = (bookingId, payload) =>
-  api.post(`/drivers/service-center/bookings/${bookingId}/biometrics/verify`, payload, withDriverAuth());
-
-export const updateServiceCenterBooking = (bookingId, payload) =>
-  api.patch(`/drivers/service-center/bookings/${bookingId}`, payload, withDriverAuth());
 
 export const getDriverRegistrationSession = ({ registrationId, phone }) =>
   api.get(`/drivers/onboarding/session/${registrationId}`, {

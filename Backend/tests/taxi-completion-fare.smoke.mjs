@@ -150,28 +150,6 @@ const main = async () => {
         assert.equal(r2(cashTx.amount), r2(c.driverEarnings - 156), `debit ${cashTx.amount}`);
     });
 
-    console.log('\nan insured cash ride: Rs 20 premium');
-    const u5 = await makeUser(); const d5 = await makeDriver();
-    const insured = await makeRide({ userId: u5, driverId: d5, agreed: 118, method: 'cash',
-        snapshot: { insurance: { plan_id: id(), name: 'Accident cover', cover_amount: 100000, premium_type: 'flat', premium_value: 20, premium: 20 } } });
-    await complete(insured, d5);
-    const ins = await load(insured);
-    check('the rider pays Rs 118 + 8 waiting + Rs 20 insurance = Rs 146', () => assert.equal(r2(ins.fare), 146, `fare ${ins.fare}`));
-    check('  insurance_fee records the Rs 20', () => assert.equal(r2(ins.insurance_fee), 20));
-    check('the driver earns the same as an uninsured ride -- no commission on the premium, none of it his', () => assert.equal(r2(ins.driverEarnings), r2(n.driverEarnings), `earnings ${ins.driverEarnings} vs ${n.driverEarnings}`));
-    const insTx = (await credits(insured)).find((t) => ['commission_deduction', 'ride_earning'].includes(t.type));
-    check('  his wallet is debited the commission plus the Rs 20 he collected for the insurer', () => {
-        assert.ok(insTx, 'no settlement transaction');
-        assert.equal(r2(insTx.amount), r2(ins.driverEarnings - 146), `debit ${insTx.amount}`);
-    });
-
-    console.log('\nan insured ride cancelled before it ran');
-    const u6 = await makeUser(); const d6 = await makeDriver();
-    const cancelledInsured = await makeRide({ userId: u6, driverId: d6, agreed: 118,
-        snapshot: { insurance: { plan_id: id(), name: 'Accident cover', premium: 20 } }, extra: { status: 'cancelled', liveStatus: 'cancelled' } });
-    const ci = await load(cancelledInsured);
-    check('is never charged the premium', () => assert.equal(Number(ci.insurance_fee || 0), 0));
-
     /*
      * The platform incentive from Master > Delivery Earnings.
      *

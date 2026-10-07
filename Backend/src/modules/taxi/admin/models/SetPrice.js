@@ -275,10 +275,6 @@ const setPriceSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
-    enable_ride_sharing: {
-      type: Boolean,
-      default: false,
-    },
     admin_commission_type_for_owner: {
       type: Number,
       default: 1, // 1 for percentage, 0 for fixed
@@ -316,22 +312,6 @@ const setPriceSchema = new mongoose.Schema(
       default: 0,
     },
     support_outstation: {
-      type: Number,
-      default: 0,
-    },
-    enable_shared_ride: {
-      type: Number,
-      default: 0,
-    },
-    price_per_seat: {
-      type: Number,
-      default: 0,
-    },
-    shared_price_per_distance: {
-      type: Number,
-      default: 0,
-    },
-    shared_cancel_fee: {
       type: Number,
       default: 0,
     },

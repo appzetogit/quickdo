@@ -84,7 +84,6 @@ const SIGNATURE_SITES = [
     'src/core/payments/controllers/razorpayWebhook.controller.js',
     'src/modules/quickCommerce/modules/food/orders/helpers/razorpay.helper.js',
     'src/modules/taxi/driver/controllers/driverController.js',
-    'src/modules/taxi/user/controllers/poolingController.js',
     'src/modules/taxi/user/controllers/rideController.js',
     'src/modules/taxi/user/controllers/userController.js',
 ];

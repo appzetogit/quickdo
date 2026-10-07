@@ -20,18 +20,6 @@ export const getTransportRideSettings = async () => {
   };
 };
 
-export const getInstantPoolingSettings = async () => {
-  const businessSettings = await AdminBusinessSetting.findOne({ scope: 'default' })
-    .select('instant_pooling')
-    .lean();
-
-  const defaultPooling = createDefaultBusinessSettings().instant_pooling || {};
-  return {
-    ...defaultPooling,
-    ...(businessSettings?.instant_pooling || {}),
-  };
-};
-
 export const getBidRideSettings = async () => {
   const businessSettings = await AdminBusinessSetting.findOne({ scope: 'default' })
     .select('bid_ride')

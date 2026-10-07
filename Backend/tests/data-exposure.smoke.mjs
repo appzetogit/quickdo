@@ -13,8 +13,6 @@
  *     any logged-in customer or rider.
  *  4. A taxi customer token passed the quick-commerce auth middleware as role USER
  *     with no userId, skipping getOrderById's ownership check.
- *  5. Taxi pool group returned every passenger's name, address, coordinates and
- *     ride OTP to anyone with the id.
  *  6. SP scrap detail returned any customer's pickup address and contact details.
  *  7. SP worker job detail showed every unassigned booking to every worker.
  */
@@ -207,55 +205,6 @@ const main = async () => {
         assert.equal(r.status, 401, JSON.stringify(r.body));
     });
     server.close();
-
-    // --- 5. taxi pool group -----------------------------------------------------
-    console.log('\ntaxi pool group');
-    const { getPoolGroupById } = await import('../src/modules/taxi/user/controllers/rideController.js');
-    const { InstantPoolGroup } = await import('../src/modules/taxi/admin/models/InstantPoolGroup.js');
-    const { Ride } = await import('../src/modules/taxi/user/models/Ride.js');
-    const driverId = oid();
-    const passengerA = oid();
-    const passengerB = oid();
-    const rideA = oid();
-    const rideB = oid();
-    await Ride.collection.insertMany([{ _id: rideA, userId: passengerA }, { _id: rideB, userId: passengerB }]);
-    const groupId = oid();
-    await InstantPoolGroup.collection.insertOne({
-        _id: groupId, driverId, vehicleTypeId: oid(), activeRides: [rideA, rideB], status: 'active',
-        routeSequence: [
-            { _id: oid(), type: 'pickup', rideId: rideA, address: 'A street', coordinates: [73.8, 18.5], passengerName: 'Asha', otp: '1111', status: 'pending' },
-            { _id: oid(), type: 'pickup', rideId: rideB, address: 'B street', coordinates: [73.9, 18.6], passengerName: 'Bala', otp: '2222', status: 'pending' },
-        ],
-    });
-    const group = async (auth) => {
-        let out = null; let error = null;
-        await getPoolGroupById({ params: { poolGroupId: String(groupId) }, auth }, { json: (b) => { out = b; } }, (e) => { error = e; });
-        return { out, error };
-    };
-    await check('a stranger (customer or driver) gets 404', async () => {
-        assert.equal((await group({ sub: String(oid()), role: 'user' })).error?.statusCode, 404);
-        assert.equal((await group({ sub: String(oid()), role: 'driver' })).error?.statusCode, 404);
-    });
-    await check('no one receives a ride OTP', async () => {
-        for (const auth of [{ sub: String(driverId), role: 'driver' }, { sub: String(passengerA), role: 'user' }]) {
-            const { out } = await group(auth);
-            assert.ok(out, `no data for ${auth.role}`);
-            assert.ok(out.data.routeSequence.every((s) => s.otp === undefined), 'otp leaked');
-        }
-    });
-    await check('the driver keeps every stop\'s coordinates for navigation', async () => {
-        const { out } = await group({ sub: String(driverId), role: 'driver' });
-        assert.ok(out.data.routeSequence.every((s) => Array.isArray(s.coordinates)));
-    });
-    await check('a passenger sees co-riders\' names and addresses but coordinates only for their own stop', async () => {
-        const { out } = await group({ sub: String(passengerA), role: 'user' });
-        const mine = out.data.routeSequence.find((s) => String(s.rideId) === String(rideA));
-        const theirs = out.data.routeSequence.find((s) => String(s.rideId) === String(rideB));
-        assert.ok(Array.isArray(mine.coordinates));
-        assert.equal(theirs.coordinates, undefined);
-        assert.equal(theirs.passengerName, 'Bala');
-        assert.equal(theirs.address, 'B street');
-    });
 
     // --- 6/7. service provider -----------------------------------------------
     console.log('\nservice provider');

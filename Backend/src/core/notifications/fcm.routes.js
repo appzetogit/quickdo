@@ -23,10 +23,7 @@ const ROLE_TO_OWNER_TYPE = {
     ADMIN: 'ADMIN',
     admin: 'ADMIN',
     driver: 'DRIVER',
-    owner: 'OWNER',
-    bus_driver: 'BUS_DRIVER',
-    service_center: 'SERVICE_CENTER',
-    service_center_staff: 'SERVICE_CENTER_STAFF'
+    owner: 'OWNER'
 };
 
 const resolveOwnerType = (role) => ROLE_TO_OWNER_TYPE[String(role || '').trim()] || null;

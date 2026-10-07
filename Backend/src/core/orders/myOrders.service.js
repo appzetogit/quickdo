@@ -23,7 +23,6 @@ const SERVICE_LABEL = {
   medical: 'Medical',
   taxi: 'Rides',
   parcel: 'Parcel',
-  rental: 'Rental',
   services: 'Services',
 };
 
@@ -124,7 +123,6 @@ async function storeOrders({ collection, sellers, userIds, before, limit, key, r
 const TAXI_SERVICE = (d) => {
   const t = String(d.serviceType || '').toLowerCase();
   if (t.includes('parcel') || t === 'delivery' || d.parcel) return 'parcel';
-  if (t.includes('rental')) return 'rental';
   return 'taxi';
 };
 
@@ -183,7 +181,7 @@ async function bookings({ userIds, before, limit }) {
 
 /* ------------------------------------------------------------------ list */
 
-const SERVICE_FILTERS = ['food', 'quick', 'medical', 'taxi', 'parcel', 'rental', 'services'];
+const SERVICE_FILTERS = ['food', 'quick', 'medical', 'taxi', 'parcel', 'services'];
 
 /**
  * @param {string} userId  the signed-in customer's platform id
@@ -208,7 +206,7 @@ export async function listMyOrders(userId, query = {}) {
   const lists = await Promise.all([
     want(['food']) ? storeOrders({ collection: 'food_orders', sellers: 'food_restaurants', userIds: [oid(userId)], before, limit, key: 'food', route: (id) => `/food/orders/${id}` }) : [],
     want(['quick', 'medical']) ? storeOrders({ collection: 'qc_orders', sellers: 'qc_restaurants', userIds: qcIds, before, limit, key: 'quick', route: (id) => `/qc/order/${id}` }) : [],
-    want(['taxi', 'parcel', 'rental']) ? rides({ userId, before, limit }) : [],
+    want(['taxi', 'parcel']) ? rides({ userId, before, limit }) : [],
     want(['services']) ? bookings({ userIds: spIds, before, limit }) : [],
   ]);
 

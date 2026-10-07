@@ -31,7 +31,7 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DRIVER_NAME_REGEX = /^[A-Za-z]+(?:[ .'-][A-Za-z]+)*$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const VEHICLE_NUMBER_REGEX = /^[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}$/;
-const ALLOWED_SERVICE_CATEGORIES = ['taxi', 'outstation', 'delivery', 'pooling'];
+const ALLOWED_SERVICE_CATEGORIES = ['taxi', 'outstation', 'delivery'];
 
 const VEHICLE_TYPE_MAP = {
   v1: 'bike',
@@ -89,7 +89,6 @@ const getPrimaryRegisterFor = (serviceCategories = [], fallback = 'taxi') => {
   if (normalized.includes('taxi')) return 'taxi';
   if (normalized.includes('outstation')) return 'outstation';
   if (normalized.includes('delivery')) return 'delivery';
-  if (normalized.includes('pooling')) return 'pooling';
 
   return String(fallback || 'taxi').trim().toLowerCase() || 'taxi';
 };

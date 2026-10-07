@@ -5,8 +5,7 @@ import { Driver } from '../models/Driver.js';
  *
  * A driver may hold exactly ONE active assignment at a time — a taxi ride OR a food delivery.
  * Both dispatchers acquire the lock atomically before assigning, so a driver can never be
- * double-booked across services. Pool rides are the deliberate exception (a driver runs one
- * pool GROUP that holds several rides), so pooled assignment does not use this lock.
+ * double-booked across services.
  *
  * The lock lives on Driver.activeAssignment: { type:'ride'|'delivery', id, at } | null.
  */

@@ -52,6 +52,7 @@ const promoCodeSchema = new mongoose.Schema(
     },
     transport_type: {
       type: String,
+      // 'pooling', 'bus' and 'self_drive' are retired; kept so legacy codes still load.
       enum: ['taxi', 'delivery', 'pooling', 'bus', 'self_drive', 'all'],
       default: 'all',
       trim: true,

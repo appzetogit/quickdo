@@ -95,7 +95,7 @@ const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
  * amount was read out of the order id and Razorpay was never asked, so a cash
  * ride could be marked paid online (the driver credited its fare from the
  * platform) and a made-up Rs 5000 tip credited the driver Rs 5000. NODE_ENV
- * alone decides, as in poolingController. Do not widen this.
+ * alone decides. Do not widen this.
  */
 const isMockPaymentAllowed = () => process.env.NODE_ENV !== 'production';
 
@@ -439,7 +439,7 @@ export const quoteRide = async (req, res) => {
 };
 
 export const createRide = async (req, res) => {
-  const { pickup, drop, stops, pickupAddress, dropAddress, fare, vehicleTypeId, vehicleTypeIds, vehicleIconType, vehicleIconUrl, paymentMethod, serviceType, intercity, promo_code, service_location_id, transport_type, scheduledAt, bookingMode, userMaxBidFare, bidStepAmount, insurancePlanId } =
+  const { pickup, drop, stops, pickupAddress, dropAddress, fare, vehicleTypeId, vehicleTypeIds, vehicleIconType, vehicleIconUrl, paymentMethod, serviceType, intercity, promo_code, service_location_id, transport_type, scheduledAt, bookingMode, userMaxBidFare, bidStepAmount } =
     req.body;
 
   if (!pickup || !drop) {
@@ -469,7 +469,6 @@ export const createRide = async (req, res) => {
     bookingMode,
     userMaxBidFare,
     bidStepAmount,
-    insurancePlanId,
   });
 
   await startDispatchFlow(ride);
@@ -1465,48 +1464,3 @@ export const validateLocation = async (req, res, next) => {
   }
 };
 
-export const getPoolGroupById = async (req, res, next) => {
-  try {
-    /*
-     * Only the pool's own driver and its own passengers, and never the ride OTPs.
-     *
-     * This returned the whole group to any logged-in customer or driver who had a
-     * group id: every passenger's name, pickup and drop address and coordinates, and
-     * each stop's `otp` -- the code that starts that passenger's ride. Neither app
-     * reads the OTP from here (drivers take it from the passenger). The driver keeps
-     * every stop's coordinates, which navigation uses; a passenger sees co-riders'
-     * names and addresses, as the shared-ride card shows, but coordinates only for
-     * their own stops.
-     */
-    const { poolGroupId } = req.params;
-    const { InstantPoolGroup } = await import('../../admin/models/InstantPoolGroup.js');
-    const notFound = () => new ApiError(404, 'Pool group not found');
-    if (!mongoose.Types.ObjectId.isValid(String(poolGroupId))) throw notFound();
-
-    const group = await InstantPoolGroup.findById(poolGroupId).lean();
-    if (!group) throw notFound();
-
-    const me = String(req.auth?.sub || '');
-    const isDriver = req.auth?.role === 'driver' && String(group.driverId) === me;
-    let myRideIds = new Set();
-    if (!isDriver && req.auth?.role === 'user') {
-      const mine = await Ride.find({ _id: { $in: group.activeRides || [] }, userId: me }).select('_id').lean();
-      myRideIds = new Set(mine.map((r) => String(r._id)));
-    }
-    if (!isDriver && myRideIds.size === 0) throw notFound();
-
-    const routeSequence = (group.routeSequence || []).map((stop) => {
-      const { otp, ...rest } = stop;
-      if (isDriver || myRideIds.has(String(stop.rideId))) return rest;
-      const { coordinates, ...withoutPosition } = rest;
-      return withoutPosition;
-    });
-
-    res.json({
-      success: true,
-      data: { ...group, routeSequence },
-    });
-  } catch (error) {
-    next(error);
-  }
-};

@@ -8,7 +8,6 @@ const getServiceAction = (serviceType, navigate) => {
     case 'normal': return () => navigate('/taxi/user/ride/select-location');
     case 'outstation': return () => navigate('/taxi/user/ride/select-location?rideType=outstation');
     case 'bid': return () => navigate('/taxi/user/ride/select-location?rideType=bid');
-    case 'pooling': return () => navigate('/taxi/user/pooling');
     default: return () => navigate('/taxi/user/ride/select-location');
   }
 };
@@ -32,7 +31,8 @@ const ServiceGrid = () => {
 
   const services = useMemo(() => {
     return appModules
-      .filter(m => m.active !== false && m.service_type?.toLowerCase() !== 'rental')
+      // Legacy rental / pooling modules may still be stored; those services are retired.
+      .filter(m => m.active !== false && !['rental', 'pooling'].includes(m.service_type?.toLowerCase()))
       .sort((a, b) => (a.order_by || 99) - (b.order_by || 99))
       .map(m => ({
         id: m._id || m.id,

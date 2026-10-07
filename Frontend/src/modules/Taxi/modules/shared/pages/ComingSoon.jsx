@@ -1,21 +1,11 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Rocket, Bell, Bike, Car, Landmark, Bus } from 'lucide-react';
+import { ArrowLeft, Rocket, Bell, Car, Landmark } from 'lucide-react';
 import { useSettings } from '../../../shared/context/SettingsContext';
 
 // Feature metadata per route
 const FEATURE_META = {
-  '/rental': {
-    icon: <Bike size={48} strokeWidth={1.5} />,
-    title: 'Bike Rentals',
-    subtitle: 'Self-drive scooters & motorcycles',
-    description: 'Rent a bike by the hour or day — no driver needed. Choose from Activa, Splendor, Royal Enfield & more.',
-    color: 'bg-purple-50',
-    accent: 'text-purple-600',
-    border: 'border-purple-100',
-    tag: 'COMING SOON',
-  },
   '/intercity': {
     icon: <Car size={48} strokeWidth={1.5} />,
     title: 'Intercity Travel',
@@ -35,16 +25,6 @@ const FEATURE_META = {
     accent: 'text-amber-600',
     border: 'border-amber-100',
     tag: 'COMING SOON',
-  },
-  '/cab-sharing': {
-    icon: <Bus size={48} strokeWidth={1.5} />,
-    title: 'Cab Sharing',
-    subtitle: 'Share rides, save big — Quick Drop\'s USP',
-    description: 'Real-time seat booking in shared cabs. Choose your seat, split the fare, and travel smart.',
-    color: 'bg-green-50',
-    accent: 'text-green-600',
-    border: 'border-green-100',
-    tag: 'LAUNCHING SOON',
   },
 };
 

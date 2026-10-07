@@ -179,37 +179,6 @@ const main = async () => {
         await assert.rejects(() => book(scooter, 50), (err) => err.statusCode === 400 || err.status === 400);
     });
 
-    console.log('\nride insurance');
-    const { RideInsurancePlan } = await import('../src/modules/taxi/admin/models/RideInsurancePlan.js');
-    const [anyVehicle, sedanOnly] = await RideInsurancePlan.create([
-        { name: 'Basic', premium_type: 'flat', premium_value: 10, cover_amount: 50000 },
-        { name: 'Sedan 10%', premium_type: 'percent', premium_value: 10, vehicle_type_ids: [sedan] },
-    ]);
-    const insuredQuotes = await quote();
-    await check('the quote offers each vehicle only the plans that cover it, priced for its fare', async () => {
-        const bikeOptions = quoteFor(insuredQuotes, newBike).insuranceOptions.map((o) => o.name);
-        assert.deepEqual(bikeOptions, ['Basic']);
-        const sedanQuote = quoteFor(insuredQuotes, sedan);
-        const tenPercent = sedanQuote.insuranceOptions.find((o) => o.name === 'Sedan 10%');
-        assert.equal(tenPercent.premium, Math.round(sedanQuote.fare.total * 0.1));
-    });
-    await check('a booked plan is priced by the server and frozen on the ride, not added to the fare yet', async () => {
-        const ride = await book(sedan, 0, { insurancePlanId: String(sedanOnly._id) });
-        const sedanFare = quoteFor(insuredQuotes, sedan).fare.total;
-        assert.equal(ride.pricingSnapshot.insurance.premium, Math.round(sedanFare * 0.1));
-        assert.equal(Number(ride.fare), sedanFare, 'premium is charged at completion, not at booking');
-        await reset();
-    });
-    await check('a plan for another vehicle is refused', async () => {
-        await assert.rejects(() => book(newBike, 0, { insurancePlanId: String(sedanOnly._id) }), (err) => err.statusCode === 400 || err.status === 400);
-        await reset();
-    });
-    await check('a switched-off plan is refused', async () => {
-        await RideInsurancePlan.updateOne({ _id: anyVehicle._id }, { active: false });
-        await assert.rejects(() => book(newBike, 0, { insurancePlanId: String(anyVehicle._id) }), (err) => err.statusCode === 400 || err.status === 400);
-        await reset();
-    });
-
     await mongoose.disconnect();
     await mongo.stop();
 

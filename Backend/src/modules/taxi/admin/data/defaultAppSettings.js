@@ -86,17 +86,6 @@ export const createDefaultAppSettings = () => ({
     },
     {
       _id: objectId(),
-      name: 'Bike Rental',
-      transport_type: 'taxi',
-      service_type: 'rental',
-      order_by: 6,
-      short_description: 'Flexible rentals',
-      description: 'Rent a vehicle for self-drive hourly.',
-      active: true,
-      mobile_menu_icon: '/rental_service_icon.png',
-    },
-    {
-      _id: objectId(),
       name: 'Outstation',
       transport_type: 'taxi',
       service_type: 'outstation',

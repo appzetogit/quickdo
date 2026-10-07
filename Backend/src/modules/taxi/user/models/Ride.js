@@ -494,22 +494,6 @@ const rideSchema = new mongoose.Schema(
       ref: 'TaxiServiceLocation',
       default: null,
     },
-    poolGroupId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'TaxiInstantPoolGroup',
-      default: null,
-      index: true,
-    },
-    isPoolRide: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-    poolSeats: {
-      type: Number,
-      default: 1,
-      min: 1,
-    },
     routeVersion: {
       type: Number,
       default: 0,
@@ -613,19 +597,6 @@ const rideSchema = new mongoose.Schema(
         type: String,
         default: '',
         trim: true,
-      },
-      // Ride insurance the rider chose at booking, frozen (common/rideInsurance.js).
-      insurance: {
-        type: new mongoose.Schema({
-          plan_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TaxiRideInsurancePlan' },
-          name: { type: String, default: '' },
-          provider: { type: String, default: '' },
-          cover_amount: { type: Number, default: 0, min: 0 },
-          premium_type: { type: String, default: 'flat' },
-          premium_value: { type: Number, default: 0, min: 0 },
-          premium: { type: Number, default: 0, min: 0 },
-        }, { _id: false }),
-        default: null,
       },
       surge_zone_name: {
         type: String,
@@ -791,12 +762,6 @@ const rideSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    // The ride insurance premium charged at completion; 0 when uninsured or not completed.
-    insurance_fee: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
     promo: {
       code: {
         type: String,
@@ -930,6 +895,5 @@ const rideSchema = new mongoose.Schema(
 
 rideSchema.index({ userId: 1, createdAt: -1 });
 rideSchema.index({ driverId: 1, createdAt: -1 });
-rideSchema.index({ poolGroupId: 1 });
 
 export const Ride = mongoose.models.TaxiRide || mongoose.model('TaxiRide', rideSchema);

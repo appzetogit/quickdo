@@ -110,7 +110,7 @@ export const config = {
     /*
      * 25mb, not 2mb, because the taxi admin panel posts images as base64 data URLs
      * inside the JSON body -- driver profile photos, vehicle types, CMS banners,
-     * goods types, pooling vehicles, bus service media.
+     * goods types.
      *
      * Base64 inflates a file by a third, and several of those screens submit more
      * than one image in a single payload: CreateDriver sends a profile picture plus

@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { 
   ChevronRight, 
   Save, 
   Loader2,
-  Bus,
-  ArrowUpRight,
   Sliders,
   Sun,
   Moon
@@ -65,26 +62,22 @@ const THEME_PRESETS = [
 ];
 
 const CustomizationSettings = () => {
-  const navigate = useNavigate();
   const { refreshSettings } = useSettings();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState({});
-  const [transportRideSettings, setTransportRideSettings] = useState({});
   const [countries, setCountries] = useState([]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [settingsRes, countriesRes, transportRideRes] = await Promise.all([
+      const [settingsRes, countriesRes] = await Promise.all([
         api.get('/admin/general-settings/customize'),
         api.get('/admin/countries?active=1'),
-        api.get('/admin/general-settings/transport-ride')
       ]);
       
       setSettings(settingsRes.data?.settings || {});
       setCountries(countriesRes.data?.results || []);
-      setTransportRideSettings(transportRideRes.data?.settings || {});
     } catch (err) {
       console.error('Fetch error:', err);
       toast.error('Failed to load system parameters');
@@ -100,15 +93,7 @@ const CustomizationSettings = () => {
   const handleUpdate = async () => {
     try {
       setSaving(true);
-      await Promise.all([
-        api.patch('/admin/general-settings/customize', { settings }),
-        api.patch('/admin/general-settings/transport-ride', {
-          settings: {
-            ...transportRideSettings,
-            enable_bus_service: transportRideSettings.enable_bus_service === "1" ? "1" : "0",
-          },
-        }),
-      ]);
+      await api.patch('/admin/general-settings/customize', { settings });
       toast.success('Customization settings updated successfully!', {
          style: { background: '#1e293b', color: '#fff' }
       });
@@ -123,10 +108,6 @@ const CustomizationSettings = () => {
 
   const handleChange = (name, value) => {
     setSettings(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleTransportRideChange = (name, value) => {
-    setTransportRideSettings(prev => ({ ...prev, [name]: value }));
   };
 
   if (loading) {
@@ -312,39 +293,6 @@ const CustomizationSettings = () => {
               <ToggleField label="Enable Shipment Unload Feature" name="enable_shipment_unload_feature" value={settings.enable_shipment_unload_feature} onChange={handleChange} />
               <ToggleField label="Enable Digital Signature" name="enable_digital_signature" value={settings.enable_digital_signature} onChange={handleChange} />
               <ToggleField label="Set The ETA price (without Waiting Charge) on completion of ride" name="enable_eta_price_on_complete" value={settings.enable_eta_price_on_complete} onChange={handleChange} />
-           </div>
-
-           <SectionHeader title="Bus Service" />
-           <div className="mb-8 rounded-2xl border border-rose-100 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-900/20 p-5">
-             <div className="flex items-start justify-between gap-4">
-               <div className="flex gap-3">
-                 <div className="w-11 h-11 rounded-2xl bg-white dark:bg-slate-800 text-rose-500 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 flex items-center justify-center shadow-sm">
-                   <Bus size={20} />
-                 </div>
-                 <div>
-                   <p className="text-[13px] font-black text-slate-800 dark:text-slate-100">Enable Bus Service</p>
-                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                     Show the Bus option in the user app and enable route search, seat booking, and Razorpay payment flow.
-                   </p>
-                 </div>
-               </div>
-               <button
-                 onClick={() => handleTransportRideChange('enable_bus_service', transportRideSettings.enable_bus_service === "1" ? "0" : "1")}
-                 className={`w-11 h-6 rounded-full relative transition-all duration-300 shrink-0 ${
-                   transportRideSettings.enable_bus_service === "1" ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'
-                 }`}
-               >
-                 <div className={`w-4 h-4 bg-white dark:bg-slate-800 rounded-full absolute top-1 transition-all duration-300 ${transportRideSettings.enable_bus_service === "1" ? 'right-1' : 'left-1'}`} />
-               </button>
-             </div>
-
-             <button
-               type="button"
-               onClick={() => navigate('/taxi/admin/bus-service')}
-               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white dark:bg-slate-800 px-4 py-2.5 text-[12px] font-black text-slate-700 dark:text-slate-200 border border-rose-100 dark:border-rose-900/50 shadow-sm hover:border-rose-200 dark:border-rose-800/50 hover:text-rose-600 dark:text-rose-400 transition-all"
-             >
-               Manage Bus Services <ArrowUpRight size={14} />
-             </button>
            </div>
 
            <SectionHeader title="Chain Ride settings" />

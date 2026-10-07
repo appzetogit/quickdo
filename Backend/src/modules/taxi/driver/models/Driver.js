@@ -267,30 +267,6 @@ const driverSchema = new mongoose.Schema(
       default: 'taxi',
       trim: true,
     },
-    isPoolEnabled: {
-      type: Boolean,
-      default: true,
-    },
-    activePoolGroupId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'TaxiInstantPoolGroup',
-      default: null,
-    },
-    poolOccupiedSeats: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    maxPoolSeats: {
-      type: Number,
-      default: 4,
-      min: 1,
-    },
-    activePoolRideCount: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
     serviceCategories: {
       type: [String],
       default: [],
@@ -559,7 +535,6 @@ driverSchema.index({ approve: 1, deletedAt: 1, createdAt: -1 });
 driverSchema.index({ status: 1, deletedAt: 1 });
 driverSchema.index({ phone: 1, deletedAt: 1 });
 
-driverSchema.index({ isOnline: 1, isOnRide: 1, isPoolEnabled: 1 });
 // Unified dispatch: find online, free, capable drivers for a given service + work mode.
 driverSchema.index({ isOnline: 1, serviceCapabilities: 1, workMode: 1, 'activeAssignment.type': 1 });
 // The claim filter's own path. Kept alongside the mirror index rather than

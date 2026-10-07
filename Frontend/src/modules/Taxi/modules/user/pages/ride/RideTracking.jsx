@@ -321,7 +321,6 @@ const RideTracking = () => {
   const [otherReasonText, setOtherReasonText] = useState('');
   const [showReasonSelection, setShowReasonSelection] = useState(false);
   const [rideRealtime, setRideRealtime] = useState(null);
-  const [poolGroup, setPoolGroup] = useState(null);
   const [routePath, setRoutePath] = useState([]);
   const [routeError, setRouteError] = useState('');
   const [map, setMap] = useState(null);
@@ -432,45 +431,52 @@ const RideTracking = () => {
     : Math.max(0, Math.round(Number(fare || 0) + waitingCharge + distanceChargeAmount + timeChargeAmount + additionalCharge + adminExtraChargeAmount + applicableCancellationDue - promoDiscountAmount));
   const isWaitingForOtp = Boolean(waitingStartedAt) && !['started', 'ongoing', 'arrived', 'completed', 'cancelled', 'delivered'].includes(tripStatus);
   const vehicleIcon = getTrackingVehicleIcon(trackingSnapshot, driver);
-  const isPoolRide = Boolean(trackingSnapshot?.isPoolRide || state?.isPoolRide);
+  // Ordered stops of a multi-stop ride: [{ type: 'pickup'|'stop'|'drop', address,
+  // label?, status?: 'completed', etaMinutes? }]. Renders nothing for a plain A-to-B ride.
+  const rideStops = useMemo(
+    () => (Array.isArray(trackingSnapshot?.stops) ? trackingSnapshot.stops.filter(Boolean) : []),
+    [trackingSnapshot?.stops],
+  );
 
   const stopsTimelineElement = useMemo(() => {
-    if (!isPoolRide || !poolGroup?.routeSequence) {
+    if (rideStops.length === 0) {
       return null;
     }
+
+    const currentIndex = rideStops.findIndex((stop) => stop.status !== 'completed');
 
     return (
       <div className="rounded-[22px] border border-slate-100 bg-slate-50/50 p-4 shadow-sm text-left">
         <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3.5">
-          Shared Ride Route ({poolGroup.occupiedSeats}/{poolGroup.totalCapacity} seats)
+          Route Stops
         </h4>
         <div className="space-y-4 relative before:absolute before:left-3 before:top-2.5 before:bottom-2.5 before:w-0.5 before:bg-slate-200">
-          {poolGroup.routeSequence.map((stop, index) => {
+          {rideStops.map((stop, index) => {
             const isCompleted = stop.status === 'completed';
             const isPickup = stop.type === 'pickup';
-            const isCurrent = !isCompleted && poolGroup.routeSequence.findIndex(s => s.status !== 'completed') === index;
-            const isMyStop = String(stop.rideId) === String(rideId);
+            const isDrop = stop.type === 'drop';
+            const isCurrent = !isCompleted && currentIndex === index;
+            const etaMinutes = Number(stop.etaMinutes);
+            const title = stop.label || (isPickup ? 'Pickup' : isDrop ? 'Drop' : `Stop ${index}`);
             return (
-              <div key={stop.id || index} className={`flex items-start gap-3 relative transition-all duration-300 ${isCompleted ? 'opacity-30' : ''}`}>
+              <div key={stop.id || stop._id || index} className={`flex items-start gap-3 relative transition-all duration-300 ${isCompleted ? 'opacity-30' : ''}`}>
                 <div className={`w-6.5 h-6.5 rounded-full flex items-center justify-center border text-[9px] font-black shrink-0 z-10 transition-transform ${isCurrent ? 'scale-110 shadow-md ring-4 ring-[#0F766E]/10' : ''} ${
-                  isCompleted 
-                    ? 'bg-slate-200 text-slate-500 border-slate-300' 
-                    : isMyStop
-                      ? 'bg-[#0F766E] text-white border-[#0F766E]'
-                      : isPickup 
-                        ? 'bg-teal-50 text-[#0F766E] border-teal-200' 
-                        : 'bg-orange-50 text-orange-600 border-orange-200'
+                  isCompleted
+                    ? 'bg-slate-200 text-slate-500 border-slate-300'
+                    : isDrop
+                      ? 'bg-orange-50 text-orange-600 border-orange-200'
+                      : 'bg-teal-50 text-[#0F766E] border-teal-200'
                 }`}>
                   {isCompleted ? <Check size={10} strokeWidth={3.5} /> : (index + 1)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <p className={`text-[12px] font-bold tracking-tight uppercase leading-none ${isCurrent ? 'text-[#0F766E]' : 'text-slate-800'}`}>
-                      {isPickup ? 'Pickup' : 'Drop'} - {isMyStop ? 'You' : stop.passengerName}
+                      {title}
                     </p>
-                    {!isCompleted && (
+                    {!isCompleted && Number.isFinite(etaMinutes) && (
                       <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter shrink-0">
-                        ETA: {stop.etaMinutes}m
+                        ETA: {Math.round(etaMinutes)}m
                       </span>
                     )}
                   </div>
@@ -484,7 +490,7 @@ const RideTracking = () => {
         </div>
       </div>
     );
-  }, [isPoolRide, poolGroup, rideId]);
+  }, [rideStops]);
   const displayDriverHeading = useMemo(() => {
     if (Number.isFinite(Number(rideRealtime?.driverLocation?.heading))) {
       return normalizeHeading(rideRealtime.driverLocation.heading);
@@ -840,16 +846,6 @@ const RideTracking = () => {
           pricingSnapshot: payload?.pricingSnapshot || latestStateRef.current.pricingSnapshot || null,
           driverPaymentCollection: payload?.driverPaymentCollection || latestStateRef.current.driverPaymentCollection || null,
         });
-
-        if (payload?.poolGroupId) {
-          api.get(`/rides/pooling/group/${payload.poolGroupId}`)
-            .then(res => {
-              if (active) {
-                setPoolGroup(res.data?.data || null);
-              }
-            })
-            .catch(() => {});
-        }
       } catch {
         // Let the active-ride validator decide whether the ride ended or the fetch was transient.
       }
@@ -1099,23 +1095,15 @@ const RideTracking = () => {
       }));
     };
 
-    const onPoolUpdated = (payload) => {
-      setPoolGroup(payload);
-    };
-
     socketService.on('ride:state', onRideState);
     socketService.on('ride:driver-location:updated', onLocationUpdated);
     socketService.on('ride:status:updated', onStatusUpdated);
-    socketService.on('pool.updated', onPoolUpdated);
-    socketService.on('route.updated', onPoolUpdated);
     socketService.emit('ride:join', { rideId });
 
     return () => {
       socketService.off('ride:state', onRideState);
       socketService.off('ride:driver-location:updated', onLocationUpdated);
       socketService.off('ride:status:updated', onStatusUpdated);
-      socketService.off('pool.updated', onPoolUpdated);
-      socketService.off('route.updated', onPoolUpdated);
     };
   }, [rideId]);
 

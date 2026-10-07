@@ -693,16 +693,6 @@ const ActiveTrip = () => {
                 setHydratedTripState(nextPersistedState);
                 writeStoredActiveTripSnapshot(nextPersistedState);
                 setPhase(restoredPhase);
-
-                if (currentJob?.poolGroupId) {
-                    api.get(`/rides/pooling/group/${currentJob.poolGroupId}`, withDriverAuthorization(driverToken))
-                        .then(res => {
-                            if (active) {
-                                setPoolGroup(res.data?.data || null);
-                            }
-                        })
-                        .catch(() => {});
-                }
             } catch {
                 if (active) {
                     const fallbackSnapshot = readStoredActiveTripSnapshot();
@@ -832,7 +822,6 @@ const ActiveTrip = () => {
             phase: initialState?.phase || initialJob?.phase || '',
         });
     });
-    const [poolGroup, setPoolGroup] = useState(null);
     const [otp, setOtp] = useState(['', '', '', '']);
     const [otpError, setOtpError] = useState('');
     const [selectedRating, setSelectedRating] = useState(0);
@@ -860,16 +849,10 @@ const ActiveTrip = () => {
     const hasHydratedUiStateRef = React.useRef(false);
     const mapFrameKeyRef = React.useRef('');
 
-    const activeDestination = useMemo(() => {
-        if (isPoolRide && poolGroup?.routeSequence) {
-            const nextStop = poolGroup.routeSequence.find(stop => stop.status !== 'completed');
-            if (nextStop && nextStop.coordinates) {
-                const [lng, lat] = nextStop.coordinates;
-                return { lat: Number(lat), lng: Number(lng) };
-            }
-        }
-        return (phase === 'to_pickup' || phase === 'otp_verification' ? pickupPosition : dropPosition);
-    }, [isPoolRide, poolGroup, phase, pickupPosition, dropPosition]);
+    const activeDestination = useMemo(
+        () => (phase === 'to_pickup' || phase === 'otp_verification' ? pickupPosition : dropPosition),
+        [phase, pickupPosition, dropPosition],
+    );
     const pickupDistanceMeters = useMemo(
         () => getDistanceMeters(driverPosition, pickupPosition),
         [driverPosition, pickupPosition],
@@ -1014,24 +997,16 @@ const ActiveTrip = () => {
             }
         };
 
-        const handlePoolUpdated = (payload = {}) => {
-            setPoolGroup(payload);
-        };
-
         socketService.on('rideRequestClosed', handleTripClosed);
         socketService.on('rideCancelled', handleTripClosed);
         socketService.on('ride:status:updated', handleRideStatusUpdated);
         socketService.on('ride:state', handleRideState);
-        socketService.on('pool.updated', handlePoolUpdated);
-        socketService.on('route.updated', handlePoolUpdated);
 
         return () => {
             socketService.off('rideRequestClosed', handleTripClosed);
             socketService.off('rideCancelled', handleTripClosed);
             socketService.off('ride:status:updated', handleRideStatusUpdated);
             socketService.off('ride:state', handleRideState);
-            socketService.off('pool.updated', handlePoolUpdated);
-            socketService.off('route.updated', handlePoolUpdated);
         };
     }, [exitToDriverHome, rideId, routeRideId]);
 
@@ -1346,42 +1321,53 @@ const ActiveTrip = () => {
     const fareAmount = Math.ceil(rawFareAmount);
 
     const displayFare = `Rs ${fareAmount}`;
-    const isPoolRide = Boolean(liveRaw?.isPoolRide || liveRequest?.isPoolRide || effectiveState?.isPoolRide);
+    // Ordered stops of a multi-stop ride: [{ type: 'pickup'|'stop'|'drop', address,
+    // label?, status?: 'completed', etaMinutes? }]. Renders nothing for a plain A-to-B ride.
+    const rideStopsSource = liveRaw?.stops || liveRequest?.stops || effectiveState?.stops;
+    const rideStops = useMemo(
+        () => (Array.isArray(rideStopsSource) ? rideStopsSource.filter(Boolean) : []),
+        [rideStopsSource],
+    );
 
     const stopsTimelineElement = useMemo(() => {
-        if (!isPoolRide || !poolGroup?.routeSequence) {
+        if (rideStops.length === 0) {
             return null;
         }
+
+        const currentIndex = rideStops.findIndex((stop) => stop.status !== 'completed');
 
         return (
             <div className="mb-4 p-4 rounded-3xl border border-slate-100 bg-slate-50/50 shadow-[0_2px_8px_rgba(15,23,42,0.03)] text-left">
                 <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3.5">
-                    Pool Route Stops ({poolGroup.occupiedSeats}/{poolGroup.totalCapacity} seats)
+                    Route Stops
                 </h4>
                 <div className="space-y-4 relative before:absolute before:left-3 before:top-2.5 before:bottom-2.5 before:w-0.5 before:bg-slate-200">
-                    {poolGroup.routeSequence.map((stop, index) => {
+                    {rideStops.map((stop, index) => {
                         const isCompleted = stop.status === 'completed';
                         const isPickup = stop.type === 'pickup';
-                        const isCurrent = !isCompleted && poolGroup.routeSequence.findIndex(s => s.status !== 'completed') === index;
+                        const isDrop = stop.type === 'drop';
+                        const isCurrent = !isCompleted && currentIndex === index;
+                        const etaMinutes = Number(stop.etaMinutes);
+                        const title = stop.label || (isPickup ? 'Pickup' : isDrop ? 'Drop' : `Stop ${index}`);
                         return (
-                            <div key={stop.id || index} className={`flex items-start gap-3 relative transition-all duration-300 ${isCompleted ? 'opacity-30' : ''}`}>
+                            <div key={stop.id || stop._id || index} className={`flex items-start gap-3 relative transition-all duration-300 ${isCompleted ? 'opacity-30' : ''}`}>
                                 <div className={`w-6.5 h-6.5 rounded-full flex items-center justify-center border text-[9px] font-black shrink-0 z-10 transition-transform ${isCurrent ? 'scale-110 shadow-md ring-4 ring-[#0F766E]/10' : ''} ${
-                                    isCompleted 
-                                        ? 'bg-slate-200 text-slate-500 border-slate-300' 
-                                        : isPickup 
-                                            ? 'bg-teal-50 text-[#0F766E] border-teal-200' 
-                                            : 'bg-orange-50 text-orange-600 border-orange-200'
+                                    isCompleted
+                                        ? 'bg-slate-200 text-slate-500 border-slate-300'
+                                        : isDrop
+                                            ? 'bg-orange-50 text-orange-600 border-orange-200'
+                                            : 'bg-teal-50 text-[#0F766E] border-teal-200'
                                 }`}>
                                     {isCompleted ? <Check size={10} strokeWidth={3.5} /> : (index + 1)}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-2">
                                         <p className={`text-[12px] font-bold tracking-tight uppercase leading-none ${isCurrent ? 'text-[#0F766E]' : 'text-slate-800'}`}>
-                                            {isPickup ? 'Pickup' : 'Drop'} - {stop.passengerName}
+                                            {title}
                                         </p>
-                                        {!isCompleted && (
+                                        {!isCompleted && Number.isFinite(etaMinutes) && (
                                             <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter shrink-0">
-                                                ETA: {stop.etaMinutes}m
+                                                ETA: {Math.round(etaMinutes)}m
                                             </span>
                                         )}
                                     </div>
@@ -1395,7 +1381,7 @@ const ActiveTrip = () => {
                 </div>
             </div>
         );
-    }, [isPoolRide, poolGroup]);
+    }, [rideStops]);
 
     const canMarkArrived = true;
     const canDeliverParcel = true;

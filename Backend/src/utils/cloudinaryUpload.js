@@ -5,7 +5,7 @@
  * `api.cloudinary.com`. That account (`dx26sj1as`) is disabled -- the API
  * answers `{"error":{"message":"cloud_name is disabled"}}` to every request --
  * so every taxi image upload was failing in production: driver documents and
- * selfies, pooling route images, and the landing-page content uploader.
+ * selfies, and the landing-page content uploader.
  *
  * The food and quick-commerce modules hit the same wall earlier and were
  * repointed at services/storage.service.js (see cloudinary.service.js, which

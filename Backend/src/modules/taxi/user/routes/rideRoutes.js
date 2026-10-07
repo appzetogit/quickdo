@@ -21,7 +21,6 @@ import {
   verifyRazorpayRideCompletion,
   verifyRazorpayRideTip,
   validateLocation,
-  getPoolGroupById,
   quoteRide,
 } from '../controllers/rideController.js';
 
@@ -35,7 +34,6 @@ rideRouter.get('/', authenticateOrResolveUser(['user', 'driver']), asyncHandler(
 rideRouter.get('/app-settings/tip', asyncHandler(getRideAppTipSettings));
 rideRouter.get('/available-drivers', asyncHandler(listAvailableDrivers));
 rideRouter.get('/active/me', authenticateOrResolveUser(['user', 'driver']), asyncHandler(getMyActiveRide));
-rideRouter.get('/pooling/group/:poolGroupId', authenticateOrResolveUser(['user', 'driver']), asyncHandler(getPoolGroupById));
 rideRouter.patch('/:rideId/cancel', authenticate(['user']), asyncHandler(cancelRide));
 rideRouter.get('/:rideId/bids', authenticate(['user']), asyncHandler(getRideBids));
 rideRouter.patch('/:rideId/bids/ceiling', authenticate(['user']), asyncHandler(updateRideBidCeiling));

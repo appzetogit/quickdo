@@ -16,7 +16,7 @@ import { decideAdminAccess } from '../admin/adminAccessPolicy.js';
  *
  * Only what the app actually shows is listed, checked against the app:
  *   header    food_hero_banners, by `module`: the artwork at the top of each
- *             section's home (Food, Rides, Quick, Medical, Parcel, Rental,
+ *             section's home (Food, Rides, Quick, Medical, Parcel,
  *             Services). The app asks for its section by name.
  *   foodPromo food_home_promotion_banners: the strip on Food's home.
  *   quickHero qc_hero_banners: the slider on Quick's home.
@@ -34,7 +34,6 @@ const SECTIONS = [
   ['quick_commerce', 'Quick'],
   ['medical', 'Medical'],
   ['porter', 'Parcel'],
-  ['rental', 'Rental'],
   ['services', 'Services'],
 ];
 

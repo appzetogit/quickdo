@@ -64,7 +64,6 @@ const formatTransportType = (value = "") => {
 const formatDispatchType = (value = "") => {
   const normalized = String(value || "normal").trim().toLowerCase();
   if (normalized === "bidding") return "Bidding";
-  if (normalized === "pooling") return "Pooling";
   return "Normal";
 };
 

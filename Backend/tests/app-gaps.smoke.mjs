@@ -1,11 +1,10 @@
 /**
- * Three things the customer app asked the server for and got 404, plus Taxi
+ * Two things the customer app asked the server for and got 404, plus Taxi
  * campaigns reaching the shared inbox.
  *
  * Run: node tests/app-gaps.smoke.mjs
  *
  *   GET /taxi/users/banners                         the Rides home strip
- *   GET /taxi/users/rental-vehicles, /rental-bookings   Rental, switched on
  *   GET /food/hero-banners/home-header-video/public the Food header video
  *   Taxi campaign -> every targeted customer's inbox, once, push or not
  */
@@ -72,16 +71,6 @@ await check('active banners, newest first, with the link the app opens', async (
     ['Monsoon offer', 'https://x/offer'],
   ]);
   assert.equal(r.body.data.results[0].image, 'https://x/a.jpg');
-});
-
-console.log('\nRental');
-await check('the rental catalogue answers instead of 404', async () => {
-  const r = await get('/taxi/users/rental-vehicles');
-  assert.notEqual(r.status, 404, JSON.stringify(r.body));
-});
-await check('my rental bookings needs sign-in (401), not 404', async () => {
-  const r = await get('/taxi/users/rental-bookings');
-  assert.equal(r.status, 401, JSON.stringify(r.body));
 });
 
 console.log('\nFood header video');

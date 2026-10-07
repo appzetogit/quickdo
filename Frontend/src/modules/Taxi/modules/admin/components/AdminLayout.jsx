@@ -16,7 +16,6 @@ import {
   Bell,
   Briefcase,
   Car,
-  Bus,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -838,50 +837,11 @@ const AdminLayout = () => {
               { label: 'Airport', path: '/taxi/admin/pricing/airport', permission: 'airports.view' },
               { label: 'App Modules', path: '/taxi/admin/pricing/app-modules', permission: 'settings.view' },
               { label: 'Vehicle Type', path: '/taxi/admin/pricing/vehicle-type', permission: 'vehicle_types.view' },
-              // Rental is intentionally hidden from the admin sidebar (not removed).
-              // The routes/pages still exist and stay reachable by URL - uncomment to restore.
-              /*{
-                label: 'Rental',
-                subItems: [
-                  { label: 'Service Stores', path: '/taxi/admin/pricing/service-stores', permission: 'service_stores.view' },
-                  { label: 'Rental Vehicles', path: '/taxi/admin/pricing/rental-vehicles', permission: 'rental.view' },
-                  { label: 'Track Vehicles', path: '/taxi/admin/pricing/rental-tracking', permission: 'rental.view' },
-                  { label: 'Rental Requests', path: '/taxi/admin/pricing/rental-requests', permission: 'rental.view' },
-                  { label: 'Rental Quote Requests', path: '/taxi/admin/pricing/rental-quotes', permission: 'rental.view' },
-                  { label: 'Rental Package Types', path: '/taxi/admin/pricing/rental-packages', permission: 'rental.view' },
-                  { label: 'Package Pricing', path: '/taxi/admin/pricing/package-pricing', permission: 'rental.view' },
-                ],
-              },*/
               { label: 'Set Price', path: '/taxi/admin/pricing/set-price', permission: 'set_prices.view' },
               { label: 'Surge Time Slots', path: '/taxi/admin/pricing/surge', permission: 'set_prices.view' },
-              { label: 'Ride Insurance', path: '/taxi/admin/pricing/ride-insurance', permission: 'set_prices.view' },
               { label: 'Goods Types', path: '/taxi/admin/pricing/goods-types', permission: 'goods_types.view' },
             ],
           },
-          // Bus Service is intentionally hidden from the admin sidebar (not removed).
-          // The routes/pages still exist and stay reachable by URL - uncomment to restore.
-          /*{
-            icon: Bus,
-            label: 'Bus Service',
-            subItems: [
-              { label: 'Fleet Manager', path: '/taxi/admin/bus-service', permission: 'bus_service.view' },
-              { label: 'Bus Commission', path: '/taxi/admin/bus-service/commission', permission: 'bus_service.view' },
-              { label: 'Bus Bookings', path: '/taxi/admin/bus-service/bookings', permission: 'bus_service.view' },
-            ],
-          },*/
-          // Car Pooling is intentionally hidden from the admin sidebar (not
-          // removed). The routes/pages still exist and stay reachable by URL -
-          // uncomment to restore.
-          /*{
-            icon: Share2,
-            label: 'Car Pooling',
-            subItems: [
-              { label: 'Pooling Vehicles', path: '/taxi/admin/pooling/vehicles', permission: 'pooling.view' },
-              { label: 'Pooling Commission', path: '/taxi/admin/pooling/commission', permission: 'pooling.view' },
-              { label: 'Routes & Stops', path: '/taxi/admin/pooling/routes', permission: 'pooling.view' },
-              { label: 'Pooling Bookings', path: '/taxi/admin/pooling/bookings', permission: 'pooling.view' },
-            ],
-          },*/
           {
             icon: MapPin,
             label: 'Geofencing',

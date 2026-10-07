@@ -65,7 +65,6 @@ export const createDefaultBusinessSettings = () => ({
     owner_mobile_password: '1',
   },
   transport_ride: {
-    enable_bus_service: '0',
     trip_dispatch_type: '1',
     maximum_time_for_accept_reject_bidding_ride: '60',
     maximum_time_for_find_drivers_for_bitting_ride: '300',
@@ -94,16 +93,5 @@ export const createDefaultBusinessSettings = () => ({
     user_bidding_high_percentage: '20',
     user_bidding_amount_increase_or_decrease: '10',
     user_fare_increase_wait_minutes: '2',
-  },
-  instant_pooling: {
-    enable: '1',
-    max_radius_meters: '5000',
-    max_detour_meters: '5000',
-    max_eta_increase_minutes: '15',
-    max_passengers: '3',
-    discount_percentage: '20',
-    timeout_seconds: '60',
-    surge_multiplier: '1.0',
-    cancellation_fee: '50',
   },
 });

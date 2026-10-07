@@ -73,7 +73,7 @@ const imageTypeOptions = [
 
 const vehicleFieldOptions = [
   { value: 'locationId', label: 'Operating City', field_type: 'location_select', field_group: 'common', placeholder: '', account_type: 'both' },
-  { value: 'serviceCategories', label: 'Service Category', field_type: 'multi_select', field_group: 'driver', placeholder: '', account_type: 'individual', options: ['taxi', 'outstation', 'delivery', 'pooling'] },
+  { value: 'serviceCategories', label: 'Service Category', field_type: 'multi_select', field_group: 'driver', placeholder: '', account_type: 'individual', options: ['taxi', 'outstation', 'delivery'] },
   { value: 'vehicleTypeId', label: 'Vehicle Type', field_type: 'vehicle_type_select', field_group: 'driver', placeholder: '', account_type: 'individual' },
   { value: 'make', label: 'Brand / Make', field_type: 'text', field_group: 'driver', placeholder: 'e.g. Maruti Suzuki', account_type: 'individual' },
   { value: 'model', label: 'Model', field_type: 'text', field_group: 'driver', placeholder: 'Swift, Bolt', account_type: 'individual' },

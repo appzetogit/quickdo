@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Phone, ChevronRight, ShieldCheck, Briefcase, UserRound, Sparkles, Building2, CheckCircle2 } from 'lucide-react';
+import { Phone, ChevronRight, Briefcase, UserRound, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -31,9 +31,6 @@ const PhoneRegistration = () => {
         const normalizePortalRole = (value) => {
             const normalized = String(value || '').toLowerCase();
             if (normalized === 'owner') return 'owner';
-            if (normalized === 'bus_driver' || normalized === 'bus-driver' || normalized === 'busdriver') return 'bus_driver';
-            if (normalized === 'service_center' || normalized === 'service-center' || normalized === 'servicecenter') return 'service_center';
-            if (normalized === 'service_center_staff' || normalized === 'service-center-staff' || normalized === 'servicecenterstaff') return 'service_center_staff';
             return 'driver';
         };
 
@@ -56,36 +53,25 @@ const PhoneRegistration = () => {
     const isLoginPage = location.pathname === `${routePrefix}/login` || location.pathname === `${routePrefix}/login/`;
     const appName = settings.general?.app_name || 'App';
 
-    const roleOptions = isLoginPage
-        ? [
-            { id: 'driver', label: 'Driver', Icon: UserRound },
-            { id: 'owner', label: 'Owner', Icon: Briefcase },
-            { id: 'bus_driver', label: 'Bus', Icon: ShieldCheck },
-            { id: 'service_center', label: 'Center', Icon: Building2 },
-            { id: 'service_center_staff', label: 'Staff', Icon: UserRound },
-        ]
-        : [
-            { id: 'driver', label: 'Driver', Icon: UserRound },
-            { id: 'owner', label: 'Owner', Icon: Briefcase },
-        ];
+    const roleOptions = [
+        { id: 'driver', label: 'Driver', Icon: UserRound },
+        { id: 'owner', label: 'Owner', Icon: Briefcase },
+    ];
 
     const modeConfig = useMemo(() => {
         const isOwner = role === 'owner';
-        const isBusDriver = role === 'bus_driver';
-        const isServiceCenter = role === 'service_center';
-        const isServiceCenterStaff = role === 'service_center_staff';
 
         return {
-            badge: isOwner ? 'Enterprise' : isBusDriver ? 'Transit' : isServiceCenter ? 'Operations' : isServiceCenterStaff ? 'Team' : 'Captain',
+            badge: isOwner ? 'Enterprise' : 'Captain',
             title: isLoginPage
-                ? `${isOwner ? 'Owner' : isBusDriver ? 'Bus Driver' : isServiceCenter ? 'Service Center' : isServiceCenterStaff ? 'Service Staff' : 'Driver'} Login`
+                ? `${isOwner ? 'Owner' : 'Driver'} Login`
                 : `Join ${appName}`,
             subtitle: isLoginPage
                 ? `Enter your number to access account.`
-                : `Start your journey as a ${isOwner ? 'owner' : isBusDriver ? 'captain' : isServiceCenter ? 'operator' : isServiceCenterStaff ? 'staff' : 'driver'}.`,
-            highlight: isOwner ? 'Manage fleet, payouts & drivers.' : isBusDriver ? 'Manage your coach, schedules and seat desk.' : isServiceCenter ? 'Manage your center profile, staff and rental vehicle catalog.' : isServiceCenterStaff ? 'Handle assigned bookings and work queues for your center.' : 'Go online, get trips & earn daily.',
-            accentColor: isOwner ? '#1C2833' : isBusDriver ? '#0f3d3e' : isServiceCenter ? '#14342b' : isServiceCenterStaff ? '#1e3a5f' : '#4F46E5',
-            Icon: isOwner ? Briefcase : isBusDriver ? ShieldCheck : isServiceCenter ? Building2 : isServiceCenterStaff ? ShieldCheck : UserRound,
+                : `Start your journey as a ${isOwner ? 'owner' : 'driver'}.`,
+            highlight: isOwner ? 'Manage fleet, payouts & drivers.' : 'Go online, get trips & earn daily.',
+            accentColor: isOwner ? '#1C2833' : '#4F46E5',
+            Icon: isOwner ? Briefcase : UserRound,
         };
     }, [appName, isLoginPage, role]);
 

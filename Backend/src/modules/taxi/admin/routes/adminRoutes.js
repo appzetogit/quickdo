@@ -7,8 +7,6 @@ import {
   approveOwnerSignupFromDriver,
   createAirport,
   createAdminAccount,
-  createAdminBusBooking,
-  createBusService,
   createAppModule,
   createGoodsType,
   createDriver,
@@ -22,10 +20,7 @@ import {
   createPreference,
   createRole,
   createPaymentMethod,
-  createPoolingRoute,
   createServiceLocation,
-  createServiceStore,
-  createRentalVehicleType,
   createSetPrice,
   createSubscriptionPlan,
   createCustomerSubscriptionPlan,
@@ -35,7 +30,6 @@ import {
   approveUserDeletionRequest,
   approveDriverDeletionRequest,
   deleteAppModule,
-  deleteBusService,
   deleteDriver,
   deleteDriverNeededDocument,
   deleteGoodsType,
@@ -50,20 +44,12 @@ import {
   deletePreference,
   deleteRole,
   deletePaymentMethod,
-  deletePoolingRoute,
-  deleteRentalVehicleType,
   deleteSetPrice,
   getSurgeSlots,
-  getInsurancePlans,
-  createInsurancePlan,
-  updateInsurancePlan,
-  deleteInsurancePlan,
-  getInsuredRides,
   createSurgeSlot,
   updateSurgeSlot,
   deleteSurgeSlot,
   deleteServiceLocation,
-  deleteServiceStore,
   deleteUser,
   deleteZone,
   downloadDriverDutyReport,
@@ -74,11 +60,8 @@ import {
   downloadUserReport,
   forgotPassword,
   getAdminStatus,
-  getAdminBusBookingCalendar,
-  getAdminBusBookings,
   getAdminEarnings,
   getAirports,
-  getBusServices,
   getAppModules,
   getCancelChart,
   getCountries,
@@ -124,12 +107,7 @@ import {
   getPaymentGateways,
   getPaymentMethods,
   getPaymentSettings,
-  getPoolingRoutes,
-  getRentalBookingRequests,
-  getRentalTrackingDashboard,
-  getRentalQuoteRequests,
   getPreferences,
-  getRentalVehicleTypes,
   getRideModules,
   getRoles,
   getReferralSettings,
@@ -137,7 +115,6 @@ import {
   getReferralDashboard,
   getSetPrices,
   getServiceLocations,
-  getServiceStores,
   getSmsSettings,
   getSubscriptionPlans,
   getCustomerSubscriptionPlans,
@@ -177,7 +154,6 @@ import {
   updateAppModule,
   updateAirport,
   updateAdminAccount,
-  updateBusService,
   updateDriver,
   updateDriverNeededDocument,
   updateDriverPassword,
@@ -196,22 +172,16 @@ import {
   updateFleetVehicle,
   updatePaymentSettings,
   updatePaymentMethod,
-  updatePoolingRoute,
-  updateRentalBookingRequest,
-  updateRentalQuoteRequest,
   updatePreferenceStatus,
   updateReferralTranslation,
-  updateRentalVehicleType,
   updateSetPrice,
   updateServiceLocation,
-  updateServiceStore,
   updateSmsSettings,
   updateUser,
   updateVehicleType,
   updateZone,
   createVehicleType,
   createFleetVehicle,
-  cancelAdminBusBookingSeats,
   deleteAirport,
   deleteAdminAccount,
   deleteVehicleType,
@@ -219,16 +189,8 @@ import {
   getAdmins,
   getTransportTypes,
   deleteFleetVehicle,
-} from '../controllers/adminController.js';
-import {
-  getPoolingVehicles,
-  createPoolingVehicle,
-  updatePoolingVehicle,
-  deletePoolingVehicle,
-  getPoolingBookings,
-  updatePoolingBookingStatus,
   uploadImage,
-} from '../controllers/poolingController.js';
+} from '../controllers/adminController.js';
 import { promotionsRouter } from '../promotions/routes/index.js';
 import { enforceAdminAccess } from '../../../../core/admin/enforceAdminAccess.middleware.js';
 import { resolveTaxiAdminResource } from '../../../../core/admin/adminAccessPolicy.js';
@@ -327,10 +289,6 @@ adminRouter.get('/countries', getCountries);
 adminRouter.post('/admin/service-locations', createServiceLocation);
 adminRouter.patch('/admin/service-locations/:id', updateServiceLocation);
 adminRouter.delete('/admin/service-locations/:id', deleteServiceLocation);
-adminRouter.get('/admin/service-stores', getServiceStores);
-adminRouter.post('/admin/service-stores', createServiceStore);
-adminRouter.patch('/admin/service-stores/:id', updateServiceStore);
-adminRouter.delete('/admin/service-stores/:id', deleteServiceStore);
 adminRouter.get('/common/ride_modules', getRideModules);
 adminRouter.get('/admin/types/vehicle-types/list', getVehicleTypes);
 adminRouter.get('/admin/types/vehicle-types', getVehicleTypeCatalog);
@@ -342,11 +300,6 @@ adminRouter.post('/admin/types/set-prices', createSetPrice);
 adminRouter.patch('/admin/types/set-prices/:id', updateSetPrice);
 adminRouter.delete('/admin/types/set-prices/:id', deleteSetPrice);
 adminRouter.get('/admin/types/surge-slots', getSurgeSlots);
-adminRouter.get('/admin/types/ride-insurance', getInsurancePlans);
-adminRouter.get('/admin/types/ride-insurance/rides', getInsuredRides);
-adminRouter.post('/admin/types/ride-insurance', createInsurancePlan);
-adminRouter.patch('/admin/types/ride-insurance/:id', updateInsurancePlan);
-adminRouter.delete('/admin/types/ride-insurance/:id', deleteInsurancePlan);
 adminRouter.post('/admin/types/surge-slots', createSurgeSlot);
 adminRouter.patch('/admin/types/surge-slots/:id', updateSurgeSlot);
 adminRouter.delete('/admin/types/surge-slots/:id', deleteSurgeSlot);
@@ -354,51 +307,7 @@ adminRouter.get('/admin/airports', getAirports);
 adminRouter.post('/admin/airports', createAirport);
 adminRouter.patch('/admin/airports/:id', updateAirport);
 adminRouter.delete('/admin/airports/:id', deleteAirport);
-adminRouter.get('/admin/bus-services', getBusServices);
-adminRouter.post('/admin/bus-services', createBusService);
-adminRouter.patch('/admin/bus-services/:id', updateBusService);
-adminRouter.delete('/admin/bus-services/:id', deleteBusService);
-adminRouter.get('/admin/bus-bookings', getAdminBusBookings);
-adminRouter.get('/admin/bus-bookings/calendar', getAdminBusBookingCalendar);
-adminRouter.post('/admin/bus-bookings/manual', createAdminBusBooking);
-adminRouter.post('/admin/bus-bookings/:id/cancel', cancelAdminBusBookingSeats);
-/*
- * The rental admin API, enabled.
- *
- * These thirteen routes arrived commented out in the first commit of this
- * file -- the taxi integration carried them over disabled and nobody turned
- * them on. Their handlers were imported all along and still are, so the
- * panel's Rental Vehicle Types, Rental Packages, Booking Requests, Quote
- * Requests and Tracking screens were calling paths no router declared, and
- * every one answered 404. That is what "the rental screens are dead" was.
- *
- * scripts/audit-taxi-admin-routes.mjs is what found them, and will find the
- * next set: it diffs every path the panel calls against every route this
- * module declares.
- */
-adminRouter.get('/admin/types/rental-vehicles', getRentalVehicleTypes);
-adminRouter.post('/admin/types/rental-vehicles', createRentalVehicleType);
-adminRouter.patch('/admin/types/rental-vehicles/:id', updateRentalVehicleType);
-adminRouter.delete('/admin/types/rental-vehicles/:id', deleteRentalVehicleType);
-adminRouter.get('/admin/pooling-routes', getPoolingRoutes);
-adminRouter.post('/admin/pooling-routes', createPoolingRoute);
-adminRouter.patch('/admin/pooling-routes/:id', updatePoolingRoute);
-adminRouter.delete('/admin/pooling-routes/:id', deletePoolingRoute);
-
-adminRouter.get('/admin/pooling-vehicles', getPoolingVehicles);
-adminRouter.post('/admin/pooling-vehicles', createPoolingVehicle);
-adminRouter.patch('/admin/pooling-vehicles/:id', updatePoolingVehicle);
-adminRouter.delete('/admin/pooling-vehicles/:id', deletePoolingVehicle);
-
-adminRouter.get('/admin/pooling-bookings', getPoolingBookings);
-adminRouter.patch('/admin/pooling-bookings/:id/status', updatePoolingBookingStatus);
-
 adminRouter.post('/admin/upload-image', uploadImage);
-adminRouter.get('/admin/rental-booking-requests', getRentalBookingRequests);
-adminRouter.get('/admin/rental-tracking', getRentalTrackingDashboard);
-adminRouter.patch('/admin/rental-booking-requests/:id', updateRentalBookingRequest);
-adminRouter.get('/admin/rental-quote-requests', getRentalQuoteRequests);
-adminRouter.patch('/admin/rental-quote-requests/:id', updateRentalQuoteRequest);
 adminRouter.get('/admin/goods-types', getGoodsTypes);
 adminRouter.post('/admin/goods-types', createGoodsType);
 adminRouter.patch('/admin/goods-types/:id', updateGoodsType);

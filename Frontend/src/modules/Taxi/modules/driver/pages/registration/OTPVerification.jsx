@@ -17,15 +17,6 @@ const unwrap = (response) => response?.data?.data || response?.data || response;
 const normalizeDriverRole = (role) => {
     const normalized = String(role || 'driver').toLowerCase();
     if (normalized === 'owner') return 'owner';
-    if (normalized === 'service_center' || normalized === 'service-center' || normalized === 'servicecenter') {
-        return 'service_center';
-    }
-    if (normalized === 'service_center_staff' || normalized === 'service-center-staff' || normalized === 'servicecenterstaff') {
-        return 'service_center_staff';
-    }
-    if (normalized === 'bus_driver' || normalized === 'bus-driver' || normalized === 'busdriver') {
-        return 'bus_driver';
-    }
     return 'driver';
 };
 
@@ -47,14 +38,6 @@ const isDriverApproved = (driver) => {
 
 const getPostLoginRoute = (role, driver, routePrefix) => {
     const normalizedRole = normalizeDriverRole(role);
-
-    if (normalizedRole === 'service_center' || normalizedRole === 'service_center_staff') {
-        return '/taxi/driver/service-center';
-    }
-
-    if (normalizedRole === 'bus_driver') {
-        return '/taxi/driver/bus-home';
-    }
 
     if (normalizedRole === 'owner' || normalizedRole === 'driver') {
         return isDriverApproved(driver)

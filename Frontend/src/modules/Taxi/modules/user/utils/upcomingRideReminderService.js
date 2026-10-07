@@ -143,54 +143,6 @@ const scheduleReminderWindowSet = ({ scope, entityId, eventTime, title, body, ty
   });
 };
 
-const getBusReminderPayload = (booking) => {
-  const bookingId = String(booking?.id || booking?._id || booking?.bookingCode || '').trim();
-  const eventTime = parseDateTime(booking?.travelDate, booking?.bus?.departure);
-
-  if (!bookingId || !eventTime) {
-    return null;
-  }
-
-  const fromCity = String(booking?.bus?.fromCity || 'Pickup').trim();
-  const toCity = String(booking?.bus?.toCity || 'Drop').trim();
-  const operator = String(booking?.bus?.operator || booking?.bus?.busName || 'Bus').trim();
-
-  return {
-    scope: 'bus',
-    entityId: bookingId,
-    eventTime,
-    title: `Bus soon: ${fromCity} to ${toCity}`,
-    body: `${operator} departs at ${booking?.bus?.departure || 'scheduled time'}. Please be ready 10 minutes early.`,
-    type: 'ride',
-  };
-};
-
-const getPoolingReminderPayload = (booking) => {
-  const bookingId = String(booking?._id || booking?.bookingId || '').trim();
-  const routeSchedules = Array.isArray(booking?.route?.schedules) ? booking.route.schedules : [];
-  const selectedSchedule = routeSchedules.find((item) => String(item?.id || '') === String(booking?.scheduleId || ''));
-  const departureTime = String(selectedSchedule?.departureTime || booking?.departureTime || '').trim();
-  const eventTime = parseDateTime(booking?.travelDate, departureTime);
-
-  if (!bookingId || !eventTime) {
-    return null;
-  }
-
-  const routeName = String(
-    booking?.route?.routeName ||
-    `${booking?.route?.originLabel || 'Pickup'} to ${booking?.route?.destinationLabel || 'Drop'}`,
-  ).trim();
-
-  return {
-    scope: 'pooling',
-    entityId: bookingId,
-    eventTime,
-    title: `Pooling trip soon: ${routeName}`,
-    body: `Your shared ride leaves at ${departureTime || 'the scheduled time'}. Please reach ${booking?.pickupLabel || 'the pickup point'} early.`,
-    type: 'ride',
-  };
-};
-
 const isTerminalRideStatus = (ride) => {
   const status = String(ride?.status || ride?.liveStatus || '').toLowerCase();
   return ['cancelled', 'completed', 'failed', 'expired'].includes(status);
@@ -215,38 +167,12 @@ const getScheduledRideReminderPayload = (ride) => {
 };
 
 export const syncUpcomingRideReminders = ({
-  busBookings = [],
-  poolingBookings = [],
   scheduledRides = [],
 } = {}) => {
-  busBookings
-    .map(getBusReminderPayload)
-    .filter(Boolean)
-    .forEach(scheduleReminderWindowSet);
-
-  poolingBookings
-    .map(getPoolingReminderPayload)
-    .filter(Boolean)
-    .forEach(scheduleReminderWindowSet);
-
   scheduledRides
     .map(getScheduledRideReminderPayload)
     .filter(Boolean)
     .forEach(scheduleReminderWindowSet);
-};
-
-export const scheduleBusBookingReminders = (booking) => {
-  const payload = getBusReminderPayload(booking);
-  if (payload) {
-    scheduleReminderWindowSet(payload);
-  }
-};
-
-export const schedulePoolingBookingReminders = (booking) => {
-  const payload = getPoolingReminderPayload(booking);
-  if (payload) {
-    scheduleReminderWindowSet(payload);
-  }
 };
 
 export const scheduleScheduledRideReminders = (ride) => {

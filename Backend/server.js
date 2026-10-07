@@ -141,74 +141,15 @@ const startServer = async () => {
             }
         };
 
-        const ensureBusDaysUpdated = async () => {
-            try {
-                const { BusService } = await import('./src/modules/taxi/admin/models/BusService.js');
-                await BusService.updateMany(
-                    { operatorName: "K9 Travels" },
-                    {
-                        $set: {
-                            "schedules.$[].activeDays": ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                        }
-                    }
-                );
-                logger.info('Database settings: Bus schedules active days updated to short codes!');
-            } catch (err) {
-                logger.error(`Error updating bus days: ${err.message}`);
-            }
-        };
-
-        const seedBusDriverInDb = async () => {
-            try {
-                const { BusDriver } = await import('./src/modules/taxi/driver/models/BusDriver.js');
-                const { BusService } = await import('./src/modules/taxi/admin/models/BusService.js');
-
-                const bus = await BusService.findOne({ registrationNumber: "MP04AB9999" });
-                if (bus) {
-                    const phone = "7000123456";
-                    let driver = await BusDriver.findOne({ phone });
-                    if (!driver) {
-                        driver = new BusDriver({ phone });
-                    }
-                    driver.name = "Rajesh Kumar";
-                    driver.email = "rajesh.driver@k9rides.com";
-                    driver.approve = true;
-                    driver.active = true;
-                    driver.status = "approved";
-                    driver.assignedBusServiceId = bus._id;
-                    driver.operatorName = bus.operatorName || "K9 Travels";
-                    driver.busName = bus.busName || "Sleeper Premium AC";
-                    driver.serviceNumber = bus.serviceNumber || "K9-1002";
-                    driver.registrationNumber = bus.registrationNumber || "MP04AB9999";
-                    driver.routeName = bus.route?.routeName || "Bhopal - Indore";
-                    driver.originCity = bus.route?.originCity || "Bhopal";
-                    driver.destinationCity = bus.route?.destinationCity || "Indore";
-                    await driver.save();
-
-                    bus.driverName = driver.name;
-                    bus.driverPhone = driver.phone;
-                    bus.busDriverId = driver._id;
-                    await bus.save();
-                    logger.info('Database settings: Bus Driver seeded and linked to bus successfully!');
-                } else {
-                    logger.warn('Database settings: Seeded bus not found, cannot link driver.');
-                }
-            } catch (err) {
-                logger.error(`Error seeding bus driver: ${err.message}`);
-            }
-        };
-
-        // All three WRITE to the database. runWatchdog() is the dangerous one: it
-        // unassigns delivery partners from stuck orders and re-dispatches them.
+        // runWatchdog() WRITES to the database: it unassigns delivery partners
+        // from stuck orders and re-dispatches them.
         // A second instance sharing a primary's database must not run these.
         const runBootJobs = () => {
             if (!config.backgroundJobsEnabled) {
-                logger.warn('BACKGROUND_JOBS_ENABLED=false — skipping watchdog, bus seed and settings sync (read-mostly instance)');
+                logger.warn('BACKGROUND_JOBS_ENABLED=false — skipping watchdog (read-mostly instance)');
                 return;
             }
             runWatchdog();
-            ensureBusDaysUpdated();
-            seedBusDriverInDb();
         };
 
         if (mongoose.connection.readyState === 1) {
