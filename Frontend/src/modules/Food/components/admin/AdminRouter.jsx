@@ -35,6 +35,17 @@ const MasterPromotions = lazy(() => import("@food/pages/admin/master/PromoCeilin
 const OrderBatching = lazy(() => import("@food/pages/admin/master/OrderBatching"))
 const AdminActivityLog = lazy(() => import("@food/pages/admin/master/AdminActivityLog"))
 const MasterRefunds = lazy(() => import("@food/pages/admin/master/MasterRefunds"))
+// SOW §5: FAQs, loyalty points, delivery slots (pages/admin/marketplace).
+const MasterFaqs = lazy(() => import("@food/pages/admin/marketplace/Faqs"))
+const MasterLoyalty = lazy(() => import("@food/pages/admin/marketplace/LoyaltyPoints"))
+const MasterDeliverySlots = lazy(() => import("@food/pages/admin/marketplace/DeliverySlots"))
+// Cross-vertical Master screens (plan §7): dashboard, reports, GST, subscriptions, broadcasts, insights.
+const MasterDashboard = lazy(() => import("@food/pages/admin/master/MasterDashboard"))
+const MasterReports = lazy(() => import("@food/pages/admin/master/MasterReports"))
+const MasterTaxReport = lazy(() => import("@food/pages/admin/master/MasterTaxReport"))
+const MasterSubscriptions = lazy(() => import("@food/pages/admin/master/MasterSubscriptions"))
+const MasterBroadcasts = lazy(() => import("@food/pages/admin/master/MasterBroadcasts"))
+const MasterInsights = lazy(() => import("@food/pages/admin/master/MasterInsights"))
 // Master's own Delivery Management pages: the same screens as the Food and Taxi
 // panels, opened inside Master (links between them stay in Master).
 const TaxiDriverList = lazy(() => import("@/modules/Taxi/modules/admin/pages/drivers/DriverList"))
@@ -155,7 +166,6 @@ const FirebaseNotification = lazy(() => import("@food/pages/admin/system/Firebas
 const OfflinePaymentSetup = lazy(() => import("@food/pages/admin/system/OfflinePaymentSetup"));
 const JoinUsPageSetup = lazy(() => import("@food/pages/admin/system/JoinUsPageSetup"));
 const AnalyticsScript = lazy(() => import("@food/pages/admin/system/AnalyticsScript"));
-const AISetup = lazy(() => import("@food/pages/admin/system/AISetup"));
 const AppWebSettings = lazy(() => import("@food/pages/admin/system/AppWebSettings"));
 const NotificationChannels = lazy(() => import("@food/pages/admin/system/NotificationChannels"));
 const NotificationBroadcast = lazy(() => import("@food/pages/admin/system/NotificationBroadcast"));
@@ -364,7 +374,8 @@ const verticalAdminRoutes = (
             <Route path="3rd-party-configurations/offline-payment" element={<OfflinePaymentSetup />} />
             <Route path="3rd-party-configurations/join-us" element={<JoinUsPageSetup />} />
             <Route path="3rd-party-configurations/analytics" element={<AnalyticsScript />} />
-            <Route path="3rd-party-configurations/ai" element={<AISetup />} />
+            {/* The old AI setup page stored keys nothing used. Insights are computed in-house: Master > Insights. */}
+            <Route path="3rd-party-configurations/ai" element={<Navigate to="/admin/master/insights" replace />} />
             <Route path="app-web-settings" element={<AppWebSettings />} />
             <Route path="notifications" element={<AdminNotifications />} />
             <Route path="broadcast-notification" element={<NotificationBroadcast />} />
@@ -421,7 +432,15 @@ export default function AdminRouter() {
           }
         >
           {/* Default Admin Redirect */}
-          <Route path="/" element={<Navigate to="food" replace />} />
+          {/* The admin home is the cross-vertical dashboard; each admin sees the services they may. */}
+          <Route path="/" element={<Navigate to="master/dashboard" replace />} />
+          <Route path="master/dashboard" element={<MasterDashboard />} />
+          <Route path="master/reports" element={<Navigate to="/admin/master/reports/sales" replace />} />
+          <Route path="master/reports/:kind" element={<MasterReports />} />
+          <Route path="master/tax" element={<MasterTaxReport />} />
+          <Route path="master/subscriptions" element={<MasterSubscriptions />} />
+          <Route path="master/broadcasts" element={<MasterBroadcasts />} />
+          <Route path="master/insights" element={<MasterInsights />} />
 
           {/*
             MASTER / GLOBAL
@@ -452,6 +471,9 @@ export default function AdminRouter() {
           <Route path="master/order-batching" element={<OrderBatching />} />
           <Route path="master/activity-log" element={<AdminActivityLog />} />
           <Route path="master/refunds" element={<MasterRefunds />} />
+          <Route path="master/faqs" element={<MasterFaqs />} />
+          <Route path="master/loyalty" element={<MasterLoyalty />} />
+          <Route path="master/delivery-slots" element={<MasterDeliverySlots />} />
           <Route path="master/delivery-partners" element={<DeliverymanList />} />
           <Route path="master/delivery-partners/join-requests" element={<JoinRequest />} />
           <Route path="master/taxi-drivers" element={<TaxiDriverList />} />

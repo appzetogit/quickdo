@@ -500,6 +500,9 @@ export const adminAPI = {
       { reason },
       { contextModule: "admin" },
     ),
+  /** Re-run the GSTIN check for a restaurant under review and store the result. */
+  reverifyRestaurantGst: (id) =>
+    apiClient.post(`/food/admin/restaurants/${id}/gst-verify`, {}, { contextModule: "admin" }),
   /** Delivery partner join requests - uses /food/admin/delivery/* (new backend API) */
   getDeliveryPartnerJoinRequests: (params) =>
     apiClient.get("/food/admin/delivery/join-requests", {
@@ -1595,6 +1598,32 @@ export const restaurantAPI = {
       contextModule: "restaurant",
     });
   },
+  /** Blank menu sheet for the optional onboarding menu step (no sign-in needed). */
+  blankMenuTemplate: () =>
+    apiClient.get("/food/restaurant/bulk-upload/template/blank", { responseType: "blob" }),
+  /** Server-side sales analytics: { from, to, groupBy: day|week|month } (YYYY-MM-DD, IST). */
+  getSalesAnalytics: (params = {}) =>
+    apiClient.get("/food/restaurant/analytics/sales", { params, contextModule: "restaurant" }),
+  /** Report file: { type: orders|sales|commission|gst|payouts, format: csv|pdf, from, to, groupBy }. */
+  downloadReport: (params = {}) =>
+    apiClient.get("/food/restaurant/reports", { params, responseType: "blob", contextModule: "restaurant" }),
+  /** Settlement statements, newest cycle first. */
+  getSettlementStatements: (params = {}) =>
+    apiClient.get("/food/restaurant/settlements", { params, contextModule: "restaurant" }),
+  getSettlementStatement: (cycleId) =>
+    apiClient.get(`/food/restaurant/settlements/${encodeURIComponent(cycleId)}`, { contextModule: "restaurant" }),
+  downloadSettlementStatement: (cycleId, format = "pdf") =>
+    apiClient.get(`/food/restaurant/settlements/${encodeURIComponent(cycleId)}/download`, {
+      params: { format },
+      responseType: "blob",
+      contextModule: "restaurant",
+    }),
+  /** GSTIN check used by onboarding: { gstin, legalName?, panNumber?, state? }. */
+  verifyGstin: (body = {}) => apiClient.post("/food/restaurant/gst/verify", body),
+  /** Owner sign-in by emailed 6-digit code (existing outlets). */
+  sendEmailOTP: (email) => authService.requestRestaurantEmailOtp(email),
+  verifyEmailOTP: (email, otp, fcmToken = null, platform = "web") =>
+    authService.verifyRestaurantEmailOtp(email, otp, fcmToken, platform),
   /** Orders (restaurant dashboard) */
   getOrders: (() => {
     // Single-flight de-dupe to avoid duplicate GETs in React StrictMode / double-mount.

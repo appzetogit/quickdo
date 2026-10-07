@@ -52,6 +52,12 @@ import { MODULES } from '../core/modules/moduleRegistry.js';
 import { adminActivityLog } from '../core/admin/adminActivityLog.middleware.js';
 import adminAuditLogRoutes from '../core/admin/adminAuditLog.routes.js';
 import platformRefundRoutes from '../core/payments/routes/platformRefunds.routes.js';
+import masterAnalyticsRoutes from '../core/admin/masterAnalytics.routes.js';
+import recommendationRoutes from '../core/analytics/recommendations.routes.js';
+import { getPublicGlobalPlatformController } from '../core/config/globalPlatform.js';
+import faqRoutes from '../core/faq/faq.routes.js';
+import loyaltyRoutes from '../core/loyalty/loyalty.routes.js';
+import deliverySlotRoutes from '../core/deliverySlots/deliverySlot.routes.js';
 
 const router = express.Router();
 
@@ -143,10 +149,21 @@ router.use('/v1/platform/commission', commissionOverviewRoutes);
 router.use('/v1/platform/audit-log', adminAuditLogRoutes);
 // Every refund on the platform with its gateway status (Master > Refunds).
 router.use('/v1/platform/refunds', platformRefundRoutes);
+// Master dashboard, cross-vertical reports, GST, subscriptions, broadcasts and
+// insights (core/admin/masterAnalytics.routes.js).
+router.use('/v1/platform/master', masterAnalyticsRoutes);
+// What the apps recommend from the nightly insights (core/analytics/insights.service.js).
+router.use('/v1/platform/recommendations', recommendationRoutes);
+// FAQs, loyalty points and delivery slots (plan §5.7, §5.8, §5.3): shared by every service.
+router.use('/v1/platform/faqs', faqRoutes);
+router.use('/v1/platform/loyalty', loyaltyRoutes);
+router.use('/v1/platform/delivery-slots', deliverySlotRoutes);
 // The customer's orders from every service, in one list (the app's My Orders).
 router.use('/v1/platform/me', authMiddleware, requireRoles('USER'), myOrdersRoutes);
 // Terms and privacy for one app, public (shown before sign-in).
 router.get('/v1/platform/legal/:app/:kind', getPublicAppLegal);
+// Country, currency, phone code, time zone and schedule defaults (Master Global Settings), public.
+router.get('/v1/platform/global-settings', getPublicGlobalPlatformController);
 
 router.get('/v1/health', (req, res) => {
     res.status(200).json({ status: 'UP', message: 'Server is healthy' });

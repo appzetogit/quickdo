@@ -396,6 +396,68 @@ export const SETTINGS = Object.freeze({
         label: 'Require completed KYC',
     },
 
+    // --- store orders: delivery, schedule (plan §5.3, §5.4) -------------------
+    'delivery.dropOtpRequired': {
+        type: 'boolean',
+        default: true,
+        scopes: NOT_PER_PARTNER,
+        label: 'Riders need the customer handover code',
+        help: 'On (as before): the rider completes a delivery with the customer\'s code. Off: the rider completes with a proof-of-delivery photo instead (a photo is also accepted when the customer asked for a contactless drop).',
+    },
+    'orders.scheduledDispatchLeadMinutes': {
+        type: 'number',
+        default: 30,
+        min: 0,
+        max: 240,
+        scopes: NOT_PER_PARTNER,
+        label: 'Start rider search this many minutes before a delivery slot',
+        help: 'Scheduled quick-commerce orders wait until then; the store can still accept and pack earlier.',
+    },
+
+    // --- loyalty points (plan §5.7, core/loyalty) -----------------------------
+    'loyalty.enabled': {
+        type: 'boolean',
+        default: false,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Loyalty points',
+        help: 'Off (the default) earns and redeems nothing. Turn on globally or for one service.',
+    },
+    'loyalty.pointsPerRupee': {
+        type: 'number',
+        default: 0.1,
+        min: 0,
+        max: 10,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Points earned per rupee',
+        help: 'Counted on the item value of a delivered order. 0.1 = 1 point per Rs 10.',
+    },
+    'loyalty.rupeesPerPoint': {
+        type: 'number',
+        default: 0.25,
+        min: 0,
+        max: 100,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Rupees one point is worth at checkout',
+    },
+    'loyalty.maxRedeemPercent': {
+        type: 'number',
+        default: 20,
+        min: 0,
+        max: 100,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Most of an order points may pay (%)',
+        help: 'Of the item value. 0 stops redemption without stopping earning.',
+    },
+    'loyalty.expiryDays': {
+        type: 'number',
+        default: 365,
+        min: 0,
+        max: 3650,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Days before earned points expire',
+        help: '0 means points never expire.',
+    },
+
     // --- platform ------------------------------------------------------------
     'platform.maintenanceMode': {
         type: 'boolean',
@@ -403,6 +465,81 @@ export const SETTINGS = Object.freeze({
         scopes: GLOBAL_ONLY,
         label: 'Maintenance mode',
         help: 'Global by nature. A per-partner maintenance override would be an override that does nothing.',
+    },
+
+    // --- global platform (plan §7.8, read through core/config/globalPlatform.js)
+    /*
+     * One place for the country, currency, dialling code and time zone every app
+     * and report should use. Currency falls back to Master > Brand & contact
+     * (platformProfile business.currencyCode/Symbol) while unset here, so a value
+     * already saved there keeps working. Nothing that formats dates in India
+     * time changes until a different zone is chosen.
+     */
+    'platform.countryCode': {
+        type: 'string',
+        default: 'IN',
+        pattern: /^[A-Z]{2}$/,
+        scopes: GLOBAL_ONLY,
+        label: 'Country (ISO code)',
+        help: 'Two letters, e.g. IN.',
+    },
+    'platform.currencyCode': {
+        type: 'string',
+        default: 'INR',
+        pattern: /^[A-Z]{3}$/,
+        scopes: GLOBAL_ONLY,
+        label: 'Currency (ISO code)',
+        help: 'Three letters, e.g. INR.',
+    },
+    'platform.currencySymbol': {
+        type: 'string',
+        default: '₹',
+        maxLength: 4,
+        scopes: GLOBAL_ONLY,
+        label: 'Currency symbol',
+    },
+    'platform.phoneCode': {
+        type: 'string',
+        default: '+91',
+        pattern: /^\+\d{1,4}$/,
+        scopes: GLOBAL_ONLY,
+        label: 'Phone country code',
+        help: 'With the plus, e.g. +91.',
+    },
+    'platform.timezone': {
+        type: 'string',
+        default: 'Asia/Kolkata',
+        timezone: true,
+        scopes: GLOBAL_ONLY,
+        label: 'Time zone',
+        help: 'An IANA zone, e.g. Asia/Kolkata. Reports and schedules use it.',
+    },
+    'delivery.defaultRadiusKm': {
+        type: 'number',
+        default: null,
+        min: 0,
+        max: 100,
+        scopes: NOT_PER_PARTNER,
+        label: 'Default delivery radius (km)',
+        help: 'For new stores and restaurants. Unset: each service keeps its own default.',
+    },
+    'schedule.maxDaysAhead': {
+        type: 'number',
+        default: null,
+        min: 0,
+        max: 60,
+        scopes: NOT_PER_PARTNER,
+        label: 'How many days ahead customers may schedule',
+        help: 'Unset: each service keeps its own limit.',
+    },
+    'schedule.minLeadMinutes': {
+        type: 'number',
+        default: null,
+        min: 0,
+        max: 1440,
+        scopes: NOT_PER_PARTNER,
+        label: 'Earliest a scheduled order or ride may be (minutes from now)',
+        help: 'Unset: each service keeps its own minimum.',
     },
 });
 
@@ -484,6 +621,25 @@ export function coerce(key, raw) {
             err.statusCode = 400;
             throw err;
         }
+    }
+
+    if (def.type === 'string') {
+        const value = String(raw).trim();
+        const bad = (why) => {
+            const err = new Error(`"${key}" ${why}`);
+            err.statusCode = 400;
+            throw err;
+        };
+        if (def.maxLength && value.length > def.maxLength) bad(`must be at most ${def.maxLength} characters`);
+        if (def.pattern && !def.pattern.test(value)) bad(`is not valid${def.help ? ` (${def.help})` : ''}`);
+        if (def.timezone) {
+            try {
+                new Intl.DateTimeFormat('en-US', { timeZone: value });
+            } catch {
+                bad('must be a time zone such as Asia/Kolkata');
+            }
+        }
+        return value;
     }
 
     return raw;

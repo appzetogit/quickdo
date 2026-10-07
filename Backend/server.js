@@ -37,7 +37,9 @@ let manualAssignExpiryInterval = null;
 let fssaiExpiryInterval = null;
 let spScheduler = null;
 let ledgerNightlyInterval = null;
+let insightsNightlyInterval = null;
 let taxiScheduledDispatchWorker = null;
+let storeScheduledDispatchWorker = null;
 
 const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received, starting graceful shutdown`);
@@ -55,7 +57,9 @@ const gracefulShutdown = async (signal) => {
             if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
             if (spScheduler) spScheduler.stop();
             if (ledgerNightlyInterval) clearInterval(ledgerNightlyInterval);
+            if (insightsNightlyInterval) clearInterval(insightsNightlyInterval);
             if (taxiScheduledDispatchWorker) await taxiScheduledDispatchWorker.close().catch(() => {});
+            if (storeScheduledDispatchWorker) await storeScheduledDispatchWorker.close().catch(() => {});
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -274,6 +278,13 @@ const startServer = async () => {
                 .then(({ startLedgerNightly }) => { ledgerNightlyInterval = startLedgerNightly(); })
                 .catch((err) => logger.error(`Ledger nightly failed to start: ${err.message}`));
 
+            // Nightly insights (forecasts, bought-together, demand per zone). Claims
+            // each night in the database, so a second instance does not repeat it.
+            // INSIGHTS_NIGHTLY_ENABLED=false turns it off. See core/analytics/insights.service.js.
+            import('./src/core/analytics/insights.service.js')
+                .then(({ startInsightsNightly }) => { insightsNightlyInterval = startInsightsNightly(); })
+                .catch((err) => logger.error(`Insights nightly failed to start: ${err.message}`));
+
             // Releases new orders to the restaurant when their cancellation hold ends.
             // Not tied to BACKGROUND_JOBS_ENABLED: a held order must always reach the
             // restaurant, and each release is claimed in the database, so a second
@@ -319,6 +330,20 @@ const startServer = async () => {
                     if (restored) logger.info(`Taxi scheduled dispatch: ${restored} ride(s) re-armed`);
                 })
                 .catch((err) => logger.error(`Taxi scheduled dispatch failed to start: ${err.message}`));
+
+            // Scheduled quick-commerce orders (plan §5.3): rider search N minutes
+            // before the delivery slot. Same arrangement as taxi above -- a
+            // delayed BullMQ job consumed here, else timers re-armed from the
+            // database; each round claimed once on the order.
+            import('./src/core/orders/scheduledDispatch.js')
+                .then(async ({ startStoreScheduledDispatchWorker, restoreStoreScheduledDispatches }) => {
+                    if (config.bullmqEnabled && config.redisEnabled) {
+                        storeScheduledDispatchWorker = await startStoreScheduledDispatchWorker();
+                    }
+                    const restored = await restoreStoreScheduledDispatches();
+                    if (restored) logger.info(`Store scheduled dispatch: ${restored} order(s) re-armed`);
+                })
+                .catch((err) => logger.error(`Store scheduled dispatch failed to start: ${err.message}`));
 
             if (!config.backgroundJobsEnabled) {
                 logger.warn('BACKGROUND_JOBS_ENABLED=false — skipping offer expiry and FSSAI sync (read-mostly instance)');

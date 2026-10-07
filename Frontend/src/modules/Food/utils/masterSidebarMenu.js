@@ -29,6 +29,25 @@ export const masterSidebarMenu = [
     type: "section",
     label: "MASTER",
     items: [
+      // The admin home: every service at a glance (plan §7.1).
+      {
+        type: "link",
+        label: "Dashboard",
+        path: "/admin/master/dashboard",
+        icon: "LayoutDashboard",
+      },
+      // Each service's own admin, reachable from the same shell (plan §7.9).
+      {
+        type: "expandable",
+        label: "Service Panels",
+        icon: "LayoutGrid",
+        subItems: [
+          { label: "Food admin", path: "/admin/food" },
+          { label: "Quick Commerce admin", path: "/admin/quick-commerce" },
+          { label: "Taxi admin", path: "/taxi/admin/dashboard" },
+          ...sp([{ label: "Services admin", path: "/admin/sp/dashboard" }]),
+        ],
+      },
       {
         type: "expandable",
         label: "Master Settings",
@@ -40,6 +59,7 @@ export const masterSidebarMenu = [
           { label: "Platform Fee & GST", path: "/admin/master/fees" },
           { label: "Cancellation Policy", path: "/admin/master/cancellation" },
           { label: "Promo Limits", path: "/admin/master/promotions" },
+          { label: "Global Platform", path: "/admin/master/settings/global" },
         ],
       },
       {
@@ -68,6 +88,7 @@ export const masterSidebarMenu = [
           { label: "Delivery Earnings (all services)", path: "/admin/master/delivery-earnings" },
           { label: "Delivery Incentives", path: "/admin/master/delivery-incentives" },
           { label: "Order Batching", path: "/admin/master/order-batching" },
+          { label: "Delivery Slots (Quick)", path: "/admin/master/delivery-slots" },
           // One catalogue for every partner: the partner app's sign-up (Food rider,
           // Quick rider, bike taxi, cab) reads it for all of
           // them, filtered by vehicle class. It lives on Taxi's screen, which is
@@ -90,6 +111,11 @@ export const masterSidebarMenu = [
         label: "Report Management",
         icon: "Receipt",
         subItems: [
+          { label: "Reports (all services)", path: "/admin/master/reports/sales" },
+          { label: "Customer Report", path: "/admin/master/reports/customers" },
+          { label: "GST (all services)", path: "/admin/master/tax" },
+          { label: "Subscriptions (all services)", path: "/admin/master/subscriptions" },
+          { label: "Insights & Forecasts", path: "/admin/master/insights" },
           { label: "Platform Earnings (all services)", path: "/admin/master/platform-earnings" },
           { label: "Commission Overview (all services)", path: "/admin/master/commission" },
           { label: "Refunds (all services)", path: "/admin/master/refunds" },
@@ -125,6 +151,7 @@ export const masterSidebarMenu = [
         icon: "Settings",
         subItems: [
           { label: "App Services", path: "/admin/master/app-services" },
+          { label: "Broadcasts (every role)", path: "/admin/master/broadcasts" },
           { label: "Business Setup", path: "/admin/food/business-setup" },
           { label: "Google Maps Key", path: "/admin/food/map-settings" },
           { label: "Order Cancellation", path: "/admin/food/order-cancellation" },
@@ -143,6 +170,7 @@ export const masterSidebarMenu = [
           { label: "App Terms (all apps)", path: "/admin/master/settings/appTerms" },
           { label: "About Us", path: "/admin/food/pages-social-media/about" },
           { label: "Help & Support Content", path: "/admin/food/pages-social-media/help-support" },
+          { label: "FAQs (all apps)", path: "/admin/master/faqs" },
           { label: "Taxi · User Pages", path: "/taxi/admin/settings/cms/user" },
           { label: "Taxi · Driver Pages", path: "/taxi/admin/settings/cms/driver" },
         ],
@@ -154,6 +182,7 @@ export const masterSidebarMenu = [
         subItems: [
           { label: "Referral Rewards (all services)", path: "/admin/master/referral" },
           { label: "All Coupons & Promo Codes", path: "/admin/master/coupons" },
+          { label: "Loyalty Points", path: "/admin/master/loyalty" },
           { label: "Food · Referral", path: "/admin/food/referral-settings" },
           { label: "Quick · Referral", path: "/admin/quick-commerce/referral-settings" },
           { label: "Taxi · User Referral", path: "/taxi/admin/referrals/user-settings" },

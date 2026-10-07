@@ -233,6 +233,14 @@ export function resourceForPath(pathname = "") {
   if (pathname.startsWith("/admin/master/delivery-partners")) return "delivery"
   if (pathname.startsWith("/admin/master/taxi-drivers")) return "delivery"
   if (pathname.startsWith("/admin/master/partner-documents")) return "delivery"
+  // The cross-vertical dashboard, reports and insights show each admin only the
+  // services they have that permission for (core/admin/adminVerticals.js).
+  if (pathname.startsWith("/admin/master/dashboard")) return "dashboard"
+  if (pathname.startsWith("/admin/master/reports")) return "reports"
+  if (pathname.startsWith("/admin/master/tax")) return "reports"
+  if (pathname.startsWith("/admin/master/insights")) return "reports"
+  if (pathname.startsWith("/admin/master/subscriptions")) return "reports"
+  if (pathname.startsWith("/admin/master/broadcasts")) return "cms"
   if (pathname.startsWith("/admin/master")) return "__owner__"
   const panel = panelOfPath(pathname)
   if (!panel) return null
