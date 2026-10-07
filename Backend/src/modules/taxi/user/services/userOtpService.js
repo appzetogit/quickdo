@@ -3,7 +3,7 @@ import { ApiError } from '../../../../utils/ApiError.js';
 import { env } from '../../../../config/env.js';
 import { UserAuthSession } from '../models/UserAuthSession.js';
 import { User } from '../models/User.js';
-import { signAccessToken } from './authService.js';
+import { createTaxiSessionTokens } from '../../services/refreshTokenService.js';
 import { sendOtpSms } from '../../services/smsService.js';
 import { consumeOtpQuota, otpRateLimitMessage, OTP_SERVICES } from '../../../../core/otp/otpRateLimit.service.js';
 import { assignPushTokenToEntity } from '../../services/pushTokenService.js';
@@ -83,8 +83,9 @@ const toUserPayload = (user) => ({
   currentRideId: user.currentRideId || null,
 });
 
-const createUserSession = (user) => ({
-  token: signAccessToken({ sub: String(user._id), role: 'user' }),
+// token (kept for existing clients) === accessToken; plus refreshToken, expiresIn.
+const createUserSession = async (user) => ({
+  ...(await createTaxiSessionTokens({ sub: user._id, role: 'user' })),
   user: toUserPayload(user),
 });
 
@@ -209,7 +210,7 @@ export const verifyUserOtp = async ({ phone, otp, token, fcmToken, platform }) =
     await UserAuthSession.deleteOne({ _id: session._id });
     return {
       exists: true,
-      ...createUserSession(user),
+      ...(await createUserSession(user)),
     };
   }
 

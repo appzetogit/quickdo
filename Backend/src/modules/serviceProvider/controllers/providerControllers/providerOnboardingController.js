@@ -259,9 +259,13 @@ const forRole = (role) => {
 /** Express router with the onboarding endpoints for one role. */
 const buildRouter = (role) => {
   const express = require('express');
-  const { authenticate } = require('../../middleware/authMiddleware');
+  const { authenticate: authenticateFull, allowOnboardingToken } = require('../../middleware/authMiddleware');
   const { isVendor, isWorker } = require('../../middleware/roleMiddleware');
   const guard = role === 'vendor' ? isVendor : isWorker;
+  // Every route here is part of onboarding, so a pending vendor's onboarding
+  // token is accepted (see authMiddleware). Workers sign in before approval
+  // anyway and are unaffected.
+  const authenticate = role === 'vendor' ? [allowOnboardingToken, authenticateFull] : authenticateFull;
   const h = forRole(role);
   const router = express.Router();
   router.get('/onboarding', authenticate, guard, h.getOnboarding);

@@ -39,6 +39,51 @@ const handleAuthFcmToken = async (Model, docId, req) => {
   }
 };
 
+/*
+ * Onboarding token for vendors that are not approved yet.
+ *
+ * Approval needs the verification checklist (GST, PAN, bank details, email...),
+ * but a pending vendor used to get no token at all, so GET/PUT /vendors/onboarding
+ * and the rest were unreachable until approval -- which needed them. A pending or
+ * rejected vendor now gets a token with scope 'onboarding'. authMiddleware accepts
+ * it only on routes marked allowOnboardingToken (onboarding, bank details, email
+ * OTP, availability, document upload, profile read, logout); every other vendor
+ * route still answers 403 until approval. The names differ from a full login's
+ * (onboardingToken / onboardingRefreshToken, not accessToken / refreshToken) so a
+ * client that treats `accessToken` as "signed in" is not misled.
+ */
+const ONBOARDING_SCOPE = 'onboarding';
+const ONBOARDING_STATUSES = [VENDOR_STATUS.PENDING, VENDOR_STATUS.REJECTED];
+
+const issueOnboardingSession = async (vendor, req) => {
+  const loginSessionId = Date.now().toString();
+  await Vendor.findByIdAndUpdate(vendor._id, { loginSessionId });
+  await handleAuthFcmToken(Vendor, vendor._id, req);
+  const tokens = generateTokenPair({
+    userId: vendor._id,
+    role: USER_ROLES.VENDOR,
+    loginSessionId,
+    scope: ONBOARDING_SCOPE
+  });
+  return {
+    tokenScope: ONBOARDING_SCOPE,
+    onboardingToken: tokens.accessToken,
+    onboardingRefreshToken: tokens.refreshToken
+  };
+};
+
+const onboardingVendorPayload = (vendor) => ({
+  // Kept for existing clients, which show "under review" on this field.
+  adminApproval: vendor.approvalStatus,
+  id: vendor._id,
+  name: vendor.name,
+  email: vendor.email,
+  phone: vendor.phone,
+  businessName: vendor.businessName,
+  approvalStatus: vendor.approvalStatus,
+  rejectedReason: vendor.approvalStatus === VENDOR_STATUS.REJECTED ? (vendor.rejectedReason || null) : null
+});
+
 /**
  * Send OTP for vendor registration/login
  */
@@ -56,16 +101,11 @@ const sendOTP = async (req, res) => {
     const { phone, email } = req.body;
 
     // Check existing vendor status to prevent OTP if restricted
+    // Pending and rejected vendors get an OTP too: verify-login gives them an
+    // onboarding token. Suspended or deactivated accounts do not.
     const existingVendor = await Vendor.findOne({ phone });
     if (existingVendor) {
-      if (existingVendor.approvalStatus === VENDOR_STATUS.PENDING) {
-        return res.status(200).json({
-          success: true,
-          message: 'Your account is currently under review. Please wait for admin approval.',
-          vendor: { adminApproval: 'pending' }
-        });
-      }
-      if (existingVendor.approvalStatus === VENDOR_STATUS.REJECTED || existingVendor.approvalStatus === VENDOR_STATUS.SUSPENDED) {
+      if (existingVendor.approvalStatus === VENDOR_STATUS.SUSPENDED || existingVendor.isActive === false) {
         return res.status(403).json({ success: false, message: 'Account restricted.' });
       }
     }
@@ -101,7 +141,10 @@ const sendOTP = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'OTP sent successfully',
-      token: 'verification-pending'
+      token: 'verification-pending',
+      ...(existingVendor && ONBOARDING_STATUSES.includes(existingVendor.approvalStatus)
+        ? { vendor: { adminApproval: existingVendor.approvalStatus } }
+        : {})
     });
   } catch (error) {
     console.error('Send OTP error:', error);
@@ -135,9 +178,6 @@ const verifyLogin = async (req, res) => {
       // EXISTING VENDOR
 
       // Check status checks (Login Logic)
-      if (vendor.approvalStatus === VENDOR_STATUS.REJECTED) {
-        return res.status(403).json({ success: false, message: 'Account rejected.' });
-      }
       if (vendor.approvalStatus === VENDOR_STATUS.SUSPENDED) {
         return res.status(403).json({ success: false, message: 'Account suspended.' });
       }
@@ -145,12 +185,18 @@ const verifyLogin = async (req, res) => {
         return res.status(403).json({ success: false, message: 'Account deactivated.' });
       }
 
-      // BLOCK PENDING VENDORS
-      if (vendor.approvalStatus === VENDOR_STATUS.PENDING) {
+      // PENDING / REJECTED: no full session, but an onboarding token so the
+      // vendor can complete (or fix) the verification checklist.
+      if (ONBOARDING_STATUSES.includes(vendor.approvalStatus)) {
+        const onboarding = await issueOnboardingSession(vendor, req);
         return res.status(200).json({
           success: true,
-          message: 'Your account is currently under review. Please wait for admin approval.',
-          vendor: { adminApproval: 'pending' }
+          isNewUser: false,
+          message: vendor.approvalStatus === VENDOR_STATUS.REJECTED
+            ? 'Your registration was rejected. Update your onboarding details and contact support for review.'
+            : 'Your account is currently under review. Please wait for admin approval.',
+          vendor: onboardingVendorPayload(vendor),
+          ...onboarding
         });
       }
 
@@ -305,6 +351,9 @@ const register = async (req, res) => {
       }
     } catch (e) { console.error('Notify error', e); }
 
+    // Straight on to the checklist: the new vendor gets an onboarding token.
+    const onboarding = await issueOnboardingSession(vendor, req);
+
     res.status(201).json({
       success: true,
       message: 'Registration successful! Pending approval.',
@@ -314,7 +363,8 @@ const register = async (req, res) => {
         email: vendor.email,
         phone: vendor.phone,
         approvalStatus: vendor.approvalStatus
-      }
+      },
+      ...onboarding
     });
 
   } catch (error) {
@@ -468,7 +518,12 @@ const refreshToken = async (req, res) => {
     }
 
     // Verify refresh token
-    const decoded = verifyRefreshToken(refreshToken);
+    let decoded = null;
+    try {
+      decoded = verifyRefreshToken(refreshToken);
+    } catch {
+      decoded = null;
+    }
     if (!decoded) {
       return res.status(401).json({
         success: false,
@@ -485,8 +540,12 @@ const refreshToken = async (req, res) => {
       });
     }
 
-    // Check status
-    if (vendor.approvalStatus !== VENDOR_STATUS.APPROVED || !vendor.isActive) {
+    // Check status. An onboarding refresh token keeps a pending/rejected vendor
+    // on an onboarding token; once the vendor is approved the same refresh
+    // returns a full token (tokenScope 'full'), so the app needs no new sign-in.
+    const staysOnboarding = decoded.scope === ONBOARDING_SCOPE
+      && ONBOARDING_STATUSES.includes(vendor.approvalStatus);
+    if (!vendor.isActive || (vendor.approvalStatus !== VENDOR_STATUS.APPROVED && !staysOnboarding)) {
       return res.status(403).json({
         success: false,
         message: 'Account is not approved or is inactive'
@@ -512,12 +571,14 @@ const refreshToken = async (req, res) => {
     const tokens = generateTokenPair({
       userId: vendor._id,
       role: USER_ROLES.VENDOR,
-      loginSessionId: vendor.loginSessionId
+      loginSessionId: vendor.loginSessionId,
+      ...(staysOnboarding ? { scope: ONBOARDING_SCOPE } : {})
     });
 
     res.status(200).json({
       success: true,
       message: 'Token refreshed successfully',
+      tokenScope: staysOnboarding ? ONBOARDING_SCOPE : 'full',
       ...tokens
     });
   } catch (error) {

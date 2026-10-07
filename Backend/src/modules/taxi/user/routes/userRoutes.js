@@ -24,6 +24,8 @@ import {
   verifyRazorpayWalletTopup,
   verifyPhonePeWalletTopup,
   verifyUserOtpRequest,
+  refreshUserTokenRequest,
+  logoutUserRequest,
   verifyUserPhoneForOtpLogin,
   getAvailableSubscriptionPlans,
   getMySubscriptions,
@@ -69,6 +71,8 @@ userRouter.post('/login', asyncHandler(loginUser));
 userRouter.post('/profile-image', asyncHandler(uploadUserProfileImage));
 userRouter.post('/auth/send-otp', asyncHandler(startUserOtpRequest));
 userRouter.post('/auth/verify-otp', asyncHandler(verifyUserOtpRequest));
+userRouter.post('/auth/refresh-token', asyncHandler(refreshUserTokenRequest));
+userRouter.post('/auth/logout', asyncHandler(logoutUserRequest));
 userRouter.post('/otp-login', asyncHandler(verifyUserPhoneForOtpLogin));
 userRouter.get('/me', authenticateOrResolveUser(['user']), asyncHandler(getCurrentUser));
 userRouter.patch('/me', authenticateOrResolveUser(['user']), asyncHandler(updateCurrentUser));

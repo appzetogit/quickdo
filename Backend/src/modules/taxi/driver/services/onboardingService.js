@@ -14,7 +14,8 @@ import {
   listDriverNeededDocuments,
   listDriverVehicleFieldTemplates,
 } from '../../admin/services/adminService.js';
-import { hashPassword, signAccessToken } from './authService.js';
+import { hashPassword } from './authService.js';
+import { createTaxiSessionTokens } from '../../services/refreshTokenService.js';
 import { findZoneByPickup } from './locationService.js';
 import { sendOtpSms } from '../../services/smsService.js';
 import { consumeOtpQuota, otpRateLimitMessage, OTP_SERVICES } from '../../../../core/otp/otpRateLimit.service.js';
@@ -1023,7 +1024,7 @@ export const completeDriverOnboarding = async ({ registrationId, phone, document
     message: 'Driver registration completed successfully',
     driver: publicDriverPayload(driver),
     documents: normalizedDocuments,
-    token: signAccessToken({ sub: String(driver._id), role: 'driver' }),
+    ...(await createTaxiSessionTokens({ sub: driver._id, role: 'driver' })),
     session: publicSessionPayload(session),
   };
 };

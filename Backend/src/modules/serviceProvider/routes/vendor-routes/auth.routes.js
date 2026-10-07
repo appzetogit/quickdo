@@ -8,7 +8,7 @@ const {
   logout,
   verifyLogin
 } = require('../../controllers/vendorControllers/vendorAuthController');
-const { authenticate } = require('../../middleware/authMiddleware');
+const { authenticate, allowOnboardingToken } = require('../../middleware/authMiddleware');
 const { isVendor } = require('../../middleware/roleMiddleware');
 
 // Validation rules
@@ -43,7 +43,7 @@ router.post('/verify-login', verifyLoginValidation, verifyLogin); // New Unified
 router.post('/register', registerValidation, register);
 router.post('/login', loginValidation, login);
 router.post('/refresh-token', require('../../controllers/vendorControllers/vendorAuthController').refreshToken);
-router.post('/logout', authenticate, isVendor, logout);
+router.post('/logout', allowOnboardingToken, authenticate, isVendor, logout);
 
 module.exports = router;
 

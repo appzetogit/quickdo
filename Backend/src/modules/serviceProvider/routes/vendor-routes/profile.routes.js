@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { authenticate } = require('../../middleware/authMiddleware');
+const { authenticate, allowOnboardingToken } = require('../../middleware/authMiddleware');
 const { isVendor } = require('../../middleware/roleMiddleware');
 const { getProfile, updateProfile, updateAddress, updateLocation } = require('../../controllers/vendorControllers/vendorProfileController');
 
@@ -18,7 +18,8 @@ const updateAddressValidation = [
 ];
 
 // Routes
-router.get('/profile', authenticate, isVendor, getProfile);
+// Readable with a pending vendor's onboarding token.
+router.get('/profile', allowOnboardingToken, authenticate, isVendor, getProfile);
 router.put('/profile', authenticate, isVendor, updateProfileValidation, updateProfile);
 router.put('/address', authenticate, isVendor, updateAddressValidation, updateAddress);
 router.put('/profile/location', authenticate, isVendor, updateLocation);

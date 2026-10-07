@@ -7,6 +7,20 @@ const { USER_ROLES } = require('../utils/constants');
 const { hasServiceProviderAccess } = require('../utils/serviceAccess');
 const { resolveSharedCustomer } = require('../utils/identityBridge');
 
+// Limited token for vendors that are not approved yet. See vendorAuthController.
+const ONBOARDING_SCOPE = 'onboarding';
+// Statuses an onboarding token keeps working for. Suspended is not one of them.
+const ONBOARDING_VENDOR_STATUSES = ['pending', 'rejected', 'approved'];
+
+/**
+ * Marks a route as reachable with a vendor onboarding token. Put it BEFORE
+ * authenticate. Full tokens are unaffected.
+ */
+const allowOnboardingToken = (req, _res, next) => {
+  req.spAllowOnboardingToken = true;
+  next();
+};
+
 /**
  * Authentication middleware - verifies JWT token
  */
@@ -66,7 +80,26 @@ const authenticate = async (req, res, next) => {
         break;
       case USER_ROLES.VENDOR:
         user = await Vendor.findById(decoded.userId).select('-password').lean();
-        if (user && user.approvalStatus !== 'approved') {
+        if (decoded.scope === ONBOARDING_SCOPE) {
+          // An onboarding token (issued to pending and rejected vendors so they can
+          // complete the verification checklist) opens only the routes marked with
+          // allowOnboardingToken, whatever the vendor's status is now. Everything
+          // else needs a full token, which sign-in (or a refresh) issues once the
+          // vendor is approved.
+          if (!req.spAllowOnboardingToken) {
+            return res.status(403).json({
+              success: false,
+              code: 'ONBOARDING_ONLY',
+              message: 'Your vendor account is pending approval. Only onboarding is available until it is approved.'
+            });
+          }
+          if (user && !ONBOARDING_VENDOR_STATUSES.includes(String(user.approvalStatus || ''))) {
+            return res.status(403).json({
+              success: false,
+              message: 'Your vendor account is suspended. Please contact support.'
+            });
+          }
+        } else if (user && user.approvalStatus !== 'approved') {
           return res.status(403).json({
             success: false,
             message: 'Your vendor account is pending approval or has been rejected.'
@@ -133,6 +166,7 @@ const authenticate = async (req, res, next) => {
     req.user = { ...user, id: user._id.toString() };
     req.userId = decoded.userId;
     req.userRole = decoded.role;
+    req.tokenScope = decoded.scope || 'full';
 
     next();
   } catch (error) {
@@ -144,5 +178,5 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-module.exports = { authenticate };
+module.exports = { authenticate, allowOnboardingToken, ONBOARDING_SCOPE };
 

@@ -27,8 +27,12 @@ import { Notification } from "../../admin/promotions/models/Notification.js";
 import {
   comparePassword,
   hashPassword,
-  signAccessToken,
 } from "../services/authService.js";
+import {
+  createTaxiSessionTokens,
+  revokeTaxiRefreshToken,
+  rotateTaxiRefreshToken,
+} from "../../services/refreshTokenService.js";
 import { cancelScheduledRideByDriver, cancelActiveRideByDriver, emitToDriver, emitToRideRoom, getDispatchState, markDriverRejectedFromDispatch } from "../../services/dispatchService.js";
 import { getRideRoom } from "../../services/rideService.js";
 import { reconcileDriverAssignment } from "../services/driverAssignmentService.js";
@@ -807,12 +811,12 @@ export const registerDriver = async (req, res) => {
   // core/identity/driverCapabilities.service.js. Non-fatal.
   await ensureAllDriverCapabilities(driver);
 
-  const token = signAccessToken({ sub: String(driver._id), role: "driver" });
+  const session = await createTaxiSessionTokens({ sub: driver._id, role: "driver" });
 
   res.status(201).json({
     success: true,
     data: {
-      token,
+      ...session,
       driver: {
         id: driver._id,
         name: driver.name,
@@ -847,12 +851,13 @@ export const loginDriver = async (req, res) => {
 
   await clearDriverActiveRideIfStale(driver);
 
-  const token = signAccessToken({ sub: String(driver._id), role: "driver" });
+  // token (kept for existing clients) === accessToken; plus refreshToken, expiresIn.
+  const session = await createTaxiSessionTokens({ sub: driver._id, role: "driver" });
 
   res.json({
     success: true,
     data: {
-      token,
+      ...session,
       driver: {
         id: driver._id,
         name: driver.name,
@@ -1011,11 +1016,9 @@ export const getCurrentDriver = async (req, res) => {
     driverNeedsSave = true;
   }
 
-  if (driver.approve === false || driver.approve === 0 || !driver.approve || String(driver.status || "").toLowerCase() === "pending" || !driver.status) {
-    driver.approve = true;
-    driver.status = "approved";
-    driverNeedsSave = true;
-  }
+  // This used to set approve:true / status:'approved' on any pending driver, and
+  // this route accepts pending drivers' tokens -- so a driver approved themselves
+  // just by opening the app, bypassing admin review. Approval is the admin's call.
 
   if (driverNeedsSave) {
     await driver.save();
@@ -2684,6 +2687,18 @@ export const startDriverLoginOtpRequest = async (req, res) => {
 export const verifyDriverLoginOtpRequest = async (req, res) => {
   const result = await verifyDriverLoginOtp(req.body);
   res.json({ success: true, data: result });
+};
+
+// POST /taxi/drivers/auth/refresh-token { refreshToken } -> a new pair (rotated).
+export const refreshDriverTokenRequest = async (req, res) => {
+  const result = await rotateTaxiRefreshToken(req.body?.refreshToken, "driver");
+  res.json({ success: true, data: result });
+};
+
+// POST /taxi/drivers/auth/logout { refreshToken } -> revokes that session.
+export const logoutDriverRequest = async (req, res) => {
+  const result = await revokeTaxiRefreshToken(req.body?.refreshToken, "driver");
+  res.json({ success: true, message: "Logged out", data: result });
 };
 
 export const startOnboarding = async (req, res) => {

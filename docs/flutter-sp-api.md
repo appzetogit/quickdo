@@ -12,6 +12,58 @@ Whether jobs go to vendors or to workers depends on the admin setting `bookingMo
 
 ## 1. Onboarding and profile (vendor and worker)
 
+### Vendor sign-in before approval: the onboarding token (new)
+
+A vendor who is not approved yet can now sign in and complete the checklist. Before this change, a pending vendor got no token, so none of the endpoints below could be reached until approval, and approval needed them. Workers are not affected: they already get a normal token while pending.
+
+**POST `/vendors/auth/send-otp`** now sends an OTP to pending and rejected vendors as well. For them the response also carries `"vendor": { "adminApproval": "pending" | "rejected" }`. Suspended or deactivated vendors still get 403 `Account restricted.`.
+
+**POST `/vendors/auth/verify-login`** for a `pending` or `rejected` vendor:
+
+```json
+{
+  "success": true,
+  "isNewUser": false,
+  "message": "Your account is currently under review. Please wait for admin approval.",
+  "vendor": {
+    "adminApproval": "pending",
+    "id": "66f...", "name": "Ravi", "email": "ravi@example.com", "phone": "9876543210", "businessName": "Ravi Services",
+    "approvalStatus": "pending",
+    "rejectedReason": null
+  },
+  "tokenScope": "onboarding",
+  "onboardingToken": "<JWT>",
+  "onboardingRefreshToken": "<JWT>"
+}
+```
+
+- The names are deliberately **not** `accessToken` / `refreshToken`, so an older build that treats `accessToken` as "fully signed in" is not misled. Send `onboardingToken` as `Authorization: Bearer <onboardingToken>`.
+- For a `rejected` vendor, `rejectedReason` holds the admin's note and the message asks the vendor to update their details.
+- An approved vendor's response is unchanged: `accessToken`, `refreshToken`, no `tokenScope`.
+- **POST `/vendors/auth/register`** now also returns `tokenScope`, `onboardingToken` and `onboardingRefreshToken`, so a new vendor can go straight to the checklist.
+
+**The onboarding token works only on these routes:**
+
+| Route | Purpose |
+|---|---|
+| GET / PUT `/vendors/onboarding` | Checklist and onboarding profile |
+| PUT `/vendors/bank-details` | Bank details |
+| POST `/vendors/email/send-otp`, POST `/vendors/email/verify` | Email verification |
+| GET / PUT `/vendors/availability`, POST `/vendors/availability/overrides`, DELETE `/vendors/availability/overrides/:date` | Availability calendar |
+| POST `/upload` (multipart `file`) | Document upload. Returns top-level `imageUrl`. Send the URL to PUT `/onboarding`. |
+| GET `/vendors/profile` | Profile read |
+| POST `/vendors/auth/logout` | Logout |
+
+Every other vendor route (bookings, wallet, workers, services, settings, PUT `/vendors/profile` and so on) returns 403 with `"code": "ONBOARDING_ONLY"`. The Socket.IO `/sp` namespace refuses the onboarding token. The token stays limited even after approval.
+
+**After approval:** call **POST `/vendors/auth/refresh-token`** with `{ "refreshToken": "<onboardingRefreshToken>" }`. The response is `{ success, message, tokenScope, accessToken, refreshToken }`:
+
+- While the vendor is still pending or rejected, `tokenScope` is `"onboarding"` and the pair is another onboarding pair.
+- Once the vendor is approved, `tokenScope` is `"full"` and `accessToken` / `refreshToken` are a normal vendor session. No new OTP is needed.
+- If the vendor was suspended or deactivated, the refresh returns 403.
+
+Poll GET `/vendors/onboarding` (`approvalStatus`) or listen for the `vendor_approved` notification, then refresh.
+
 ### GET `/{vendors|workers}/onboarding`
 
 Returns the onboarding profile and the verification checklist.

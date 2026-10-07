@@ -3,7 +3,7 @@ import { ApiError } from '../../../../utils/ApiError.js';
 import { env } from '../../../../config/env.js';
 import { Driver } from '../models/Driver.js';
 import { DriverLoginSession } from '../models/DriverLoginSession.js';
-import { signAccessToken } from './authService.js';
+import { createTaxiSessionTokens } from '../../services/refreshTokenService.js';
 import { rejectWrongOtp, resetOtpAttempts } from '../../services/otpAttempts.js';
 import { sendOtpSms } from '../../services/smsService.js';
 import { consumeOtpQuota, otpRateLimitMessage, OTP_SERVICES } from '../../../../core/otp/otpRateLimit.service.js';
@@ -225,7 +225,8 @@ export const verifyDriverLoginOtp = async ({ phone, otp }) => {
 
   return {
     message: 'OTP verified successfully',
-    token: signAccessToken({ sub: String(account._id), role: 'driver' }),
+    // token (kept for existing clients) === accessToken; plus refreshToken, expiresIn.
+    ...(await createTaxiSessionTokens({ sub: account._id, role: 'driver' })),
     driver: publicDriverPayload(account),
   };
 };

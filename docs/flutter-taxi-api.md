@@ -10,6 +10,52 @@ This document lists every taxi endpoint and socket event that is new or has chan
 
 ---
 
+## 0. Sign-in tokens, refresh and logout (new)
+
+Driver and rider sign-in now return a refresh token, so the app can keep a driver signed in for a whole shift instead of dropping them when the 15-minute access token (`JWT_ACCESS_EXPIRES`) runs out.
+
+### Sign-in responses (changed: new fields)
+
+`POST /drivers/auth/verify-otp`, `POST /drivers/login`, `POST /drivers/register`, `POST /drivers/onboarding/complete`, `POST /users/auth/verify-otp` (when `exists: true`), `POST /users/signup`, `POST /users/login` and `POST /users/register` now return, inside `data`:
+
+```json
+{
+  "token": "<access JWT>",
+  "accessToken": "<same access JWT>",
+  "refreshToken": "<refresh JWT>",
+  "expiresIn": 900,
+  "driver": { "...": "unchanged" }
+}
+```
+
+- `token` is unchanged and kept for existing builds. It is the same value as `accessToken`.
+- `expiresIn` is the access token's lifetime in seconds.
+- Store `refreshToken` in secure storage (Keychain / Keystore). It is valid for `JWT_REFRESH_EXPIRES` (7 days by default) from its last use.
+
+### POST `/drivers/auth/refresh-token` and POST `/users/auth/refresh-token`
+
+No `Authorization` header. Body: `{ "refreshToken": "<refresh JWT>" }`. The response is the same token block as sign-in:
+
+```json
+{ "success": true, "data": { "token": "...", "accessToken": "...", "refreshToken": "<NEW refresh JWT>", "expiresIn": 900 } }
+```
+
+- **Rotation.** Every refresh returns a new `refreshToken` and the one you sent stops working. Always save the new one.
+- **Reuse is treated as theft.** Sending a refresh token that was already used revokes the whole session (that token and every later one). Both copies of the app are signed out. Make sure only one refresh runs at a time: queue other requests that get a 401 behind the refresh in flight.
+- When to refresh: on a 401 with message `Authorization token has expired`, or shortly before `expiresIn` runs out. Replay the failed request once with the new access token.
+- A driver token only refreshes on the driver route, and a rider token only on the user route.
+- Errors:
+  - 400: `refreshToken` missing.
+  - 401: invalid, expired, revoked or reused refresh token, or the account no longer exists. Send the user to sign-in.
+  - 403: `Driver account is not active` (blocked, rejected, inactive) or `User account is not active`. The session is revoked. Send the user to sign-in, which shows the reason.
+- A driver who is still **pending approval** can refresh (they could sign in anyway). The new access token is limited exactly as before: only the pending-allowed routes work and the others return 403 `Driver account is pending approval`. Once the driver is approved, the approved-only routes start working with the same tokens. No new sign-in is needed.
+
+### POST `/drivers/auth/logout` and POST `/users/auth/logout`
+
+Body: `{ "refreshToken": "<refresh JWT>" }`. No `Authorization` header is needed. Revokes the session the token belongs to. It always returns 200 `{ "success": true, "data": { "revoked": true|false } }`, also for a token that was already revoked. Then discard both tokens.
+
+---
+
 ## 1. Multiple stops (§4.1)
 
 ### POST `/rides/quote` and POST `/rides`: send stops with coordinates

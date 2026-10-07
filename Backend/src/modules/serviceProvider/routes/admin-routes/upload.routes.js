@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { uploadImage } = require('../../middleware/uploadMiddleware');
 const { getSignature } = require('../../controllers/cloudinaryController');
-const { authenticate } = require('../../middleware/authMiddleware');
+const { authenticate, allowOnboardingToken } = require('../../middleware/authMiddleware');
 
 /*
  * Both require a signed-in account. They were public, and mounted at the SP root as
@@ -15,7 +15,8 @@ const { authenticate } = require('../../middleware/authMiddleware');
 router.get('/upload/sign-signature', authenticate, getSignature);
 
 // Upload single file to Cloudinary
-router.post('/upload', authenticate, uploadImage, async (req, res) => {
+// A pending vendor uploads onboarding documents here with the onboarding token.
+router.post('/upload', allowOnboardingToken, authenticate, uploadImage, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({

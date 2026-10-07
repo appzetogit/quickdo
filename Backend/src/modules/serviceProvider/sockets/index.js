@@ -38,6 +38,11 @@ const configureSPSocketServer = (rootIo) => {
       // Verify token using the same method as HTTP middleware
       const { verifyAccessToken } = require('../utils/tokenService');
       const decoded = verifyAccessToken(token);
+      // A pending vendor's onboarding token is for the onboarding REST routes
+      // only; it must not put the vendor online for jobs.
+      if (decoded.scope === 'onboarding') {
+        return next(new Error('Authentication error: onboarding token'));
+      }
 
       let userId = decoded.userId;
 

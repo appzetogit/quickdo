@@ -15,7 +15,8 @@ import { UserWallet } from '../models/UserWallet.js';
 import { AdminBusinessSetting } from '../../admin/models/AdminBusinessSetting.js';
 import { Notification } from '../../admin/promotions/models/Notification.js';
 import { Driver } from '../../driver/models/Driver.js';
-import { comparePassword, hashPassword, signAccessToken } from '../services/authService.js';
+import { comparePassword, hashPassword } from '../services/authService.js';
+import { createTaxiSessionTokens, revokeTaxiRefreshToken, rotateTaxiRefreshToken } from '../../services/refreshTokenService.js';
 import { env } from '../../../../config/env.js';
 import { uploadDataUrlToCloudinary } from '../../../../utils/cloudinaryUpload.js';
 import { resolveConfiguredGatewayCredentials } from '../../services/paymentGatewayService.js';
@@ -335,8 +336,9 @@ const buildReactivatedUserPayload = async ({ req, name, phone, email, countryCod
   },
 });
 
-const createUserSession = (user) => ({
-  token: signAccessToken({ sub: String(user._id), role: 'user' }),
+// token (kept for existing clients) === accessToken; plus refreshToken, expiresIn.
+const createUserSession = async (user) => ({
+  ...(await createTaxiSessionTokens({ sub: user._id, role: 'user' })),
   user: toUserPayload(user),
 });
 
@@ -498,7 +500,7 @@ export const registerUser = async (req, res) => {
 
   res.status(201).json({
     success: true,
-    data: createUserSession(user),
+    data: await createUserSession(user),
   });
 };
 
@@ -613,7 +615,7 @@ export const signupUser = async (req, res) => {
 
   res.status(201).json({
     success: true,
-    data: createUserSession(user),
+    data: await createUserSession(user),
   });
 };
 
@@ -647,7 +649,7 @@ export const loginUser = async (req, res) => {
 
   res.json({
     success: true,
-    data: createUserSession(user),
+    data: await createUserSession(user),
   });
 };
 
@@ -1399,3 +1401,15 @@ export const verifyPhonePeWalletTopup = async (req, res) => {
   });
 };
 
+
+// POST /taxi/users/auth/refresh-token { refreshToken } -> a new pair (rotated).
+export const refreshUserTokenRequest = async (req, res) => {
+  const result = await rotateTaxiRefreshToken(req.body?.refreshToken, 'user');
+  res.json({ success: true, data: result });
+};
+
+// POST /taxi/users/auth/logout { refreshToken } -> revokes that session.
+export const logoutUserRequest = async (req, res) => {
+  const result = await revokeTaxiRefreshToken(req.body?.refreshToken, 'user');
+  res.json({ success: true, message: 'Logged out', data: result });
+};

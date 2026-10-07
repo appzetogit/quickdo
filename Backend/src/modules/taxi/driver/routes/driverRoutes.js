@@ -47,6 +47,8 @@ import {
   updateDriverVehicle,
   verifyOnboardingOtp,
   verifyDriverLoginOtpRequest,
+  refreshDriverTokenRequest,
+  logoutDriverRequest,
   updateCurrentDriverDocument,
 } from "../controllers/driverController.js";
 import { triggerDriverSosAlert, updateDriverSosLocation } from '../../safety/controllers/safetyController.js';
@@ -61,6 +63,8 @@ driverRouter.post(
   "/auth/verify-otp",
   asyncHandler(verifyDriverLoginOtpRequest),
 );
+driverRouter.post("/auth/refresh-token", asyncHandler(refreshDriverTokenRequest));
+driverRouter.post("/auth/logout", asyncHandler(logoutDriverRequest));
 driverRouter.get(
   "/me",
   authenticate(["driver"], { allowPending: true }),
