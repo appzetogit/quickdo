@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { uploadImage } = require('../../middleware/uploadMiddleware');
+const { authenticate } = require('../../middleware/authMiddleware');
 
-// Upload single file to Cloudinary
-router.post('/upload', uploadImage, async (req, res) => {
+// Upload single file to Cloudinary. Signed-in callers only; it used to be open to anyone.
+router.post('/upload', authenticate, uploadImage, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
