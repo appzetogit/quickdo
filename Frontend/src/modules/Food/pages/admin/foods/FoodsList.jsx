@@ -37,6 +37,7 @@ const createFoodForm = () => ({
   stockQty: "",
   lowStockThreshold: "",
   gstRate: "",
+  barcode: "",
   availabilitySchedule: buildScheduleState(null),
   suggestedItemIds: [],
 })
@@ -447,6 +448,7 @@ export default function FoodsList() {
       stockQty: food.stockQty != null ? String(food.stockQty) : "",
       lowStockThreshold: food.lowStockThreshold != null ? String(food.lowStockThreshold) : "",
       gstRate: food.gstRate != null ? String(food.gstRate) : "",
+      barcode: String(food.barcode || ""),
       availabilitySchedule: buildScheduleState(food.availabilitySchedule),
       suggestedItemIds: food.suggestedItemIds ?? null,
     })
@@ -673,6 +675,8 @@ export default function FoodsList() {
         ...(isStockPanel && !foodForm.variantsEnabled ? productStockPayload() : {}),
         // Blank = the order-wide rate from fee settings.
         ...(isStockPanel ? { gstRate: foodForm.gstRate === "" ? null : Number(foodForm.gstRate) } : {}),
+        // The printed barcode / EAN the app's scan looks up (plan 5.6).
+        ...(isStockPanel ? { barcode: String(foodForm.barcode || "").trim() } : {}),
         description: foodForm.description.trim(),
         image: imageUrl,
         foodType: foodForm.foodType === "Veg" ? "Veg" : "Non-Veg",
@@ -1397,6 +1401,19 @@ export default function FoodsList() {
                       {foodForm.variantsEnabled && (
                         <p className="mt-1 text-xs text-slate-500">Sizes use this unless they set their own GST below.</p>
                       )}
+                    </div>
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Barcode / EAN</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={32}
+                        value={foodForm.barcode}
+                        onChange={(e) => setFoodForm((prev) => ({ ...prev, barcode: e.target.value }))}
+                        placeholder="e.g. 8901030012345"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">What customers scan in the app. Leave blank if the product has none.</p>
                     </div>
                   </div>
                 )}

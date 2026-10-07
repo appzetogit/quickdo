@@ -219,7 +219,12 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
                         </button>
                       )}
                     </div>
-                    <h3 className="text-gray-950 font-black text-lg leading-tight mb-0.5 line-clamp-1">{restaurantName}</h3>
+                    {order.vertical === 'quickCommerce' && (
+                      <span className="inline-block mb-1 rounded-full bg-indigo-50 border border-indigo-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-indigo-700">
+                        Quick · {order.itemCount || (order.items || []).length} items{order.scheduledAt ? ' · scheduled' : ''}
+                      </span>
+                    )}
+                    <h3 className="text-gray-950 font-black text-lg leading-tight mb-0.5 line-clamp-1">{order.storeName || restaurantName}</h3>
                     <p className="text-gray-500 text-[11px] font-bold line-clamp-1">{restaurantAddress}</p>
                   </div>
 

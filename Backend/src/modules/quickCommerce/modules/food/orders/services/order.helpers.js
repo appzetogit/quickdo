@@ -43,6 +43,7 @@ export function generateFourDigitDeliveryOtp() {
 export function sanitizeOrderForExternal(orderDoc) {
   const o = orderDoc?.toObject ? orderDoc.toObject() : { ...(orderDoc || {}) };
   delete o.deliveryOtp;
+  delete o.pickupOtp;
   const dv = o.deliveryVerification;
   if (dv && dv.dropOtp != null) {
     const d = dv.dropOtp;
@@ -66,6 +67,7 @@ export function sanitizeOrderForDeliveryPartner(orderDoc) {
   const deliveryInstructions = String(o.deliveryInstructions || "").trim();
   return {
     ...o,
+    ...quickCommerceRiderFields(o),
     cookingNote,
     deliveryInstructions,
     note: deliveryInstructions,
@@ -510,6 +512,38 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     dispatch: order?.dispatch,
     createdAt: order?.createdAt,
     updatedAt: order?.updatedAt,
+    // The rider app serves food and quick commerce from one list (plan §5.10):
+    // which service the job is, the store's label, and what to pick off the shelf.
+    ...quickCommerceRiderFields(order, restaurant),
+  };
+}
+
+/**
+ * What the rider app needs to tell a quick-commerce job from a food one and to
+ * pick it: the service, the store wording, a pick list (name, pack size, brand,
+ * quantity) and the delivery slot / proof-of-delivery rule.
+ */
+export function quickCommerceRiderFields(order = {}, restaurant = null) {
+  const store = restaurant || (order?.restaurantId && typeof order.restaurantId === 'object' ? order.restaurantId : null);
+  return {
+    vertical: 'quickCommerce',
+    serviceLabel: 'Quick',
+    sellerNoun: 'store',
+    storeName: store?.restaurantName || order?.restaurantName || '',
+    pickList: (Array.isArray(order?.items) ? order.items : []).map((it) => ({
+      itemId: it?.itemId,
+      name: it?.name || '',
+      variantName: it?.variantName || '',
+      brand: it?.brand || '',
+      packSize: it?.packSize || '',
+      quantity: Number(it?.quantity) || 1,
+      image: it?.image || '',
+    })),
+    itemCount: (Array.isArray(order?.items) ? order.items : []).reduce((n, it) => n + (Number(it?.quantity) || 1), 0),
+    scheduledAt: order?.scheduledAt || null,
+    deliverySlot: order?.deliverySlot || null,
+    contactlessDelivery: order?.contactlessDelivery === true,
+    parentOrderId: order?.parentOrderId ? String(order.parentOrderId) : null,
   };
 }
 

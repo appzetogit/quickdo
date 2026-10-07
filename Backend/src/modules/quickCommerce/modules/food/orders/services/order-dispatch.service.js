@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
+import { holdForSchedule } from '../../../../../../core/orders/scheduledDispatch.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
@@ -460,6 +461,21 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
 }
 
 export async function tryAutoAssign(orderId, options = {}) {
+  // Self-pickup orders never go to riders (plan §5.2); scheduled ones wait for
+  // their slot's rider search (plan §5.3, core/orders/scheduledDispatch.js).
+  {
+    const pre = mongoose.Types.ObjectId.isValid(String(orderId))
+      ? await FoodOrder.findById(orderId).select('fulfilmentType scheduledAt scheduledDispatch orderStatus zoneId').lean()
+      : null;
+    if (pre?.fulfilmentType === 'pickup') {
+      logger.info(`tryAutoAssign: Skip for ${orderId} (self-pickup).`);
+      return null;
+    }
+    if (pre && (await holdForSchedule('quickCommerce', pre))) {
+      logger.info(`tryAutoAssign: ${orderId} is scheduled; rider search starts before its slot.`);
+      return null;
+    }
+  }
   const attempt = options.attempt || 1;
   // Small buffer above the accept window so an in-flight offer isn't reclaimed early.
   const lockTimeout = DRIVER_ACCEPT_WINDOW_MS + 5000; // 50s

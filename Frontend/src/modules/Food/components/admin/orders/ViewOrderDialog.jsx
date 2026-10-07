@@ -387,6 +387,42 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, vertical,
             </div>
           )}
 
+          {/* SOW 5: self-pickup, delivery slot, multi-store parent, proof of delivery */}
+          {(order.fulfilmentType === "pickup" || order.deliverySlot?.slotId || order.parentOrderId || order.dropProof?.photoUrl || order.pickupVerification?.verified) && (
+            <div className="border-t border-slate-200 pt-4 space-y-2 text-sm">
+              <h3 className="text-sm font-semibold text-slate-700">Fulfilment</h3>
+              <p className="text-slate-700">
+                {order.fulfilmentType === "pickup" ? "Self-pickup at the store" : "Home delivery"}
+                {order.pickupVerification?.verified && order.pickupVerification?.verifiedAt
+                  ? ` · collected ${new Date(order.pickupVerification.verifiedAt).toLocaleString()}`
+                  : ""}
+              </p>
+              {order.deliverySlot?.slotId && (
+                <p className="text-slate-700">
+                  Slot: {order.deliverySlot.label || `${order.deliverySlot.startTime} - ${order.deliverySlot.endTime}`} on {order.deliverySlot.date}
+                </p>
+              )}
+              {order.parentOrderId && (
+                <p className="text-slate-700">
+                  Part of a multi-store order ({String(order.parentOrderId).slice(-10).toUpperCase()}) · its share: delivery Rs {Number(order.parentSplit?.deliveryFee || 0).toFixed(2)}, coupon Rs {Number(order.parentSplit?.discount || 0).toFixed(2)}
+                </p>
+              )}
+              {order.dropProof?.photoUrl && (
+                <div>
+                  <p className="mb-1 text-slate-700">
+                    Proof of delivery{order.dropProof.at ? ` · ${new Date(order.dropProof.at).toLocaleString()}` : ""}
+                    {Number.isFinite(Number(order.dropProof.lat)) && order.dropProof.lat !== null
+                      ? ` · ${Number(order.dropProof.lat).toFixed(5)}, ${Number(order.dropProof.lng).toFixed(5)}`
+                      : ""}
+                  </p>
+                  <a href={order.dropProof.photoUrl} target="_blank" rel="noopener noreferrer">
+                    <img src={order.dropProof.photoUrl} alt="Proof of delivery" className="h-40 w-auto rounded-lg border border-slate-200 object-cover" />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Delivery Address */}
           {order.address && (
             <div className="border-t border-slate-200 pt-4">

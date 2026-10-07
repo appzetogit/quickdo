@@ -80,7 +80,11 @@ export const PickupActionModal = ({
     order.restaurantId?.phone ||
     order.restaurantId?.ownerPhone ||
     '';
-  const items = order.items || [];
+  // Quick-commerce orders carry a pick list with pack sizes (plan 5.10).
+  const items = (order.vertical === 'quickCommerce' && Array.isArray(order.pickList) && order.pickList.length)
+    ? order.pickList
+    : (order.items || []);
+  const sellerWord = order.vertical === 'quickCommerce' ? 'Store' : 'Restaurant';
   const restaurantLogo = order.restaurantImage || order.restaurant?.logo || order.restaurant?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.png';
 
   return (
@@ -122,7 +126,7 @@ export const PickupActionModal = ({
                   <div className="flex items-center gap-2">
                     {isAtPickup ? (
                       <div className="bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
-                        <span className="text-emerald-600 text-[10px] font-black uppercase tracking-widest">At Restaurant √</span>
+                        <span className="text-emerald-600 text-[10px] font-black uppercase tracking-widest">At {sellerWord} √</span>
                       </div>
                     ) : (
                       <div className="bg-primary-orange/5 px-3 py-1 rounded-full border border-primary-orange/10">
@@ -199,7 +203,14 @@ export const PickupActionModal = ({
                     >
                       {items.map((item, idx) => (
                         <div key={idx} className="flex justify-between items-center p-4 bg-gray-50/30 rounded-2xl border border-gray-50">
-                          <span className="text-gray-800 text-sm font-bold uppercase tracking-tight">{item.name || 'Item Name'}</span>
+                          <span className="text-gray-800 text-sm font-bold uppercase tracking-tight">
+                            {item.name || 'Item Name'}
+                            {(item.packSize || item.variantName || item.brand) && (
+                              <span className="block text-[10px] font-semibold normal-case text-gray-500">
+                                {[item.brand, item.variantName || item.packSize].filter(Boolean).join(' · ')}
+                              </span>
+                            )}
+                          </span>
                           <span className="text-emerald-700 font-black bg-emerald-100/50 px-3 py-1 rounded-xl text-xs">x{item.quantity || 1}</span>
                         </div>
                       ))}

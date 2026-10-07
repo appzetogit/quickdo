@@ -145,8 +145,25 @@ export const useOrderManager = () => {
   /**
    * Finalize Delivery with OTP Check
    */
-  const completeDelivery = async (otp) => {
+  const completeDelivery = async (otp, extra = {}) => {
     const orderId = activeOrder?.orderMongoId || activeOrder?._id || activeOrder?.orderId;
+    const dropProof = extra?.dropProof || null;
+    // Delivered with a proof photo instead of the customer's code (plan 5.4):
+    // the server accepts it only when the code is not in use for this order.
+    if (dropProof && !otp) {
+      try {
+        const completeRes = await deliveryAPI.completeDelivery(orderId, { dropProof, rating: 5 });
+        if (!(completeRes.data?.success && completeRes.data?.data?.order)) {
+          throw new Error(completeRes.data?.message || 'Complete call failed');
+        }
+        setActiveOrder(completeRes.data.data.order);
+        updateTripStatus('COMPLETED');
+        return;
+      } catch (error) {
+        toast.error(error?.response?.data?.message || error?.message || 'Could not complete the delivery');
+        throw error;
+      }
+    }
     try {
       // 1. Verify OTP first
       const verifyRes = await deliveryAPI.verifyDropOtp(orderId, otp);
@@ -155,7 +172,7 @@ export const useOrderManager = () => {
         let finalOrder = verifyRes.data?.data?.order || activeOrder;
         
         // 2. Mark as complete
-        const completeRes = await deliveryAPI.completeDelivery(orderId, { otp, rating: 5 });
+        const completeRes = await deliveryAPI.completeDelivery(orderId, { otp, rating: 5, ...(dropProof ? { dropProof } : {}) });
         if (completeRes.data?.success && completeRes.data?.data?.order) {
           finalOrder = completeRes.data.data.order;
         } else {

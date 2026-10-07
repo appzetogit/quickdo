@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { normalizeBarcode } from '../../../../../../core/catalog/barcode.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
@@ -141,7 +142,8 @@ const buildCatalogUpdate = (body = {}) => {
     if (body.brand !== undefined) update.brand = toStr(body.brand);
     if (body.packSize !== undefined) update.packSize = toStr(body.packSize);
     if (body.sku !== undefined) update.sku = toStr(body.sku);
-    if (body.barcode !== undefined) update.barcode = toStr(body.barcode);
+    if (body.barcode !== undefined) update.barcode = normalizeBarcode(body.barcode);
+    else if (body.ean !== undefined) update.barcode = normalizeBarcode(body.ean);
 
     if (body.expiryDate !== undefined) {
         if (body.expiryDate === null || body.expiryDate === '') {

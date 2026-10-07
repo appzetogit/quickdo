@@ -204,6 +204,27 @@ export async function updateOrderStatusRestaurantController(req, res, next) {
     }
 }
 
+/** Self-pickup handover (plan §5.2): the store enters the customer's code. Body { otp }. */
+export async function verifyPickupOtpRestaurantController(req, res, next) {
+    try {
+        const order = await orderService.verifyPickupOtpRestaurant(req.params.orderId, req.user?.userId, req.body?.otp);
+        return sendResponse(res, 200, 'Order handed over', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+/** A multi-store checkout with every store's order (plan §5.1). */
+export async function getParentOrderUserController(req, res, next) {
+    try {
+        const { getParentOrderForUser } = await import('../services/order-multistore.service.js');
+        const order = await getParentOrderForUser(req.user?.userId, req.params.parentId);
+        return sendResponse(res, 200, 'Order retrieved', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function listOrdersAvailableDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;

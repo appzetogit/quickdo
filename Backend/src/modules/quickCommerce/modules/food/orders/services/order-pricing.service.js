@@ -453,60 +453,22 @@ async function resolveDeliveryAddress(userId, dto) {
   return chosen || dto.deliveryAddress;
 }
 
-export async function calculateOrderPricing(userId, dto, options = {}) {
-  const at = options.at instanceof Date ? options.at : new Date();
-  const restaurant =
-    options.restaurant || (await loadRestaurantForOrdering(dto.restaurantId));
-
-  if (!options.skipAvailabilityCheck) {
-    assertRestaurantOpenForOrdering(restaurant, at);
-  }
-
-  const deliveryAddress = normalizeDeliveryAddress(
-    await resolveDeliveryAddress(userId, dto),
-  );
-
-  const resolvedItems = await resolveOrderCartItems(dto.restaurantId, dto.items);
-  const items = resolvedItems.map((item) => ({
-    ...item,
-    price: Number(item.price) || 0,
-    quantity: Number(item.quantity) || 1,
-  }));
-  const subtotal = round2(
-    items.reduce(
-      (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
-      0,
-    ),
-  );
-
-  // Any zone-level setting for the zone this address is in applies.
-  const feeSettings = await loadActiveFeeSettings({
-    vertical: 'quickCommerce',
-    zoneId: await zoneIdForPricing(restaurant, deliveryAddress),
-  });
-
-  const packagingFee = 0;
-  const platformFee = Number(feeSettings.platformFee || 0);
-
-  let distanceKm = await getDeliveryDistanceKm(restaurant, deliveryAddress);
-  const straightLineKm = calculateDistanceKm(restaurant, deliveryAddress);
-
-  const deliveryFeeResult = resolveUserDeliveryFee(feeSettings, { subtotal, distanceKm });
-  const deliveryFee = round2(deliveryFeeResult.deliveryFee);
-  distanceKm = deliveryFeeResult.distanceKm ?? distanceKm;
-
+/**
+ * Whether a coupon applies to a basket, and for how much. Lifted out of
+ * calculateOrderPricing so a multi-store checkout (plan §5.1) can test ONE
+ * coupon against the whole basket and then share the discount between the
+ * stores, instead of each store testing it on its own part.
+ *
+ * `restaurantIds` are the stores the basket is from: a coupon scoped to
+ * selected stores applies when any of them is selected, and `eligibleSubtotal`
+ * (when given) is the value of the in-scope part.
+ */
+export async function evaluateCoupon(userId, couponCode, { subtotal = 0, restaurantIds = [], eligibleSubtotal } = {}) {
   let discount = 0;
-  /*
-   * Who paid for the coupon, which decides what GST is charged on. Admin is the
-   * default and the fallback, matching how the money actually settles: an admin
-   * coupon comes off the platform and leaves the seller's payout whole.
-   */
   let discountFundedByPlatform = false;
   let appliedCoupon = null;
-  const codeRaw = dto.couponCode
-    ? String(dto.couponCode).trim().toUpperCase()
-    : "";
-
+  let offerScope = null;
+  const codeRaw = couponCode ? String(couponCode).trim().toUpperCase() : "";
   if (codeRaw) {
     const now = new Date();
     const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
@@ -523,7 +485,8 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
         : [offer.restaurantId].filter(Boolean);
       const scopeOk =
         offer.restaurantScope !== "selected" ||
-        selectedRestaurantIds.some((id) => String(id) === String(dto.restaurantId || ""));
+        selectedRestaurantIds.some((id) => restaurantIds.some((r) => String(id) === String(r || "")));
+      if (offer.restaurantScope === "selected") offerScope = selectedRestaurantIds.map(String);
       const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
       let usageOk = true;
       if (
@@ -571,22 +534,104 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
         firstOrderOk;
 
       if (allowed) {
+        const base = Number.isFinite(Number(eligibleSubtotal)) ? Number(eligibleSubtotal) : subtotal;
         if (offer.discountType === "percentage") {
-          const raw = subtotal * (Number(offer.discountValue) / 100);
+          const raw = base * (Number(offer.discountValue) / 100);
           const capped = Number(offer.maxDiscount)
             ? Math.min(raw, Number(offer.maxDiscount))
             : raw;
-          discount = Math.max(0, Math.min(subtotal, Math.floor(capped)));
+          discount = Math.max(0, Math.min(base, Math.floor(capped)));
         } else {
           discount = Math.max(
             0,
-            Math.min(subtotal, Math.floor(Number(offer.discountValue) || 0)),
+            Math.min(base, Math.floor(Number(offer.discountValue) || 0)),
           );
         }
         appliedCoupon = { code: codeRaw, discount };
         discountFundedByPlatform = offer.createdByRole !== 'RESTAURANT';
       }
     }
+  }
+
+  return { discount, discountFundedByPlatform, appliedCoupon, codeRaw, offerScope };
+}
+
+export async function calculateOrderPricing(userId, dto, options = {}) {
+  const at = options.at instanceof Date ? options.at : new Date();
+  const restaurant =
+    options.restaurant || (await loadRestaurantForOrdering(dto.restaurantId));
+
+  if (!options.skipAvailabilityCheck) {
+    assertRestaurantOpenForOrdering(restaurant, at);
+  }
+
+  const deliveryAddress = normalizeDeliveryAddress(
+    await resolveDeliveryAddress(userId, dto),
+  );
+
+  const resolvedItems = await resolveOrderCartItems(dto.restaurantId, dto.items);
+  const items = resolvedItems.map((item) => ({
+    ...item,
+    price: Number(item.price) || 0,
+    quantity: Number(item.quantity) || 1,
+  }));
+  const subtotal = round2(
+    items.reduce(
+      (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
+      0,
+    ),
+  );
+
+  // Any zone-level setting for the zone this address is in applies.
+  const feeSettings = await loadActiveFeeSettings({
+    vertical: 'quickCommerce',
+    zoneId: await zoneIdForPricing(restaurant, deliveryAddress),
+  });
+
+  const packagingFee = 0;
+  const overrides = options.overrides || null;
+  // Self-pickup (plan §5.2): the customer collects, so there is no delivery fee.
+  const isPickup = String(options.fulfilmentType || dto.fulfilmentType || '').toLowerCase() === 'pickup';
+  const naturalPlatformFee = Number(feeSettings.platformFee || 0);
+  const platformFee = overrides && overrides.platformFee != null
+    ? round2(Math.max(0, Number(overrides.platformFee) || 0))
+    : naturalPlatformFee;
+
+  let distanceKm = await getDeliveryDistanceKm(restaurant, deliveryAddress);
+  const straightLineKm = calculateDistanceKm(restaurant, deliveryAddress);
+
+  const deliveryFeeResult = resolveUserDeliveryFee(feeSettings, { subtotal, distanceKm });
+  const naturalDeliveryFee = isPickup ? 0 : round2(deliveryFeeResult.deliveryFee);
+  const deliveryFee = isPickup
+    ? 0
+    : overrides && overrides.deliveryFee != null
+      ? round2(Math.max(0, Number(overrides.deliveryFee) || 0))
+      : naturalDeliveryFee;
+  distanceKm = deliveryFeeResult.distanceKm ?? distanceKm;
+
+  /*
+   * Who paid for the coupon, which decides what GST is charged on. Admin is the
+   * default and the fallback, matching how the money actually settles: an admin
+   * coupon comes off the platform and leaves the seller's payout whole.
+   *
+   * A multi-store checkout passes the coupon's share for this store in
+   * options.overrides instead (core/orders/proRata.js); it was tested once
+   * against the whole basket.
+   */
+  let discount = 0;
+  let discountFundedByPlatform = false;
+  let appliedCoupon = null;
+  let codeRaw = dto.couponCode ? String(dto.couponCode).trim().toUpperCase() : "";
+  if (overrides) {
+    discount = round2(Math.min(subtotal, Math.max(0, Number(overrides.discount) || 0)));
+    discountFundedByPlatform = overrides.discountFundedByPlatform === true;
+    codeRaw = overrides.couponCode ? String(overrides.couponCode).trim().toUpperCase() : "";
+    appliedCoupon = codeRaw && discount > 0 ? { code: codeRaw, discount } : null;
+  } else if (codeRaw) {
+    ({ discount, discountFundedByPlatform, appliedCoupon } = await evaluateCoupon(userId, codeRaw, {
+      subtotal,
+      restaurantIds: [dto.restaurantId],
+    }));
   }
 
   // GST is charged on the full item value before any coupon, whoever funded it
@@ -605,10 +650,15 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   // GST on the platform fee, at Master's rate when one is set (not charged otherwise).
   const { platformFeeGstRate, platformFeeGst } = platformFeeGstFor(feeSettings, platformFee);
 
+  // Loyalty points redeemed (core/loyalty): paid by the platform, after GST,
+  // like a wallet. Already capped to the admin's share of the item value.
+  const loyaltyDiscount = round2(Math.max(0, Number(overrides?.loyaltyDiscount ?? options.loyaltyDiscount) || 0));
+  const loyaltyPoints = Math.max(0, Math.round(Number(overrides?.loyaltyPoints ?? options.loyaltyPoints) || 0));
+
   const payableBeforeRounding = round2(
     Math.max(
       0,
-      subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + platformFeeGst + tax - discount,
+      subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + platformFeeGst + tax - discount - loyaltyDiscount,
     ),
   );
   // Charged to the rupee, like Food: 336.80 -> 337 with a +0.20 round-off line.
@@ -640,6 +690,12 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     roundOff,
     total,
     currency: "INR",
+    fulfilmentType: isPickup ? 'pickup' : 'delivery',
+    loyaltyDiscount,
+    loyaltyPoints,
+    // Before any multi-store split: what this store alone would have charged.
+    naturalDeliveryFee,
+    naturalPlatformFee,
     couponCode: appliedCoupon?.code || codeRaw || null,
     appliedCoupon,
     distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
@@ -657,7 +713,7 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
 
   const pricing = applyDeliveryModePricing(
     basePricing,
-    dto.deliveryMode,
+    isPickup || overrides ? 'basic' : dto.deliveryMode,
     Number(feeSettings.quickDeliveryFee) || 0,
   );
 

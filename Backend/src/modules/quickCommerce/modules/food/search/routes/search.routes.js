@@ -1,5 +1,15 @@
 import express from 'express';
-import { searchController, searchProductsController, listAdminCategoriesController } from '../controllers/search.controller.js';
+import {
+    searchController,
+    searchProductsController,
+    listAdminCategoriesController,
+    suggestController,
+    listRecentSearchesController,
+    recordRecentSearchController,
+    clearRecentSearchesController,
+} from '../controllers/search.controller.js';
+import { authMiddleware, optionalAuth } from '../../../../core/auth/auth.middleware.js';
+import { requireRoles } from '../../../../../../core/roles/role.middleware.js';
 import { cacheResponse } from '../../../../middleware/cache.js';
 
 const router = express.Router();
@@ -24,5 +34,18 @@ router.get('/products', cacheResponse(30, 'search_products', { browserTtlSeconds
  * GET /api/v1/food/search/categories/admin
  */
 router.get('/categories/admin', cacheResponse(1800, 'search_categories_admin', { browserTtlSeconds: 300 }), listAdminCategoriesController);
+
+/**
+ * Search suggestions (plan §5.5): prefix match on product, category and brand
+ * names ranked by popularity. Not cached: the signed-in customer's recent
+ * searches ride along.
+ * GET /api/v1/qc/search/suggest?q=mil&limit=10&zoneId=
+ */
+router.get('/suggest', optionalAuth, suggestController);
+
+// The customer's recent searches.
+router.get('/recent', authMiddleware, requireRoles('USER'), listRecentSearchesController);
+router.post('/recent', authMiddleware, requireRoles('USER'), recordRecentSearchController);
+router.delete('/recent', authMiddleware, requireRoles('USER'), clearRecentSearchesController);
 
 export default router;

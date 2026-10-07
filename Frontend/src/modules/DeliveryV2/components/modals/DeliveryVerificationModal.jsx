@@ -7,6 +7,7 @@ import {
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
+import { DropPhotoProof } from '@/modules/DeliveryV2/components/modals/DropPhotoProof';
 
 const Backdrop = ({ onClose }) => (
   <motion.div 
@@ -48,7 +49,7 @@ const DeliveryInstructionsPanel = ({ note }) => {
   )
 }
 
-const OtpModal = ({ order, onVerified, onClose }) => {
+const OtpModal = ({ order, onVerified, onClose, onUsePhoto }) => {
   const [otp, setOtp] = useState(['', '', '', '']);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isOtpVerified, setIsOtpVerified] = useState(false);
@@ -157,6 +158,15 @@ const OtpModal = ({ order, onVerified, onClose }) => {
               onConfirm={verifyOtp}
               color="bg-gray-950"
             />
+            {onUsePhoto && !isOtpVerified && (
+              <button
+                type="button"
+                onClick={onUsePhoto}
+                className="mt-4 w-full text-center text-[11px] font-black uppercase tracking-widest text-gray-500 underline"
+              >
+                {order?.contactlessDelivery ? 'Contactless drop: deliver with a photo' : 'No code? Deliver with a photo'}
+              </button>
+            )}
           </div>
         </div>
       </motion.div>
@@ -454,6 +464,14 @@ export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
     return 'otp';
   });
   const [verifiedOtp, setVerifiedOtp] = useState(alreadyVerified ? (order.deliveryVerification.dropOtp.code || '') : '');
+  // Proof-of-delivery photo (plan 5.4), sent with the completion when taken.
+  const [dropProof, setDropProof] = useState(null);
+  const finish = (otp) => onComplete(otp, dropProof ? { dropProof } : undefined);
+
+  const handlePhoto = (proof) => {
+    setDropProof(proof);
+    setStep(isCod ? 'payment' : 'complete');
+  };
 
   const handleOtpVerified = (otpValue) => {
     setVerifiedOtp(otpValue);
@@ -478,6 +496,15 @@ export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
           order={order} 
           onVerified={handleOtpVerified} 
           onClose={onClose || (() => {})} 
+          onUsePhoto={() => setStep('photo')}
+        />
+      )}
+      {step === 'photo' && (
+        <DropPhotoProof
+          key="photo-modal"
+          order={order}
+          onProof={handlePhoto}
+          onClose={() => setStep('otp')}
         />
       )}
       {step === 'payment' && (
@@ -485,7 +512,7 @@ export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
           key="payment-modal" 
           order={order} 
           otpString={verifiedOtp} 
-          onComplete={onComplete} 
+          onComplete={finish} 
           onClose={onClose || (() => {})} 
         />
       )}
@@ -514,7 +541,7 @@ export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
                 label="Slide to Complete Delivery" 
                 successLabel="Delivered! ✓"
                 onConfirm={async () => {
-                  await onComplete(verifiedOtp);
+                  await finish(verifiedOtp);
                 }}
                 color="bg-emerald-600"
               />

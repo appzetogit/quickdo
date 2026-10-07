@@ -13,6 +13,8 @@ const orderItemSchema = z.object({
     isVeg: z.boolean().optional().default(true),
     image: z.string().optional(),
     notes: z.string().optional(),
+    /** Multi-seller cart (plan §5.1): the store this line is sold by. */
+    storeId: z.string().optional(),
     /**
      * Add-ons chosen for this line.
      *
@@ -79,10 +81,21 @@ const pricingSchema = z.object({
     couponCode: z.string().nullable().optional()
 });
 
+/** SOW §5 checkout options, accepted by /calculate and by placing the order. */
+const checkoutExtras = {
+    fulfilmentType: z.enum(['delivery', 'pickup']).optional(),
+    slotId: z.string().optional(),
+    loyaltyPoints: z.coerce.number().int().min(0).optional(),
+    contactlessDelivery: z.boolean().optional(),
+};
+
+/** restaurantId may be left out when every line names its storeId. */
+const hasStore = (d) => Boolean(d.restaurantId) || (Array.isArray(d.items) && d.items.length > 0 && d.items.every((i) => i.storeId));
+
 export function validateCalculateOrderDto(body) {
     const schema = z.object({
         items: z.array(orderItemSchema).min(1, 'At least one item required'),
-        restaurantId: z.string().min(1, 'Restaurant id required'),
+        restaurantId: z.string().optional(),
         deliveryAddressId: z.string().optional(),
         zoneId: z.string().optional(),
         couponCode: z.string().optional(),
@@ -98,8 +111,10 @@ export function validateCalculateOrderDto(body) {
             })
             .passthrough()
             .optional(),
-        scheduledAt: z.string().datetime().optional()
-    });
+        scheduledAt: z.string().datetime().optional(),
+        address: addressSchema.partial().passthrough().optional(),
+        ...checkoutExtras,
+    }).refine(hasStore, { message: 'Restaurant id required', path: ['restaurantId'] });
     const result = schema.safeParse(body);
     if (!result.success) {
         const first = result.error.issues?.[0];
@@ -113,12 +128,14 @@ export function validateCalculateOrderDto(body) {
 export function validateCreateOrderDto(body) {
     const schema = z.object({
         items: z.array(orderItemSchema).min(1, 'At least one item required'),
-        address: addressSchema,
-        restaurantId: z.string().min(1, 'Restaurant id required'),
+        // Optional for a self-pickup order only (checked below).
+        address: addressSchema.optional(),
+        restaurantId: z.string().optional(),
         restaurantName: z.string().optional(),
         customerName: z.string().optional(),
         customerPhone: z.string().optional(),
-        pricing: pricingSchema,
+        pricing: pricingSchema.optional(),
+        couponCode: z.string().optional(),
         deliveryFleet: z.string().optional(),
         note: z.string().optional(),
         deliveryInstructions: z.string().optional(),
@@ -133,8 +150,11 @@ export function validateCreateOrderDto(body) {
             errorMap: () => ({ message: 'Unsupported payment method' }),
         }),
         zoneId: z.string().nullable().optional(),
-        scheduledAt: z.string().datetime().optional()
-    });
+        scheduledAt: z.string().datetime().optional(),
+        ...checkoutExtras,
+    })
+        .refine(hasStore, { message: 'Restaurant id required', path: ['restaurantId'] })
+        .refine((d) => d.fulfilmentType === 'pickup' || Boolean(d.address), { message: 'Delivery address required', path: ['address'] });
     const result = schema.safeParse(body);
     if (!result.success) {
         const msg = result.error.errors?.[0]?.message || 'Validation failed';

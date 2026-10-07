@@ -35,6 +35,8 @@ import { config } from '../config/env.js';
 import { getRateLimitSummary } from '../middleware/rateLimit.js';
 // Platform-level vertical gate (lives in master's core, not this fork).
 import { requireServiceAccess } from '../../../core/roles/serviceAccess.middleware.js';
+import { productsByBarcodeController } from '../modules/food/search/controllers/search.controller.js';
+import { buildLoyaltyCustomerRouter } from '../../../core/loyalty/loyalty.routes.js';
 
 const router = express.Router();
 
@@ -60,6 +62,8 @@ router.use('/partner', partnerRoutes);
 // Landing & hero-banners for Food user app (paths start with /food/hero-banners/...)
 router.use('/', landingRoutes);
 router.use('/search', searchRoutes);
+// The app's camera scan (plan §5.6). Public, like product search.
+router.get('/products/by-barcode/:code', productsByBarcodeController);
 router.use('/uploads', uploadRoutes);
 
 // Mark business-settings/public as truly public (must be before protected admin block)
@@ -75,6 +79,8 @@ router.use('/user', authMiddleware, requireRoles('USER'), userRoutes);
 router.use('/notifications', authMiddleware, requireRoles('USER', 'RESTAURANT', 'DELIVERY_PARTNER'), notificationRoutes);
 router.use('/chat', authMiddleware, requireRoles('USER', 'RESTAURANT', 'DELIVERY_PARTNER', 'ADMIN'), chatRoutes);
 router.use('/orders', authMiddleware, requireRoles('USER'), orderUserRoutes);
+// Loyalty points (plan §5.7, core/loyalty): balance, history, what a basket may redeem.
+router.use('/loyalty', authMiddleware, requireRoles('USER'), buildLoyaltyCustomerRouter('quickCommerce'));
 // Returns carries its own per-route role gates (customer / admin / rider on one
 // router), so it is mounted bare rather than behind a single requireRoles.
 router.use('/returns', returnRoutes);

@@ -304,6 +304,8 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
 router.get('/orders/:orderId', authMiddleware, requireRestaurant, orderController.getOrderByIdRestaurantController);
 router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
+// Self-pickup: the customer's code at the counter completes the order (plan §5.2).
+router.post('/orders/:orderId/pickup/verify', authMiddleware, requireRestaurant, orderController.verifyPickupOtpRestaurantController);
 router.post('/orders/:orderId/resend-notification', authMiddleware, requireRestaurant, orderController.resendDeliveryNotificationRestaurantController);
 
 // Complaints (restaurant dashboard)

@@ -31,6 +31,10 @@ import {
     fetchRazorpayPayment
 } from '../helpers/razorpay.helper.js';
 import { refundGatewayPayment } from '../../../../../../core/payments/refund.service.js';
+import { generatePickupOtp } from '../../../../../../core/orders/storeOrderFields.js';
+import { resolveSlot, reserveSlot, releaseSlot } from '../../../../../../core/deliverySlots/deliverySlot.service.js';
+import { quoteRedemption, burnPoints, reverseBurn } from '../../../../../../core/loyalty/loyalty.service.js';
+import { reverseQcOrderLoyalty, awardQcOrderLoyalty } from './order-loyalty.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline } from '../utils/googleMaps.js';
@@ -116,7 +120,7 @@ function isAwaitingOnlinePaymentMethod(paymentMethod) {
  * Online orders count on payment, so there the check is that no other unpaid
  * order of this customer holds the same coupon.
  */
-async function claimCouponForCustomer(order, userId, awaitingOnline) {
+export async function claimCouponForCustomer(order, userId, awaitingOnline) {
   const couponCode = order?.pricing?.couponCode ? String(order.pricing.couponCode).trim().toUpperCase() : "";
   if (!couponCode || !(Number(order?.pricing?.discount) > 0)) return false;
   const offer = await FoodOffer.findOne({ couponCode }).select("_id perUserLimit").lean();
@@ -154,7 +158,7 @@ async function claimCouponForCustomer(order, userId, awaitingOnline) {
   return true;
 }
 
-async function incrementCouponUsageForOrder(order, userId) {
+export async function incrementCouponUsageForOrder(order, userId) {
   const couponCode = order?.pricing?.couponCode
     ? String(order.pricing.couponCode).trim().toUpperCase()
     : "";
@@ -229,6 +233,7 @@ async function deletePendingPaymentOrder(orderLike) {
       },
     },
   );
+  await releaseOrderExtras(orderLike);
   return true;
 }
 
@@ -480,6 +485,7 @@ async function expireUnacceptedOrders(filter = {}) {
     if (!updated) continue;
 
     await restoreOrderStock(updated);
+    await releaseOrderExtras(updated);
 
     try {
       await applyCancellationRefund(updated, { cancelledBy: 'auto_cancel' });
@@ -571,10 +577,35 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
 
 // ----- Calculate (validation + return pricing from payload) -----
 export async function calculateOrder(userId, dto) {
+  if (storesInBasket(dto).length > 1) {
+    const { quoteMultiStore } = await import('./order-multistore.service.js');
+    return quoteMultiStore(userId, dto);
+  }
+  if (!dto.restaurantId) dto = { ...dto, restaurantId: storesInBasket(dto)[0] };
   const at = dto.scheduledAt ? new Date(dto.scheduledAt) : new Date();
-  return calculateOrderPricing(userId, dto, {
+  const result = await calculateOrderPricing(userId, dto, {
     at: Number.isNaN(at.getTime()) ? new Date() : at,
+    fulfilmentType: normalizeFulfilmentType(dto.fulfilmentType),
   });
+  // What the asked-for points would take off (clamped), so the cart can show it.
+  if (Number(dto.loyaltyPoints) > 0) {
+    const p = result.pricing;
+    const quote = await quoteRedemption({
+      customerId: userId,
+      vertical: 'quickCommerce',
+      points: dto.loyaltyPoints,
+      orderValue: Math.max(0, (Number(p.subtotal) || 0) - (Number(p.discount) || 0)),
+    });
+    if (quote.points > 0) {
+      const payable = Math.max(0, Math.round(((Number(p.total) - Number(p.roundOff || 0)) - quote.discount) * 100) / 100);
+      p.total = Math.round(payable);
+      p.roundOff = Math.round((p.total - payable) * 100) / 100;
+      p.loyaltyDiscount = quote.discount;
+      p.loyaltyPoints = quote.points;
+    }
+    result.loyalty = quote;
+  }
+  return result;
 }
 
 // Helper to safely convert string to ObjectId or throw ValidationError (400)
@@ -587,10 +618,82 @@ function toObjectId(id, fieldName = 'ID') {
   return new mongoose.Types.ObjectId(id);
 }
 
+/** The stores a basket is from: each line's storeId (or restaurantId), else the order's. */
+export function storesInBasket(dto = {}) {
+  const ids = new Set();
+  for (const item of Array.isArray(dto.items) ? dto.items : []) {
+    const sid = item?.storeId || item?.restaurantId || dto.restaurantId;
+    if (sid) ids.add(String(sid));
+  }
+  if (!ids.size && dto.restaurantId) ids.add(String(dto.restaurantId));
+  return [...ids];
+}
+
+/** delivery (default) or pickup (plan §5.2). Anything else is refused. */
+export function normalizeFulfilmentType(value) {
+  const v = String(value || 'delivery').trim().toLowerCase();
+  if (v === 'delivery' || v === 'pickup') return v;
+  throw new ValidationError("fulfilmentType must be 'delivery' or 'pickup'");
+}
+
+/** A pickup order is filed at the store: its address and location. */
+function storeAddressForPickup(restaurant, given = {}) {
+  const coords = restaurant?.location?.coordinates;
+  const lat = Number(restaurant?.location?.latitude ?? (Array.isArray(coords) ? coords[1] : NaN));
+  const lng = Number(restaurant?.location?.longitude ?? (Array.isArray(coords) ? coords[0] : NaN));
+  return {
+    label: 'Other',
+    street: given.street || restaurant?.location?.addressLine1 || restaurant?.area || restaurant?.restaurantName || 'Store pickup',
+    city: given.city || restaurant?.city || restaurant?.location?.city || 'NA',
+    state: given.state || restaurant?.state || restaurant?.location?.state || 'NA',
+    additionalDetails: 'Self-pickup at the store',
+    ...(Number.isFinite(lat) && Number.isFinite(lng)
+      ? { location: { type: 'Point', coordinates: [lng, lat] } }
+      : {}),
+  };
+}
+
+/**
+ * What a cancelled order gives back besides stock and money: its place in a
+ * delivery slot and the loyalty points it redeemed. Both idempotent.
+ */
+async function releaseOrderExtras(orderLike) {
+  try {
+    if (!orderLike?._id) return;
+    const o = await FoodOrder.findById(orderLike._id)
+      .select('userId order_id orderStatus deliverySlot pricing.loyaltyPoints parentOrderId')
+      .lean();
+    if (!o) return;
+    // The caller may not have saved its cancel yet: either copy saying cancelled counts.
+    const cancelled = [o.orderStatus, orderLike.orderStatus].some((st) => String(st || '').startsWith('cancelled'));
+    if (!cancelled) return;
+    if (o.deliverySlot?.slotId && !o.deliverySlot?.releasedAt) {
+      const r = await releaseSlot({ slotId: o.deliverySlot.slotId, date: o.deliverySlot.date, orderId: o._id });
+      if (r.released) await FoodOrder.updateOne({ _id: o._id }, { $set: { 'deliverySlot.releasedAt': new Date() } });
+    }
+    await reverseQcOrderLoyalty(o);
+  } catch (err) {
+    logger.warn(`releaseOrderExtras failed for ${orderLike?._id}: ${err?.message || err}`);
+  }
+}
+
 // ----- Create order -----
-export async function createOrder(userId, dto) {
+export async function createOrder(userId, dto, internal = {}) {
+  // A basket from more than one store is one parent order with a child per
+  // store (plan §5.1, order-multistore.service.js). A single store keeps the
+  // shape it always had.
+  if (!internal.parentOrderId) {
+    const stores = storesInBasket(dto);
+    if (stores.length > 1) {
+      const { createMultiStoreOrder } = await import('./order-multistore.service.js');
+      return createMultiStoreOrder(userId, dto);
+    }
+    if (stores.length === 1 && !dto.restaurantId) dto = { ...dto, restaurantId: stores[0] };
+  }
   try {
     const restaurantId = toObjectId(dto.restaurantId, 'Restaurant ID');
+    const fulfilmentType = normalizeFulfilmentType(dto.fulfilmentType);
+    const isPickup = fulfilmentType === 'pickup';
     const restaurant = await loadRestaurantForOrdering(restaurantId);
 
     const orderAt = dto.scheduledAt ? new Date(dto.scheduledAt) : new Date();
@@ -615,6 +718,12 @@ export async function createOrder(userId, dto) {
       ...(dto.address || {}),
     }), restaurant);
 
+    // Self-pickup (plan §5.2) needs no delivery address: the order is filed at
+    // the store's own location, which is always inside the store's zone.
+    if (isPickup && !readAddressPoint(deliveryAddress)) {
+      Object.assign(deliveryAddress, storeAddressForPickup(restaurant, deliveryAddress));
+    }
+
     // Without coordinates the row cannot be written at all: the 2dsphere index
     // on the address rejects a Point with no position, and the driver's error
     // ("Can't extract geo keys") reaches the customer as a failed checkout with
@@ -628,6 +737,18 @@ export async function createOrder(userId, dto) {
     }
 
     const serviceableZone = await resolveServiceableZone(restaurant, deliveryAddress);
+
+    // Scheduled delivery (plan §5.3): once the admin has opened slots for this
+    // zone, the time must fall in one that is open and has room. No slots keeps
+    // the time as given, as before.
+    const slotMatch = dto.scheduledAt
+      ? await resolveSlot({
+          vertical: 'quickCommerce',
+          zoneId: serviceableZone?._id || restaurant?.zoneId || null,
+          scheduledAt: orderAt,
+          slotId: dto.slotId,
+        })
+      : null;
 
     const paymentMethod =
       dto.paymentMethod === "card" ? "razorpay" : dto.paymentMethod;
@@ -648,10 +769,18 @@ export async function createOrder(userId, dto) {
         restaurantId: String(restaurantId),
         items: dto.items || [],
         deliveryAddress,
-        couponCode: dto.pricing?.couponCode || undefined,
+        couponCode: dto.pricing?.couponCode || dto.couponCode || undefined,
         deliveryMode: dto.deliveryMode || "basic",
       },
-      { at: orderAt, restaurant, skipAvailabilityCheck: true },
+      {
+        at: orderAt,
+        restaurant,
+        skipAvailabilityCheck: true,
+        fulfilmentType,
+        // A child of a multi-store checkout: its share of the parent's fees,
+        // coupon and points, worked out once for the whole basket.
+        ...(internal.overrides ? { overrides: internal.overrides } : {}),
+      },
     );
 
     const resolvedItems = pricingResult.items || [];
@@ -701,6 +830,28 @@ export async function createOrder(userId, dto) {
         ? Number(pricingResult.pricing.straightLineDistanceKm)
         : null,
     };
+
+    normalizedPricing.loyaltyDiscount = Number(pricingResult.pricing?.loyaltyDiscount) || 0;
+    normalizedPricing.loyaltyPoints = Number(pricingResult.pricing?.loyaltyPoints) || 0;
+
+    // Loyalty points on a single-store order (plan §5.7): clamped to the
+    // balance and the admin's share of the item value, taken off after GST.
+    if (!internal.parentOrderId && Number(dto.loyaltyPoints) > 0) {
+      const quote = await quoteRedemption({
+        customerId: userId,
+        vertical: 'quickCommerce',
+        points: dto.loyaltyPoints,
+        orderValue: Math.max(0, normalizedPricing.subtotal - normalizedPricing.discount),
+      });
+      if (quote.points > 0) {
+        const before = normalizedPricing.total - normalizedPricing.roundOff;
+        const payable = Math.max(0, Math.round((before - quote.discount) * 100) / 100);
+        normalizedPricing.total = Math.round(payable);
+        normalizedPricing.roundOff = Math.round((normalizedPricing.total - payable) * 100) / 100;
+        normalizedPricing.loyaltyDiscount = quote.discount;
+        normalizedPricing.loyaltyPoints = quote.points;
+      }
+    }
 
     if (!Number.isFinite(normalizedPricing.total) || normalizedPricing.total <= 0) {
       throw new ValidationError("Order total must be greater than zero");
@@ -814,14 +965,44 @@ export async function createOrder(userId, dto) {
       deliveryInstructions: String(dto.deliveryInstructions || ""),
       sendCutlery: dto.sendCutlery !== false,
       deliveryFleet: String(dto.deliveryFleet || "standard"),
-      scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-      riderEarning: Number(riderEarning) || 0,
+      scheduledAt: slotMatch ? slotMatch.startAt : dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+      riderEarning: isPickup ? 0 : Number(riderEarning) || 0,
       platformProfit: Number(platformProfit) || 0,
+      fulfilmentType,
+      contactlessDelivery: dto.contactlessDelivery === true,
+      ...(internal.parentOrderId
+        ? { parentOrderId: internal.parentOrderId, parentSplit: internal.parentSplit || undefined }
+        : {}),
+      ...(slotMatch
+        ? {
+            deliverySlot: {
+              slotId: slotMatch.slot._id,
+              date: slotMatch.date,
+              startTime: slotMatch.slot.startTime,
+              endTime: slotMatch.slot.endTime,
+              label: slotMatch.slot.label || `${slotMatch.slot.startTime} - ${slotMatch.slot.endTime}`,
+            },
+          }
+        : {}),
+      ...(normalizedPricing.loyaltyPoints > 0
+        ? {
+            loyalty: {
+              pointsRedeemed: normalizedPricing.loyaltyPoints,
+              discount: normalizedPricing.loyaltyDiscount,
+              redeemKey: internal.parentOrderId ? `qc:parent:${internal.parentOrderId}` : '',
+            },
+          }
+        : {}),
     });
+    if (isPickup) {
+      order.pickupOtp = generatePickupOtp();
+      order.pickupVerification = { verified: false, attempts: 0 };
+    }
 
     let razorpayPayload = null;
 
-    if (paymentMethod === "razorpay" && isRazorpayConfigured()) {
+    // A child of a multi-store checkout is paid through the parent's one gateway order.
+    if (paymentMethod === "razorpay" && isRazorpayConfigured() && !internal.parentOrderId) {
       const amountPaise = Math.round((normalizedPricing.total || 0) * 100);
       if (amountPaise < 100)
         throw new ValidationError("Amount too low for online payment");
@@ -847,7 +1028,10 @@ export async function createOrder(userId, dto) {
     // awaiting online payment: the units have to be held while the customer is
     // on the payment sheet, or two people pay for the same last unit. The
     // pending-payment cleanup gives them back.
-    const couponUserClaimed = await claimCouponForCustomer(order, userId, isAwaitingOnlinePayment);
+    // The parent claims and counts the one coupon of a multi-store checkout.
+    const couponUserClaimed = internal.parentOrderId
+      ? false
+      : await claimCouponForCustomer(order, userId, isAwaitingOnlinePayment);
     if (order.$locals) order.$locals.couponUserClaimed = couponUserClaimed;
     const giveBackCoupon = async () => {
       if (!couponUserClaimed) return;
@@ -866,11 +1050,40 @@ export async function createOrder(userId, dto) {
     }
     if (reservation.length > 0) order.stockReservedAt = new Date();
 
+    // The slot's place and the points are claimed before the order exists, like
+    // the stock, and given back if it never does.
+    const undoClaims = async () => {
+      if (slotMatch) await releaseSlot({ slotId: slotMatch.slot._id, date: slotMatch.date, orderId: order._id }).catch(() => {});
+      if (!internal.parentOrderId && normalizedPricing.loyaltyPoints > 0) {
+        await reverseBurn({ customerId: userId, vertical: 'quickCommerce', points: normalizedPricing.loyaltyPoints, key: `qc:${order._id}`, orderId: String(order._id) }).catch(() => {});
+      }
+    };
+    try {
+      if (slotMatch) await reserveSlot({ slot: slotMatch.slot, date: slotMatch.date, orderId: order._id });
+      if (!internal.parentOrderId && normalizedPricing.loyaltyPoints > 0) {
+        await burnPoints({
+          customerId: userId,
+          vertical: 'quickCommerce',
+          points: normalizedPricing.loyaltyPoints,
+          key: `qc:${order._id}`,
+          orderId: String(order._id),
+          amount: normalizedPricing.loyaltyDiscount,
+        });
+        order.loyalty.redeemKey = `qc:${order._id}`;
+      }
+    } catch (err) {
+      await releaseReservations(reservation);
+      await giveBackCoupon();
+      if (slotMatch) await releaseSlot({ slotId: slotMatch.slot._id, date: slotMatch.date, orderId: order._id }).catch(() => {});
+      throw err;
+    }
+
     try {
       await order.save();
     } catch (err) {
       await releaseReservations(reservation);
       await giveBackCoupon();
+      await undoClaims();
       throw err;
     }
 
@@ -893,11 +1106,12 @@ export async function createOrder(userId, dto) {
       });
     }
 
-    if (isWallet) {
+    if (isWallet && !internal.parentOrderId) {
       try {
         await userWalletService.deductWalletBalance(userId, order.pricing.total, `Payment for order #${order.order_id || order._id}`, { orderId: order._id });
       } catch (err) {
         await restoreOrderStock(order);
+        await undoClaims();
         await FoodOrder.deleteOne({ _id: order._id });
         throw err;
       }
@@ -933,7 +1147,8 @@ export async function createOrder(userId, dto) {
       // payment screen, and an abandoned order is already handled by
       // abandonOnlinePaymentOrder. A push adds nothing a screen they are
       // looking at does not already say.
-      if (!isAwaitingOnlinePayment) {
+      // A multi-store checkout tells the customer once, from the parent.
+      if (!isAwaitingOnlinePayment && !internal.parentOrderId) {
         await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
           title: "Order Confirmed! 🍔",
           body: `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
@@ -954,7 +1169,7 @@ export async function createOrder(userId, dto) {
       logger.warn(`Notifications failed for order ${order._id}: ${err.message}`);
     }
 
-    if (!isAwaitingOnlinePayment) {
+    if (!isAwaitingOnlinePayment && !internal.parentOrderId) {
       await incrementCouponUsageForOrder(order, userId);
     }
 
@@ -973,6 +1188,8 @@ export async function createOrder(userId, dto) {
     }
 
     const saved = normalizeOrderForClient(order);
+    if (isPickup) saved.pickupOtp = order.pickupOtp;
+    else delete saved.pickupOtp;
     return { order: saved, razorpay: razorpayPayload };
   } catch (err) {
     logger.error(`Order placement error: ${err.message}`, { stack: err.stack, userId, dto });
@@ -986,6 +1203,12 @@ export async function createOrder(userId, dto) {
 
 // ----- Verify payment -----
 export async function verifyPayment(userId, dto) {
+  // A multi-store checkout is paid on its parent (id or MSO- number).
+  {
+    const { verifyMultiStorePayment } = await import('./order-multistore.service.js');
+    const parentResult = await verifyMultiStorePayment(userId, dto);
+    if (parentResult) return parentResult;
+  }
   const identity = buildOrderIdentityFilter(dto.orderId);
   if (!identity) throw new ValidationError("Order id required");
 
@@ -1042,9 +1265,27 @@ export async function verifyPayment(userId, dto) {
     throw new ValidationError("Payment verification failed");
   }
 
+  await markOnlineOrderPaid(order, {
+    userId,
+    razorpayPaymentId: dto.razorpayPaymentId,
+    razorpaySignature: dto.razorpaySignature,
+  });
+
+  return { order: normalizeOrderForClient(order), payment: order.payment };
+}
+
+/**
+ * Everything that follows a verified online payment: paid, out of
+ * pending_payment, acceptance window armed, ledger row, coupon counted, store
+ * told. Used by verifyPayment and, per child, by a multi-store parent's
+ * payment (order-multistore.service.js), which counts its one coupon itself.
+ */
+export async function markOnlineOrderPaid(order, { userId, razorpayPaymentId, razorpaySignature, razorpayOrderId, skipCoupon = false, byRole = "USER" }) {
   order.payment.status = "paid";
-  order.payment.razorpay.paymentId = dto.razorpayPaymentId;
-  order.payment.razorpay.signature = dto.razorpaySignature;
+  if (!order.payment.razorpay) order.payment.razorpay = {};
+  if (razorpayOrderId) order.payment.razorpay.orderId = razorpayOrderId;
+  order.payment.razorpay.paymentId = razorpayPaymentId;
+  order.payment.razorpay.signature = razorpaySignature || "";
 
   const from = order.orderStatus;
 
@@ -1054,8 +1295,8 @@ export async function verifyPayment(userId, dto) {
   order.acceptanceDeadlineAt = buildAcceptanceDeadline(new Date(), acceptanceWindowSeconds);
 
   pushStatusHistory(order, {
-    byRole: "USER",
-    byId: userId,
+    byRole,
+    byId: byRole === "USER" ? userId : null,
     from: from,
     to: "created",
     note: "Payment verified, order confirmed",
@@ -1090,14 +1331,14 @@ export async function verifyPayment(userId, dto) {
     logger.error(`[CRITICAL] Initial transaction failed for order ${order._id}: ${err.message}`);
   }
 
-  await incrementCouponUsageForOrder(order, userId);
+  if (!skipCoupon) await incrementCouponUsageForOrder(order, userId);
 
   await foodTransactionService.updateTransactionStatus(order._id, 'captured', {
     status: 'captured',
-    razorpayPaymentId: dto.razorpayPaymentId,
-    razorpaySignature: dto.razorpaySignature,
-    recordedByRole: "USER",
-    recordedById: new mongoose.Types.ObjectId(userId)
+    razorpayPaymentId,
+    razorpaySignature,
+    recordedByRole: byRole,
+    ...(byRole === "USER" && userId ? { recordedById: new mongoose.Types.ObjectId(userId) } : {}),
   });
 
   // After online payment is verified, now notify restaurant about the new order.
@@ -1114,11 +1355,16 @@ export async function verifyPayment(userId, dto) {
   // The pushes that survive are the ones a customer genuinely cannot see
   // without them: the restaurant accepting, the rider collecting, and delivery.
   // Those arrive minutes later, when the app is likely closed.
-
-  return { order: normalizeOrderForClient(order), payment: order.payment };
+  return order;
 }
 
 export async function abandonOnlinePaymentOrder(userId, orderId) {
+  // A multi-store checkout is abandoned on its parent.
+  {
+    const { abandonParentPayment } = await import('./order-multistore.service.js');
+    const parentResult = await abandonParentPayment(userId, orderId);
+    if (parentResult) return parentResult;
+  }
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
 
@@ -1160,10 +1406,13 @@ export async function listOrdersUser(userId, query) {
   await expireStalePendingPaymentOrders();
   await expireUnacceptedOrders();
   const { page, limit, skip } = buildPaginationOptions(query);
-  const filter = { 
+  const filter = {
     userId: new mongoose.Types.ObjectId(userId),
     orderStatus: { $ne: 'pending_payment' }
   };
+  if (query?.fulfilmentType === 'pickup' || query?.fulfilmentType === 'delivery') {
+    filter.fulfilmentType = query.fulfilmentType === 'pickup' ? 'pickup' : { $ne: 'pickup' };
+  }
   const [docs, total] = await Promise.all([
     FoodOrder.find(filter)
       .populate(
@@ -1177,8 +1426,16 @@ export async function listOrdersUser(userId, query) {
       .lean(),
     FoodOrder.countDocuments(filter),
   ]);
+  let rows = docs.map((doc) => normalizeOrderForClient(doc));
+  // ?groupByParent=true: the stores of one multi-store checkout come back as
+  // one entry with `children` (plan §5.1). Without it every child is listed as
+  // its own order, as before, carrying parentOrderId.
+  if (String(query?.groupByParent || '') === 'true') {
+    const { groupOrdersByParent } = await import('./order-multistore.service.js');
+    rows = await groupOrdersByParent(rows);
+  }
   return buildPaginatedResult({
-    docs: docs.map((doc) => normalizeOrderForClient(doc)),
+    docs: rows,
     total,
     page,
     limit,
@@ -1278,9 +1535,12 @@ export async function getOrderById(
     )
     .populate("dispatch.deliveryPartnerId", "name fullName phone phoneNumber rating totalRatings profilePhoto vehicleType vehicleName vehicleNumber totalDeliveries lastLat lastLng lastLocationAt")
     .populate("userId", "name fullName phone email")
-    .select("+deliveryOtp")
+    .select("+deliveryOtp +pickupOtp")
     .lean();
   if (!order) throw new NotFoundError("Order not found");
+  // The pickup code is the customer's alone (the store types it in).
+  const pickupSecret = String(order.pickupOtp || "");
+  delete order.pickupOtp;
 
   if (admin) {
     const out = normalizeOrderForClient(order);
@@ -1324,6 +1584,25 @@ export async function getOrderById(
     };
     if (!drop.verified && secret) {
       out.handoverOtp = secret;
+    }
+    if (order.fulfilmentType === "pickup" && !order.pickupVerification?.verified && pickupSecret) {
+      out.pickupOtp = pickupSecret;
+    }
+    if (order.parentOrderId) {
+      try {
+        const { ParentOrder } = await import('../../../../../../core/orders/parentOrder.model.js');
+        const parent = await ParentOrder.findById(order.parentOrderId).select('orderNumber pricing payment.method payment.status split status').lean();
+        if (parent) {
+          out.parentOrder = {
+            parentOrderId: String(parent._id),
+            orderNumber: parent.orderNumber,
+            status: parent.status,
+            pricing: parent.pricing,
+            payment: parent.payment,
+            siblings: (parent.split || []).map((r) => ({ orderId: String(r.orderId), orderNumber: r.orderNumber, storeId: String(r.storeId), total: r.total })),
+          };
+        }
+      } catch { /* the order itself is still returned */ }
     }
 
     // deliveryState.currentLocation is derived from order.lastRiderLocation, which
@@ -1587,6 +1866,7 @@ export async function cancelOrder(orderId, userId, reason) {
   });
 
   await restoreOrderStock(order);
+  await releaseOrderExtras(order);
 
   const paymentMethod = String(order.payment?.method || "cash").toLowerCase();
   const paymentStatus = String(order.payment?.status || "cod_pending").toLowerCase();
@@ -1893,6 +2173,10 @@ export async function listOrdersRestaurant(restaurantId, query) {
     }
   }
 
+  // The store panel's Pickup tab (plan §5.2).
+  if (query?.fulfilmentType === 'pickup') filter.fulfilmentType = 'pickup';
+  else if (query?.fulfilmentType === 'delivery') filter.fulfilmentType = { $ne: 'pickup' };
+
   const statusRaw = query?.orderStatus || query?.status;
   if (statusRaw) {
     const statuses = String(statusRaw)
@@ -2041,6 +2325,7 @@ export async function updateOrderStatusRestaurant(
 
   if (isSellerCancel) {
     await restoreOrderStock(order);
+    await releaseOrderExtras(order);
   }
 
   await order.save();
@@ -2269,6 +2554,88 @@ export async function updateOrderStatusRestaurant(
     }
 
     return normalizeOrderForClient(order);
+}
+
+/**
+ * Self-pickup handover (plan §5.2): the customer reads their code at the
+ * counter, the store types it in, and the order is delivered -- cash collected
+ * by the store, ledger captured, loyalty earned, exactly as a rider's
+ * completion does it. Five wrong codes lock the order to a support override.
+ */
+export async function verifyPickupOtpRestaurant(orderId, restaurantId, otp) {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) throw new ValidationError("Order id required");
+  const order = await FoodOrder.findOne({
+    ...identity,
+    restaurantId: new mongoose.Types.ObjectId(restaurantId),
+  }).select("+pickupOtp");
+  if (!order) throw new NotFoundError("Order not found");
+  if (order.fulfilmentType !== "pickup") throw new ValidationError("This order is delivered by a rider, not collected.");
+  if (order.orderStatus === "delivered") throw new ValidationError("This order has already been collected.");
+  if (String(order.orderStatus || "").startsWith("cancelled")) throw new ValidationError("This order was cancelled.");
+  if (!["confirmed", "preparing", "ready_for_pickup"].includes(order.orderStatus)) {
+    throw new ValidationError("Accept and pack the order before handing it over.");
+  }
+  const attempts = Number(order.pickupVerification?.attempts || 0);
+  if (attempts >= 5) throw new ValidationError("Too many wrong codes. Contact support to release this order.");
+
+  const expected = String(order.pickupOtp || "").trim();
+  if (!expected || String(otp || "").trim() !== expected) {
+    await FoodOrder.updateOne({ _id: order._id }, { $inc: { "pickupVerification.attempts": 1 } });
+    throw new ValidationError("Wrong pickup code");
+  }
+
+  const from = order.orderStatus;
+  const payMethod = String(order.payment?.method || "cash").toLowerCase();
+  const prevPayStatus = String(order.payment?.status || "cod_pending").toLowerCase();
+  const claimed = await FoodOrder.findOneAndUpdate(
+    { _id: order._id, orderStatus: from, "pickupVerification.verified": { $ne: true } },
+    {
+      $set: {
+        orderStatus: "delivered",
+        "pickupVerification.verified": true,
+        "pickupVerification.verifiedAt": new Date(),
+        "deliveryState.currentPhase": "delivered",
+        "deliveryState.status": "delivered",
+        "deliveryState.deliveredAt": new Date(),
+        ...(payMethod === "cash" && prevPayStatus === "cod_pending" ? { "payment.status": "paid" } : {}),
+      },
+      $unset: { pickupOtp: "" },
+      $push: { statusHistory: { at: new Date(), byRole: "RESTAURANT", byId: new mongoose.Types.ObjectId(restaurantId), from, to: "delivered", note: "Collected by the customer (pickup code verified)" } },
+    },
+    { new: true },
+  );
+  if (!claimed) throw new ValidationError("This order was updated meanwhile. Refresh and try again.");
+
+  try {
+    await foodTransactionService.updateTransactionStatus(claimed._id, payMethod === "cash" && prevPayStatus === "cod_pending" ? "cod_marked_paid_on_delivery" : "payment_snapshot_sync", {
+      status: "captured",
+      recordedByRole: "RESTAURANT",
+      recordedById: restaurantId,
+      note: `Collected at the store. Prev payment status: ${prevPayStatus}`,
+    });
+  } catch (err) {
+    logger.warn(`verifyPickupOtpRestaurant transaction sync failed: ${err?.message || err}`);
+  }
+  import("../../user/services/cashback.service.js")
+    .then(({ awardOrderCashback }) => awardOrderCashback(String(claimed._id)))
+    .catch(() => {});
+  void awardQcOrderLoyalty(claimed);
+  try {
+    const io = getIO();
+    if (io) {
+      const payload = { orderMongoId: String(claimed._id), orderId: String(claimed._id), orderStatus: "delivered", message: "Order collected" };
+      io.to(rooms.user(claimed.userId)).emit("order_status_update", payload);
+      io.to(rooms.restaurant(claimed.restaurantId)).emit("order_status_update", payload);
+    }
+  } catch { /* realtime is best effort */ }
+  void notifyOwnersSafely([{ ownerType: "USER", ownerId: claimed.userId }], {
+    title: "Order collected",
+    body: `Order #${claimed.order_id || claimed._id} was handed over at the store.`,
+    data: { type: "order_status_update", orderId: String(claimed._id), orderStatus: "delivered" },
+  });
+  enqueueOrderEvent("delivery_completed", { orderMongoId: String(claimed._id), orderId: String(claimed._id), source: "store_pickup", payMethod, prevPayStatus });
+  return normalizeOrderForClient(claimed);
 }
 
 /**
@@ -2682,6 +3049,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
   // tidied up the record would invent inventory that was genuinely sold.
   if (String(order.orderStatus) !== 'delivered') {
     await restoreOrderStock(order);
+    await releaseOrderExtras(order);
   }
 
   // Keep support tickets but detach deleted order reference.
@@ -2777,6 +3145,7 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
 
     if (String(orderStatus).includes("cancel")) {
         await restoreOrderStock(order);
+        await releaseOrderExtras(order);
         try {
             await applyCancellationRefund(order, { cancelledBy: 'admin' });
         } catch (err) {
@@ -2936,6 +3305,7 @@ export async function markOrderDeliveredAdmin(orderId, adminId, note = "") {
     } catch (err) {
         logger.warn(`markOrderDeliveredAdmin transaction sync failed: ${err?.message || err}`);
     }
+    void awardQcOrderLoyalty(order);
 
     const orderLabel = order.order_id || order._id?.toString?.() || "";
     const notifyList = [

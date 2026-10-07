@@ -11,7 +11,8 @@ import {
     submitOrderRatingsController,
     getOrderDropOtpUserController,
     updateOrderInstructionsController,
-    getOrderRouteUserController
+    getOrderRouteUserController,
+    getParentOrderUserController
 } from '../controllers/order.controller.js';
 // Both from master's middleware rather than this fork's copies. The idempotency
 // ledger is one collection shared by every vertical, so a key is unique
@@ -31,6 +32,8 @@ router.post('/', sensitiveActionRateLimiter, idempotency({ implicitWindowMs: 10_
 router.post('/verify-payment', sensitiveActionRateLimiter, idempotency(), verifyPaymentController);
 router.delete('/:orderId/pending-payment', abandonOnlinePaymentController);
 router.get('/', listOrdersUserController);
+// One multi-store checkout and all its store orders (plan §5.1).
+router.get('/parent/:parentId', getParentOrderUserController);
 router.get('/:orderId/payments', getOrderPaymentsUserController);
 router.get('/:orderId/drop-otp', getOrderDropOtpUserController);
 // Live route from the rider's current position to their next stop, for the tracking map.

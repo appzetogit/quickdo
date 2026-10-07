@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { FoodUser } from '../../../../core/users/user.model.js';
+import { customerAnalytics } from '../../../../../../core/analytics/customerAnalytics.js';
 
 /**
  * Sales figures for one seller over a date range.
@@ -176,6 +178,9 @@ export async function getRestaurantAnalytics(restaurantId, query = {}) {
     const returningCustomers = returningIds.length;
     const newCustomers = customerIds.length - returningCustomers;
 
+    // New vs repeat and the best customers (plan §5.9, core/analytics).
+    const customers = await customerAnalytics({ OrderModel: FoodOrder, UserModel: FoodUser, storeId: rId, from, to, limit: query.topCustomers || 10 });
+
     return {
         from,
         to,
@@ -188,6 +193,9 @@ export async function getRestaurantAnalytics(restaurantId, query = {}) {
         newCustomers,
         returningCustomers,
         totalCustomers: customerIds.length,
+        repeatCustomers: customers.repeatCustomers,
+        repeatRatePercent: customers.repeatRatePercent,
+        topCustomers: customers.topCustomers,
         // null, not zero, when there is nothing to compare against: growth from
         // zero is not a percentage, and rendering it as one prints an infinity.
         salesTrendPercent: prior.sales > 0 ? round2(((current.sales - prior.sales) / prior.sales) * 100) : null,

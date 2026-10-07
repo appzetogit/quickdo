@@ -153,6 +153,8 @@ export default function ItemDetailsPage() {
   })()
   const [stockQty, setStockQty] = useState("")
   const [lowStockThreshold, setLowStockThreshold] = useState("")
+  // The printed barcode / EAN customers scan in the app (stores only, plan 5.6).
+  const [barcode, setBarcode] = useState("")
   const stockAtLoad = useRef({ stock: "", low: "" })
   /*
    * "inherit" | "inclusive" | "exclusive".
@@ -332,6 +334,7 @@ export default function ItemDetailsPage() {
     setMaxOrderQuantity(String(item.maxOrderQuantity ?? 0))
     setStockQty(item.stockQty != null ? String(item.stockQty) : "")
     setLowStockThreshold(item.lowStockThreshold != null ? String(item.lowStockThreshold) : "")
+    setBarcode(String(item.barcode || ""))
     stockAtLoad.current = {
       stock: item.stockQty != null ? String(item.stockQty) : "",
       low: item.lowStockThreshold != null ? String(item.lowStockThreshold) : "",
@@ -947,6 +950,7 @@ export default function ItemDetailsPage() {
           preparationTime: preparationTime || "",
           ...orderRulesPayload,
           ...stockPayload,
+          ...(isQcStore ? { barcode: barcode.trim() } : {}),
           categoryId: categoryId || undefined,
           categoryName,
         })
@@ -972,6 +976,7 @@ export default function ItemDetailsPage() {
           preparationTime: preparationTime || "",
           ...orderRulesPayload,
           ...stockPayload,
+          ...(isQcStore ? { barcode: barcode.trim() } : {}),
           categoryId: categoryId || undefined,
           categoryName,
         })
@@ -1869,6 +1874,24 @@ export default function ItemDetailsPage() {
                       <FieldError field="maxQty" />
                     </div>
                   </div>
+
+                  {isQcStore && (
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                        Barcode / EAN <span className="font-normal text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={32}
+                        value={barcode}
+                        onChange={(e) => setBarcode(e.target.value)}
+                        placeholder="e.g. 8901030012345"
+                        className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 shadow-sm"
+                      />
+                      <p className="mt-1 text-xs text-gray-600">The number under the product&apos;s barcode. Customers can scan it in the app to find this product.</p>
+                    </div>
+                  )}
 
                   {isQcStore && (
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">

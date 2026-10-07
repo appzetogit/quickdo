@@ -1104,6 +1104,18 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     .then(({ awardOrderCashback }) => awardOrderCashback(String(order._id)))
     .catch((err) => logger.warn(`Cashback award skipped for ${order._id}: ${err?.message || err}`));
 
+  // Loyalty points (plan §5.7, core/loyalty): earned on the food value paid for.
+  // Idempotent per order, never throws, and inert until an admin turns loyalty on.
+  import('../../../../core/loyalty/loyalty.service.js')
+    .then(({ earnForOrder, safely }) => safely('food earn', () => earnForOrder({
+      customerId: String(order.userId?._id || order.userId),
+      vertical: 'food',
+      orderId: String(order._id),
+      orderRef: order.order_id || '',
+      amount: Math.max(0, (Number(order.pricing?.subtotal) || 0) - (Number(order.pricing?.discount) || 0)),
+    })))
+    .catch(() => {});
+
   // The rider now works in this order's zone: what shows them to that zone's
   // sub-admin (core/zones/riderZones.js). Idempotent, never throws.
   import('../../../../core/zones/riderZones.js')

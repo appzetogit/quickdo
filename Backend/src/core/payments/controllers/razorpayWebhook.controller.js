@@ -212,6 +212,19 @@ const processRazorpayEvent = async (event, payload) => {
              * retry an event that will never succeed. The order is marked failed and the
              * event acknowledged, leaving a loud log line for reconciliation.
              */
+            /*
+             * A multi-store checkout (plan §5.1) is paid once, on its parent
+             * (core/orders/parentOrder.model.js): the parent holds the gateway
+             * order, and settling it marks every store's child order paid.
+             */
+            try {
+                const { handleParentCapture } = await import('../../../modules/quickCommerce/modules/food/orders/services/order-multistore.service.js');
+                if (await handleParentCapture({ rzOrderId, rzPaymentId, amountPaise: paymentObj.amount })) return;
+            } catch (parentErr) {
+                logger.error(`Webhook [payment.captured]: parent order check failed for ${rzOrderId}: ${parentErr.message}`);
+                throw parentErr;
+            }
+
             const source = await resolveOrderSource({ "payment.razorpay.orderId": rzOrderId });
             if (!source) {
                 logger.warn(`Webhook [payment.captured]: no order in any vertical for RZ-Order: ${rzOrderId}`);
@@ -390,7 +403,10 @@ const processRazorpayEvent = async (event, payload) => {
             // 2. The order the refund belongs to (food / quick commerce). Service
             // bookings keep their refund state on the booking and the refund row.
             if (refundRow?.vertical === 'serviceProvider' || refundRow?.vertical === 'taxi') return;
-            const refundSource = await resolveOrderSource({ "payment.razorpay.paymentId": rzPaymentId });
+            // The children of a multi-store checkout share one payment, so the
+            // refund row's own order says which of them this refund was for.
+            const orderScope = refundRow?.orderId ? { _id: refundRow.orderId } : {};
+            const refundSource = await resolveOrderSource({ "payment.razorpay.paymentId": rzPaymentId, ...orderScope });
             if (!refundSource) {
                 logger.warn(`Webhook [${event}]: no order in any vertical for RZ-Payment: ${rzPaymentId}`);
                 return;
@@ -398,7 +414,7 @@ const processRazorpayEvent = async (event, payload) => {
 
             if (event === 'refund.failed') {
                 await refundSource.Model.updateOne(
-                    { "payment.razorpay.paymentId": rzPaymentId, "payment.refund.status": { $ne: 'processed' } },
+                    { "payment.razorpay.paymentId": rzPaymentId, ...orderScope, "payment.refund.status": { $ne: 'processed' } },
                     { $set: { "payment.refund.status": 'failed', "payment.refund.refundId": rzRefundId } },
                 );
                 return;
@@ -407,6 +423,7 @@ const processRazorpayEvent = async (event, payload) => {
             const order = await refundSource.Model.findOneAndUpdate(
                 {
                     "payment.razorpay.paymentId": rzPaymentId,
+                    ...orderScope,
                     "payment.refund.status": { $ne: 'processed' }
                 },
                 {

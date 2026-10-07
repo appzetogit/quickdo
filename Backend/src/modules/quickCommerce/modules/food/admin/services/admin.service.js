@@ -1,4 +1,5 @@
 import { safeRiderZoneFilter } from '../../../../../../core/zones/riderZones.js';
+import { normalizeBarcode } from '../../../../../../core/catalog/barcode.js';
 import mongoose from 'mongoose';
 // NotFoundError was already used further down this file (deleteDeliveryPartner)
 // without ever being imported — that path threw a ReferenceError instead of a 404
@@ -4059,6 +4060,9 @@ function buildAdminCatalogFields(body = {}) {
     return {
         brand: typeof body.brand === 'string' ? body.brand.trim() : undefined,
         packSize: typeof body.packSize === 'string' ? body.packSize.trim() : undefined,
+        sku: typeof body.sku === 'string' ? body.sku.trim() : undefined,
+        // Scanned code (plan §5.6); `ean` accepted as the same field.
+        barcode: normalizeBarcode(body.barcode ?? body.ean),
         mrp,
         gstRate: num(body.gstRate, { max: 100 }),
         stockQty: num(body.stockQty),

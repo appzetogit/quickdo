@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { addStoreOrderFields } from '../../../../../../core/orders/storeOrderFields.js';
 
 const orderItemSchema = new mongoose.Schema(
     {
@@ -525,6 +526,9 @@ orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 // MED-), so a link or message with the old number still finds it.
 orderSchema.add({ previousOrderIds: { type: [String], default: undefined } });
 orderSchema.index({ previousOrderIds: 1 }, { sparse: true });
+
+// SOW §5: multi-store parent, pickup, slots, proof of delivery, loyalty (shared with food).
+addStoreOrderFields(orderSchema);
 
 orderSchema.pre('save', async function (next) {
     try {

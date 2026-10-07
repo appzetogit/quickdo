@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { resolveDropProof } from '../../../../../../core/delivery/dropProof.js';
+import { awardQcOrderLoyalty } from './order-loyalty.service.js';
 import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodTransaction } from '../models/foodTransaction.model.js';
@@ -307,7 +309,13 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
             orderStatus: { $in: ['confirmed', 'preparing', 'ready_for_pickup'] },
             // A legacy prescription order is only for riders once the customer
             // has agreed to the pharmacy's bill (approved for cash, or paid online).
-            $or: RIDER_READY_LEGACY_PRESCRIPTION,
+            // Never a self-pickup order, nor a scheduled one before its slot's
+            // rider search has started (core/orders/scheduledDispatch.js).
+            $and: [
+              { $or: RIDER_READY_LEGACY_PRESCRIPTION },
+              { $or: NOT_HELD_FOR_SLOT },
+            ],
+            fulfilmentType: { $ne: 'pickup' },
           },
           {
             'dispatch.deliveryPartnerId': partnerId,
@@ -528,9 +536,27 @@ const RIDER_READY_LEGACY_PRESCRIPTION = Object.freeze([
   { 'prescription.bill.status': { $in: [null, 'none'] }, 'items.0': { $exists: true }, 'pricing.total': { $gt: 0 } },
 ]);
 
+/** A scheduled order whose rider search has not started yet is not offered to anyone. */
+const NOT_HELD_FOR_SLOT = Object.freeze([
+  { 'scheduledDispatch.dispatchAt': null },
+  { 'scheduledDispatch.firedAt': { $ne: null } },
+]);
+
 export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
+
+  // Self-pickup orders have no rider; scheduled ones wait for their slot.
+  {
+    const gate = await FoodOrder.findOne(identity).select('fulfilmentType scheduledDispatch dispatch.deliveryPartnerId').lean();
+    if (gate?.fulfilmentType === 'pickup') {
+      throw new ValidationError('The customer collects this order from the store.');
+    }
+    const assignedToMe = String(gate?.dispatch?.deliveryPartnerId || '') === String(deliveryPartnerId);
+    if (!assignedToMe && gate?.scheduledDispatch?.dispatchAt && !gate?.scheduledDispatch?.firedAt) {
+      throw new ValidationError('This is a scheduled order. It opens for riders closer to its delivery slot.');
+    }
+  }
 
   // Not a legacy prescription order before the customer has agreed its bill:
   // until then there is no price, no rider pay, and possibly no order at all.
@@ -1286,6 +1312,15 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   }
 
   const { otp, ratings } = body;
+  // Proof of delivery (plan §5.4): a photo is required when the handover code
+  // is not in use for this order, optional otherwise (core/delivery/dropProof.js).
+  let dropProofResult;
+  try {
+    dropProofResult = await resolveDropProof(order, body, { vertical: 'quickCommerce' });
+  } catch (err) {
+    throw new ValidationError(err.message);
+  }
+  const { proof: dropProof, otpInUse } = dropProofResult;
   logger.info(`[DeliveryComplete] Attempting to complete order ${order._id} for partner ${deliveryPartnerId}. Status: ${order.orderStatus}`);
 
   // Pickup must have happened. dropOtp.required is only set at pickup/reached-drop, so
@@ -1299,6 +1334,7 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   }
 
   if (
+    otpInUse &&
     otp &&
     order.deliveryVerification?.dropOtp?.required &&
     !order.deliveryVerification?.dropOtp?.verified
@@ -1315,6 +1351,7 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   }
 
   if (
+    otpInUse &&
     order.deliveryVerification?.dropOtp?.required &&
     !order.deliveryVerification?.dropOtp?.verified &&
     !otp
@@ -1351,6 +1388,7 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     status: 'delivered',
     deliveredAt: new Date(),
   };
+  if (dropProof) order.dropProof = dropProof;
 
   if (ratings) {
     order.ratings = {
@@ -1398,6 +1436,9 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   import('../../user/services/cashback.service.js')
     .then(({ awardOrderCashback }) => awardOrderCashback(String(order._id)))
     .catch((e) => logger.warn(`cashback award hook failed: ${e?.message || e}`));
+
+  // Loyalty points for the delivered order (core/loyalty). Idempotent per order.
+  void awardQcOrderLoyalty(order);
 
   // The rider now works in this order's zone: what shows them to that zone's
   // sub-admin (core/zones/riderZones.js). Idempotent, never throws.

@@ -29,17 +29,24 @@ import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotificatio
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import ResendNotificationButton from "@food/components/restaurant/ResendNotificationButton";
+import StoreFulfilmentOrders from "@food/components/restaurant/StoreFulfilmentOrders";
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
 const debugError = (...args) => { };
 
 const STORAGE_KEY = "restaurant_online_status";
 
+// Quick-commerce stores also get the self-pickup tab (plan 5.2).
+const isQcStoreSession = () => {
+  try { return localStorage.getItem("restaurant_vertical") === "qc"; } catch { return false; }
+};
+
 // Top filter tabs
 const filterTabs = [
   { id: "all", label: "All" },
   { id: "preparing", label: "Preparing" },
   { id: "ready", label: "Ready" },
+  ...(isQcStoreSession() ? [{ id: "pickup", label: "Pickup" }] : []),
   { id: "out-for-delivery", label: "Out for delivery" },
   { id: "scheduled", label: "Scheduled" },
   { id: "completed", label: "Completed" },
@@ -1764,8 +1771,24 @@ export default function OrdersMain() {
             refreshToken={ordersRefreshToken}
           />
         );
+      case "pickup":
+        return (
+          <StoreFulfilmentOrders
+            mode="pickup"
+            onSelectOrder={handleSelectOrder}
+            refreshToken={ordersRefreshToken}
+          />
+        );
       case "scheduled":
-        return <EmptyState message="Scheduled orders will appear here" />;
+        return isQcStoreSession() ? (
+          <StoreFulfilmentOrders
+            mode="scheduled"
+            onSelectOrder={handleSelectOrder}
+            refreshToken={ordersRefreshToken}
+          />
+        ) : (
+          <EmptyState message="Scheduled orders will appear here" />
+        );
       case "completed":
         return (
           <CompletedOrders

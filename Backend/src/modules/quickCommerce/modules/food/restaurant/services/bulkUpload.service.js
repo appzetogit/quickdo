@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { normalizeBarcode } from '../../../../../../core/catalog/barcode.js';
 import mongoose from 'mongoose';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
@@ -81,6 +82,8 @@ export async function generateBulkMenuTemplate() {
         { header: 'Variant 2 Price', key: 'v2Price', width: 15 },
         { header: 'Variant 3 Name', key: 'v3Name', width: 20 },
         { header: 'Variant 3 Price', key: 'v3Price', width: 15 },
+        // Optional (plan §5.6): the product's printed barcode, for the app's scan.
+        { header: 'Barcode / EAN', key: 'barcode', width: 20 },
     ];
 
     // Style headers
@@ -183,6 +186,10 @@ export async function processBulkMenuUpload(restaurantId, fileBuffer, options = 
     const restaurant = await FoodRestaurant.findById(restaurantId).lean();
     if (!restaurant) throw new ValidationError('Restaurant not found');
 
+    // The optional barcode column, found by its header so older templates
+    // without it still upload.
+    const barcodeCol = (headerRow.values || []).findIndex((v) => ['barcode / ean', 'barcode', 'ean', 'barcode/ean'].includes(normalizeHeader(v)));
+
     const items = [];
     const parsingErrors = [];
     const maxItems = 500;
@@ -233,6 +240,7 @@ export async function processBulkMenuUpload(restaurantId, fileBuffer, options = 
                 isRecommended: String(row.getCell(6).value || '').toLowerCase() === 'yes',
                 prepTime: getTextValue(row.getCell(7)),
                 imageUrl: getTextValue(row.getCell(8)),
+                barcode: barcodeCol > 0 ? normalizeBarcode(getTextValue(row.getCell(barcodeCol))) : '',
                 variants: []
             };
 
@@ -374,6 +382,7 @@ export async function processBulkMenuUpload(restaurantId, fileBuffer, options = 
                                 foodType: normalizedFoodType,
                                 isRecommended: data.isRecommended,
                                 preparationTime: data.prepTime,
+                                ...(data.barcode ? { barcode: data.barcode } : {}),
                                 approvalStatus,
                                 ...(approvalStatus === 'pending'
                                     ? { requestedAt: new Date(), approvedAt: null }
