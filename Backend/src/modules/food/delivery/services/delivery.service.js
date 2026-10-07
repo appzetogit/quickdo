@@ -666,13 +666,9 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
         /* no incentive figure */
     }
 
-    // Bike parcels / rides done as the linked taxi driver.
-    const rideTrips = await linkedRideTrips(partnerId, range);
-    const rideEarnings = rideTrips.reduce((sum, t) => sum + (Number(t.earningAmount) || 0), 0);
-
-    const orderEarning = Math.round((foodEarnings + qcEarnings + rideEarnings) * 100) / 100;
+    const orderEarning = Math.round((foodEarnings + qcEarnings) * 100) / 100;
     const totalEarnings = Math.round((orderEarning + incentive) * 100) / 100;
-    const allOrders = totalOrders + qcOrders + rideTrips.length;
+    const allOrders = totalOrders + qcOrders;
 
     // Frontend only strongly relies on totalEarnings + totalOrders.
     const summary = {
@@ -807,68 +803,6 @@ const toTripDto = (order) => {
 };
 
 /**
- * Bike parcels (and rides) this rider completed on the taxi side, as trips.
- *
- * A Food + Daily needs + Medical + Bike parcel rider does parcels as their
- * linked taxi driver, stored in rides, not orders, so "Today's earning",
- * "Today's trips", the week's pocket and history all read 0 after a parcel.
- * Earning is the ride's driverEarnings (fare less commission), what the taxi
- * side recorded for it.
- */
-const linkedRideTrips = async (partnerId, range = null) => {
-    try {
-        const partner = await FoodDeliveryPartner.findById(partnerId).select('driverId').lean();
-        if (!partner?.driverId) return [];
-        const { Ride } = await import('../../../taxi/user/models/Ride.js');
-        const match = { driverId: partner.driverId, liveStatus: 'completed' };
-        if (range) match.completedAt = { $gte: range.start, $lte: range.end };
-        const rides = await Ride.find(match)
-            .select('_id serviceType fare driverEarnings commissionAmount paymentMethod completedAt createdAt pickupAddress dropAddress')
-            .sort({ completedAt: -1 })
-            .limit(1000)
-            .lean();
-        return rides.map((r) => {
-            const fare = Number(r.fare) || 0;
-            const earning = Math.round((Number(r.driverEarnings ?? (fare - (Number(r.commissionAmount) || 0))) || 0) * 100) / 100;
-            const when = r.completedAt || r.createdAt;
-            const label = String(r.serviceType || '').toLowerCase() === 'parcel' ? 'Bike parcel' : 'Ride';
-            const cash = String(r.paymentMethod || '').toLowerCase() === 'cash';
-            return {
-                id: r._id,
-                _id: r._id,
-                orderId: `${label} ${String(r._id).slice(-6).toUpperCase()}`,
-                type: String(r.serviceType || 'ride').toLowerCase(),
-                status: 'Completed',
-                restaurantName: label,
-                restaurant: label,
-                items: [],
-                orderItems: [],
-                paymentMethod: r.paymentMethod || '',
-                totalAmount: fare,
-                orderTotal: fare,
-                codAmount: cash ? fare : 0,
-                codCollectedAmount: cash ? fare : 0,
-                deliveryEarning: earning,
-                earningAmount: earning,
-                amount: earning,
-                riderBasePay: earning,
-                riderDeliveryFeeShare: 0,
-                riderSurgePay: 0,
-                riderIncentivePay: 0,
-                riderTotalPayout: earning,
-                createdAt: r.createdAt,
-                deliveredAt: when,
-                completedAt: when,
-                date: when,
-                time: when ? new Date(when).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
-            };
-        });
-    } catch {
-        return [];
-    }
-};
-
-/**
  * Bonuses credited to the rider (target incentives, referral and admin
  * bonuses), as rows for the History screen, which otherwise lists trips only.
  */
@@ -929,7 +863,7 @@ const linkedQcTrips = async (partnerId, range = null) => {
         await import('../../../quickCommerce/modules/food/restaurant/models/restaurant.model.js');
         const match = { 'dispatch.deliveryPartnerId': new mongoose.Types.ObjectId(qcId), orderStatus: 'delivered' };
         if (range) match['deliveryState.deliveredAt'] = { $gte: range.start, $lte: range.end };
-        // The store's name, so history and earnings say which pharmacy/shop
+        // The store's name, so history and earnings say which shop
         // (toTripDto reads restaurantId.restaurantName).
         const orders = await QcOrder.find(match)
             .populate({ path: 'restaurantId', select: 'restaurantName storeType' })
@@ -938,12 +872,12 @@ const linkedQcTrips = async (partnerId, range = null) => {
             .lean();
         return orders.map((o) => {
             const trip = toTripDto(o);
-            const medical = String(o.order_id || '').startsWith('MED-') || o.restaurantId?.storeType === 'pharmacy';
-            // The History screen tags a card by `category` (Medical / Quick
-            // Commerce); without it these showed as Food.
-            const tagged = { ...trip, category: medical ? 'medical' : 'quick_commerce' };
+            // The History screen tags a card by `category`; without it these
+            // showed as Food. Old MED- (pharmacy) orders count as Quick
+            // Commerce now that the Medical vertical is gone.
+            const tagged = { ...trip, category: 'quick_commerce' };
             if (!trip.restaurantName) {
-                const label = medical ? 'Medical order' : 'Quick order';
+                const label = 'Quick order';
                 return { ...tagged, restaurantName: label, restaurant: label };
             }
             return tagged;
@@ -994,8 +928,6 @@ export const getDeliveryPartnerTripHistory = async (deliveryPartnerId, query = {
 
     // Completed Medical/Quick deliveries and the bonuses credited in the period
     // belong in history too; a "cancelled" or "pending" filter has none to add.
-    // Parcels/rides are NOT added here: the History screen loads them itself
-    // from the ride history, and adding them listed every parcel twice.
     const extra = sf === 'cancelled' || sf === 'pending'
         ? []
         : [
@@ -1048,12 +980,8 @@ export const getDeliveryPocketDetails = async (deliveryPartnerId, query = {}) =>
         .limit(limit)
         .lean();
 
-    // Medical/Quick deliveries and bike parcels count in the week too.
-    const [qcTrips, rideTrips] = await Promise.all([
-        linkedQcTrips(partnerId, { start, end }),
-        linkedRideTrips(partnerId, { start, end }),
-    ]);
-    const extraTrips = [...qcTrips, ...rideTrips];
+    // Medical/Quick deliveries count in the week too.
+    const extraTrips = await linkedQcTrips(partnerId, { start, end });
 
     const trips = [...(orders || []).map(toTripDto), ...extraTrips]
         .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));

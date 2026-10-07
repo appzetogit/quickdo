@@ -14,11 +14,6 @@ import { createDefaultBusinessSettings } from '../data/defaultBusinessSettings.j
 import { createDefaultAppSettings } from '../data/defaultAppSettings.js';
 import { Airport } from '../models/Airport.js';
 import { DriverNeededDocument } from '../models/DriverNeededDocument.js';
-import { GoodsType } from '../models/GoodsType.js';
-import { OwnerNeededDocument } from '../models/OwnerNeededDocument.js';
-import { OwnerBooking } from '../models/OwnerBooking.js';
-import { Owner } from '../models/Owner.js';
-import { FleetVehicle } from '../models/FleetVehicle.js';
 import { ReferralTranslation } from '../models/ReferralTranslation.js';
 import { AdminThirdPartySetting } from '../models/AdminThirdPartySetting.js';
 import { createDefaultThirdPartySettings } from '../data/defaultThirdPartySettings.js';
@@ -335,18 +330,13 @@ const normalizeDriverVehicleFieldType = (value) => {
 
 const DRIVER_VEHICLE_FIELD_DEFINITIONS = {
   locationId: { label: 'Operating City', field_type: 'location_select', field_group: 'common', account_type: 'both', sort_order: 10 },
-  serviceCategories: { label: 'Service Category', field_type: 'multi_select', field_group: 'driver', account_type: 'individual', sort_order: 20, options: ['taxi', 'outstation', 'delivery'] },
+  serviceCategories: { label: 'Service Category', field_type: 'multi_select', field_group: 'driver', account_type: 'individual', sort_order: 20, options: ['taxi', 'outstation'] },
   vehicleTypeId: { label: 'Vehicle Type', field_type: 'vehicle_type_select', field_group: 'driver', account_type: 'individual', sort_order: 30 },
   make: { label: 'Brand / Make', field_type: 'text', field_group: 'driver', account_type: 'individual', sort_order: 40, placeholder: 'e.g. Maruti Suzuki' },
   model: { label: 'Model', field_type: 'text', field_group: 'driver', account_type: 'individual', sort_order: 50, placeholder: 'Swift, Bolt' },
   year: { label: 'Year', field_type: 'number', field_group: 'driver', account_type: 'individual', sort_order: 60, placeholder: String(new Date().getFullYear()) },
   number: { label: 'Plate Number', field_type: 'text', field_group: 'driver', account_type: 'individual', sort_order: 70, placeholder: 'DL1RT1234' },
   color: { label: 'Exterior Color', field_type: 'text', field_group: 'driver', account_type: 'individual', sort_order: 80, placeholder: 'e.g. White, Black' },
-  companyName: { label: 'Company Name', field_type: 'text', field_group: 'owner', account_type: 'fleet_drivers', sort_order: 30, placeholder: 'Legal Company Name' },
-  companyAddress: { label: 'Company Address', field_type: 'text', field_group: 'owner', account_type: 'fleet_drivers', sort_order: 40, placeholder: 'Business Address' },
-  city: { label: 'City', field_type: 'text', field_group: 'owner', account_type: 'fleet_drivers', sort_order: 50, placeholder: 'City' },
-  postalCode: { label: 'Postal Code', field_type: 'number', field_group: 'owner', account_type: 'fleet_drivers', sort_order: 60, placeholder: 'Pincode' },
-  taxNumber: { label: 'Tax Number (GST/VAT)', field_type: 'text', field_group: 'owner', account_type: 'fleet_drivers', sort_order: 70, placeholder: 'Tax Identification' },
 };
 
 const slugify = (value = '') =>
@@ -778,58 +768,6 @@ const serializeSetPrice = (item) => ({
   updatedAt: item.updatedAt,
 });
 
-const serializeGoodsType = (item) => ({
-  _id: item._id,
-  id: item.external_id || item.id || 1,
-  name: item.goods_type_name || item.name || '',
-  goods_type_name: item.goods_type_name || item.name || '',
-  translation_dataset: item.translation_dataset || '',
-  goods_types_for: item.goods_types_for || 'both',
-  company_key: item.company_key || null,
-  active: item.active !== undefined ? Number(item.active) : 1,
-  created_at: item.createdAt,
-  updated_at: item.updatedAt,
-  goods_type_translation_words: item.goods_type_translation_words || [],
-  weight_slots: (item.weight_slots || []).map((slot) => ({
-    _id: slot._id,
-    id: String(slot._id),
-    label: slot.label || '',
-    min_kg: Number(slot.min_kg) || 0,
-    max_kg: Number(slot.max_kg) || 0,
-    price: Number(slot.price) || 0,
-    active: slot.active !== false,
-  })),
-});
-
-// Weight slots arrive from the admin form as plain rows. Rows that already have
-// an _id keep it (so a slot a customer app has cached still resolves); a row
-// with neither a range nor a price is a blank form row and is dropped.
-const normalizeWeightSlots = (raw) => {
-  if (raw === undefined) return undefined;
-  const rows = Array.isArray(raw) ? raw : [];
-  const slots = [];
-  for (const row of rows) {
-    const min = Number(row?.min_kg);
-    const max = Number(row?.max_kg);
-    const price = Number(row?.price);
-    const blank = (row?.min_kg === '' || row?.min_kg == null)
-      && (row?.max_kg === '' || row?.max_kg == null)
-      && (row?.price === '' || row?.price == null);
-    if (blank) continue;
-    if (!Number.isFinite(min) || min < 0 || !Number.isFinite(max) || max <= min) {
-      throw new ApiError(400, 'Each weight slot needs a valid range (maximum must be above minimum)');
-    }
-    if (!Number.isFinite(price) || price < 0) {
-      throw new ApiError(400, 'Each weight slot needs a price of 0 or more');
-    }
-    const label = String(row?.label || '').trim() || `${min} - ${max} kg`;
-    const slot = { label, min_kg: min, max_kg: max, price, active: row?.active !== false };
-    if (row?._id && /^[a-f0-9]{24}$/i.test(String(row._id))) slot._id = row._id;
-    slots.push(slot);
-  }
-  return slots;
-};
-
 const serializeRentalPackageType = (item) => ({
   _id: item._id,
   id: item._id,
@@ -859,68 +797,6 @@ const normalizePackageVehiclePriceItem = (item = {}) => ({
   service_tax: Number(item.service_tax ?? 0),
   cancellation_fee: Number(item.cancellation_fee ?? item.user_cancellation_fee ?? 0),
   active: Number(item.active ?? 1),
-});
-
-const serializeOwnerNeededDocument = (item) => ({
-  _id: item._id,
-  id: item._id,
-  name: item.name || '',
-  image_type: item.image_type || 'front_back',
-  has_expiry_date: Boolean(item.has_expiry_date),
-  has_identify_number: Boolean(item.has_identify_number),
-  is_editable: Boolean(item.is_editable),
-  is_required: Boolean(item.is_required),
-  active: item.active !== false,
-  status: item.active === false ? 'inactive' : 'active',
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
-});
-
-const slugifyOwnerDocumentName = (value) =>
-  String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'owner_document';
-
-const buildOwnerDocumentFields = (item) => {
-  const baseKey = `${slugifyOwnerDocumentName(item.name)}_${String(item._id || '').replace(/[^a-zA-Z0-9]/g, '')}`;
-
-  if (item.image_type === 'front_back') {
-    return [
-      {
-        key: `${baseKey}_front`,
-        label: `${item.name} Front`,
-        side: 'front',
-        required: item.is_required !== false,
-      },
-      {
-        key: `${baseKey}_back`,
-        label: `${item.name} Back`,
-        side: 'back',
-        required: item.is_required !== false,
-      },
-    ];
-  }
-
-  return [
-    {
-      key: baseKey,
-      label:
-        item.image_type === 'front'
-          ? `${item.name} Front`
-          : item.image_type === 'back'
-            ? `${item.name} Back`
-            : item.name,
-      side: item.image_type === 'front' ? 'front' : item.image_type === 'back' ? 'back' : 'single',
-      required: item.is_required !== false,
-    },
-  ];
-};
-
-const serializeOwnerNeededDocumentTemplate = (item) => ({
-  ...serializeOwnerNeededDocument(item),
-  fields: buildOwnerDocumentFields(item),
 });
 
 const buildDriverDocumentFields = (item) => {
@@ -991,7 +867,7 @@ const serializeDriverVehicleField = (item) => {
  * Unknown values are dropped rather than refused: a stale panel build must
  * not be able to fail a save.
  */
-const DRIVER_DOCUMENT_CLASSES = ['two_wheeler', 'passenger_taxi', 'parcel_vehicle'];
+const DRIVER_DOCUMENT_CLASSES = ['two_wheeler', 'passenger_taxi'];
 
 const normalizeDocumentAppliesTo = (value) => {
   const raw = Array.isArray(value)
@@ -1188,145 +1064,14 @@ const serializeAirport = (item) => ({
   updatedAt: item.updatedAt,
 });
 
-const toIsoString = (value) => (value instanceof Date ? value.toISOString() : value || null);
-
-const serializeServiceLocationSnapshot = (serviceLocation, fallback = null) => {
-  if (!serviceLocation && !fallback) return null;
-
-  const source = serviceLocation || fallback;
-  return {
-    id: source.legacy_id || source.id || source._id || '',
-    company_key: source.company_key ?? null,
-    name: source.name || source.service_location_name || '',
-    translation_dataset: source.translation_dataset || '',
-    currency_name: source.currency_name || 'Indian rupee',
-    currency_code: source.currency_code || 'INR',
-    currency_symbol: source.currency_symbol || '₹',
-    currency_pointer: source.currency_pointer || 'ltr',
-    timezone: source.timezone || 'Asia/Kolkata',
-    country: source.country ?? 102,
-    active: source.active === false ? 0 : 1,
-    created_at: toIsoString(source.createdAt || source.created_at),
-    updated_at: toIsoString(source.updatedAt || source.updated_at),
-    deleted_at: source.deleted_at || null,
-  };
-};
-
-const serializeOwner = (owner) => {
-  const area = serializeServiceLocationSnapshot(owner.service_location_id, owner.area_snapshot);
-  const mobile = owner.mobile || '';
-  const mobileNumber = mobile ? (mobile.startsWith('+') ? mobile : `+91${mobile}`) : '';
-
-  return {
-    _id: owner._id,
-    id: owner.legacy_id || owner._id,
-    user_id: owner.user_id ?? null,
-    transport_type: owner.transport_type || '',
-    service_location_id:
-      owner.legacy_service_location_id ||
-      owner.service_location_id?.legacy_id ||
-      owner.service_location_id?._id ||
-      owner.service_location_id ||
-      '',
-    company_name: owner.company_name || '',
-    owner_name: owner.owner_name ?? null,
-    name: owner.name || '',
-    surname: owner.surname ?? null,
-    email: owner.email || '',
-    mobile,
-    phone: owner.phone ?? null,
-    address: owner.address ?? null,
-    postal_code: owner.postal_code ?? null,
-    city: owner.city ?? null,
-    expiry_date: owner.expiry_date ?? null,
-    no_of_vehicles: Number(owner.no_of_vehicles || 0),
-    tax_number: owner.tax_number ?? null,
-    bank_name: owner.bank_name ?? null,
-    ifsc: owner.ifsc ?? null,
-    account_no: owner.account_no ?? null,
-    iban: owner.iban ?? null,
-    bic: owner.bic ?? null,
-    active: owner.active === false ? 0 : 1,
-    approve: owner.approve ? 1 : 0,
-    status: owner.status || (owner.approve ? 'approved' : 'pending'),
-    created_at: toIsoString(owner.createdAt),
-    updated_at: toIsoString(owner.updatedAt),
-    deleted_at: null,
-    area_name: area?.name || '',
-    mobile_number: mobileNumber,
-    converted_deleted_at: null,
-    area,
-    user: owner.user_snapshot || null,
-    createdAt: owner.createdAt,
-    updatedAt: owner.updatedAt,
-  };
-};
-
-const serializeOwnerBooking = (item) => ({
-  _id: item._id,
-  id: item._id,
-  owner_id: item.owner_id
-    ? {
-      _id: item.owner_id._id || item.owner_id,
-      name: item.owner_id.full_name || item.owner_id.name || '',
-      email: item.owner_id.email || '',
-      mobile: item.owner_id.mobile || '',
-    }
-    : null,
-  driver_id: item.driver_id
-    ? {
-      _id: item.driver_id._id || item.driver_id,
-      name: item.driver_id.name || '',
-      phone: item.driver_id.phone || '',
-      email: item.driver_id.email || '',
-      vehicleNumber: item.driver_id.vehicleNumber || '',
-    }
-    : null,
-  booking_reference: item.booking_reference || '',
-  customer_name: item.customer_name || '',
-  customer_phone: item.customer_phone || '',
-  pickup_location: item.pickup_location || '',
-  dropoff_location: item.dropoff_location || '',
-  trip_type: item.trip_type || 'city',
-  vehicle_type: item.vehicle_type || '',
-  trip_date: item.trip_date,
-  fare_amount: Number(item.fare_amount || 0),
-  payment_status: item.payment_status || 'pending',
-  booking_status: item.booking_status || 'pending',
-  notes: item.notes || '',
-  active: item.active !== false,
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
-});
-
-const serializeFleetVehicle = (item) => ({
-  _id: item._id,
-  id: item._id,
-  owner_id: item.owner_id || null,
-  service_location_id: item.service_location_id || null,
-  transport_type: item.transport_type || 'taxi',
-  vehicle_type_id: item.vehicle_type_id || null,
-  car_brand: item.car_brand || '',
-  car_model: item.car_model || '',
-  license_plate_number: item.license_plate_number || '',
-  car_color: item.car_color || '',
-  documents: item.documents || {},
-  status: item.status || 'pending',
-  reason: item.reason || '',
-  active: item.active !== false,
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
-});
-
 const serializeDriver = (driver) => ({
   _id: driver._id,
-  name: driver.name || driver.owner_id?.name || driver.user_id?.name || '',
-  phone: driver.phone || driver.owner_id?.phone || driver.owner_id?.mobile || driver.user_id?.phone || driver.user_id?.mobile || '',
-  mobile: driver.phone || driver.owner_id?.phone || driver.owner_id?.mobile || driver.user_id?.phone || driver.user_id?.mobile || '',
-  email: driver.email || driver.owner_id?.email || driver.user_id?.email || '',
+  name: driver.name || driver.user_id?.name || '',
+  phone: driver.phone || driver.user_id?.phone || driver.user_id?.mobile || '',
+  mobile: driver.phone || driver.user_id?.phone || driver.user_id?.mobile || '',
+  email: driver.email || driver.user_id?.email || '',
   gender: driver.gender || '',
   user_id: driver.user_id || driver.user || null,
-  owner_id: driver.owner_id || null,
   service_location_id: driver.service_location_id || null,
   country: driver.country || null,
   profile_picture: driver.profile_picture || '',
@@ -1364,7 +1109,6 @@ const DRIVER_LIST_SELECT = [
   'name',
   'phone',
   'email',
-  'owner_id',
   'service_location_id',
   'city',
   'registerFor',
@@ -1387,7 +1131,6 @@ const serializeDriverListItem = (driver) => ({
   phone: driver.phone || '',
   mobile: driver.phone || '',
   email: driver.email || '',
-  owner_id: driver.owner_id || null,
   service_location_id: driver.service_location_id || null,
   city: driver.city || '',
   service_location_name:
@@ -1600,239 +1343,6 @@ const syncDefaultAdminRecord = async () => {
   );
 };
 
-const LEGACY_OWNER_SERVICE_LOCATION = {
-  legacy_id: '53027f5a-dad1-47fa-8417-b958dd520821',
-  company_key: null,
-  name: 'India',
-  service_location_name: 'India',
-  translation_dataset: '{"en":{"locale":"en","name":"India"}}',
-  currency_name: 'Indian rupee',
-  currency_code: 'INR',
-  currency_symbol: '₹',
-  currency_pointer: 'ltr',
-  timezone: 'Asia/Kolkata',
-  country: 102,
-  active: true,
-  status: 'active',
-  createdAt: new Date('2026-02-02T11:57:30.000Z'),
-  updatedAt: new Date('2026-02-02T11:57:30.000Z'),
-};
-
-const LEGACY_OWNER_ROLE = {
-  id: 3,
-  slug: 'owner',
-  name: 'Normal Owner',
-  description: 'Normal Owner with standard access',
-  all: 0,
-  locked: 1,
-  created_by: 1,
-  created_at: '2026-02-02T11:36:54.000000Z',
-  updated_at: '2026-02-07T15:55:24.000000Z',
-};
-
-const buildLegacyOwnerSeeds = (serviceLocationId) => [
-  {
-    legacy_id: '08e4823f-33df-480b-8419-91e8f49aa204',
-    user_id: 55,
-    transport_type: 'taxi',
-    service_location_id: serviceLocationId,
-    legacy_service_location_id: LEGACY_OWNER_SERVICE_LOCATION.legacy_id,
-    company_name: 'Taxi',
-    owner_name: null,
-    name: 'Demo owner',
-    surname: null,
-    email: 'owner@gmail.com',
-    password: '$2y$10$5P1q/uu.og/yMK1y5fHstuHPW1u7rD5x0CoGGvDoSW6Okjv1v/B0m',
-    mobile: '7470311227',
-    phone: null,
-    address: null,
-    postal_code: null,
-    city: null,
-    expiry_date: null,
-    no_of_vehicles: 0,
-    tax_number: null,
-    bank_name: null,
-    ifsc: null,
-    account_no: null,
-    iban: null,
-    bic: null,
-    active: true,
-    approve: true,
-    status: 'approved',
-    createdAt: new Date('2026-03-20T07:42:58.000Z'),
-    updatedAt: new Date('2026-04-09T07:47:17.000Z'),
-    area_snapshot: LEGACY_OWNER_SERVICE_LOCATION,
-    user_snapshot: {
-      id: 55,
-      name: 'Demo owner',
-      company_key: null,
-      username: null,
-      map_type: null,
-      email: 'owner@gmail.com',
-      mobile: '7470311227',
-      ride_otp: null,
-      gender: null,
-      profile_picture: 'https://zyder.co.in/assets/images/Male_default_image.png',
-      stripe_customer_id: null,
-      is_deleted_at: null,
-      country: 102,
-      timezone: null,
-      active: 1,
-      email_confirmed: 0,
-      mobile_confirmed: 0,
-      fcm_token: null,
-      apn_token: null,
-      refferal_code: null,
-      referred_by: null,
-      rating: 0,
-      lang: null,
-      zone_id: null,
-      current_lat: null,
-      current_lng: null,
-      rating_total: 0,
-      no_of_ratings: 0,
-      login_by: null,
-      last_known_ip: null,
-      last_login_at: null,
-      social_provider: null,
-      is_bid_app: 0,
-      social_nickname: null,
-      social_id: null,
-      social_token: null,
-      social_token_secret: null,
-      social_refresh_token: null,
-      social_expires_in: null,
-      social_avatar: null,
-      social_avatar_original: null,
-      created_at: '2026-03-20T07:42:58.000000Z',
-      updated_at: '2026-04-09T07:47:17.000000Z',
-      authorization_code: null,
-      deleted_at: null,
-      service_location_id: null,
-      country_name: 'India',
-      mobile_number: '+917470311227',
-      role_name: 'owner',
-      converted_deleted_at: null,
-      country_detail: {
-        id: 102,
-        name: 'India',
-        dial_code: '+91',
-        dial_min_length: 7,
-        dial_max_length: 14,
-        code: 'IN',
-        currency_name: 'Indian rupee',
-        currency_code: 'INR',
-        currency_symbol: '₹',
-        flag: 'https://zyder.co.in/image/country/flags/IN.png',
-        active: 1,
-        created_at: null,
-        updated_at: null,
-      },
-      roles: [{ ...LEGACY_OWNER_ROLE, pivot: { user_id: 55, role_id: 3 } }],
-    },
-  },
-  {
-    legacy_id: '941bb56f-2775-4685-818e-8326b44ead94',
-    user_id: 39,
-    transport_type: 'Both',
-    service_location_id: serviceLocationId,
-    legacy_service_location_id: LEGACY_OWNER_SERVICE_LOCATION.legacy_id,
-    company_name: 'itc',
-    owner_name: 'princess',
-    name: 'princess',
-    surname: null,
-    email: 'indra@gmail.com',
-    password: null,
-    mobile: '8072694803',
-    phone: null,
-    address: 'hgxbnmkchcufjbjbivjnvjv',
-    postal_code: '908899',
-    city: 'd6hf hmm kb',
-    expiry_date: null,
-    no_of_vehicles: 0,
-    tax_number: '578999bcv8988',
-    bank_name: null,
-    ifsc: null,
-    account_no: null,
-    iban: null,
-    bic: null,
-    active: true,
-    approve: true,
-    status: 'approved',
-    createdAt: new Date('2026-02-28T12:34:16.000Z'),
-    updatedAt: new Date('2026-02-28T13:36:28.000Z'),
-    area_snapshot: LEGACY_OWNER_SERVICE_LOCATION,
-    user_snapshot: {
-      id: 39,
-      name: 'princess',
-      company_key: null,
-      username: null,
-      map_type: null,
-      email: 'indra@gmail.com',
-      mobile: '8072694803',
-      ride_otp: null,
-      gender: 'female',
-      profile_picture: 'https://zyder.co.in/assets/images/Female_default_image.png',
-      stripe_customer_id: null,
-      is_deleted_at: null,
-      country: 102,
-      timezone: 'Asia/Kolkata',
-      active: 1,
-      email_confirmed: 0,
-      mobile_confirmed: 1,
-      fcm_token: 'dqw_CwtrSXa0l9p5oMxCLl:APA91bH1ZbjCzaE-crPxlDOfbU8LBDXg1gerLnzsrWB5Ky6hy9gRvT7LPZb2OSdK9AHh1w2RBSyj-fnuNIofm9FF6GfkdcfusbSMy2lmmjBQ2omVAXlgJQE',
-      apn_token: null,
-      refferal_code: 'v7CmOw',
-      referred_by: null,
-      rating: 0,
-      lang: 'en',
-      zone_id: '8d426929-591a-4bb7-bc60-256abb196363',
-      current_lat: 11.9190793,
-      current_lng: 79.8034286,
-      rating_total: 0,
-      no_of_ratings: 0,
-      login_by: 'android',
-      last_known_ip: null,
-      last_login_at: null,
-      social_provider: null,
-      is_bid_app: 0,
-      social_nickname: null,
-      social_id: null,
-      social_token: null,
-      social_token_secret: null,
-      social_refresh_token: null,
-      social_expires_in: null,
-      social_avatar: null,
-      social_avatar_original: null,
-      created_at: '2026-02-28T12:34:16.000000Z',
-      updated_at: '2026-02-28T13:10:44.000000Z',
-      authorization_code: null,
-      deleted_at: null,
-      service_location_id: LEGACY_OWNER_SERVICE_LOCATION.legacy_id,
-      country_name: 'India',
-      mobile_number: '+918072694803',
-      role_name: 'owner',
-      converted_deleted_at: null,
-      country_detail: {
-        id: 102,
-        name: 'India',
-        dial_code: '+91',
-        dial_min_length: 7,
-        dial_max_length: 14,
-        code: 'IN',
-        currency_name: 'Indian rupee',
-        currency_code: 'INR',
-        currency_symbol: '₹',
-        flag: 'https://zyder.co.in/image/country/flags/IN.png',
-        active: 1,
-        created_at: null,
-        updated_at: null,
-      },
-      roles: [{ ...LEGACY_OWNER_ROLE, pivot: { user_id: 39, role_id: 3 } }],
-    },
-  },
-];
-
 const seedInitialData = async () => {
   const defaults = createDefaultAdminState();
 
@@ -1893,66 +1403,12 @@ const seedInitialData = async () => {
     await OnboardingScreen.insertMany(defaults.onboardingScreens);
   }
 
-  await ensureFleetOwnersSeeded();
 };
 
 export const ensureServiceLocationsSeeded = async () => {
   if (await ServiceLocation.countDocuments() === 0) {
     const defaults = createDefaultAdminState();
     await ServiceLocation.insertMany(defaults.serviceLocations);
-  }
-};
-
-export const ensureFleetOwnersSeeded = async () => {
-  const now = new Date();
-
-  const serviceLocation = await ServiceLocation.findOneAndUpdate(
-    {
-      $or: [
-        { legacy_id: LEGACY_OWNER_SERVICE_LOCATION.legacy_id },
-        { name: LEGACY_OWNER_SERVICE_LOCATION.name },
-      ],
-    },
-    {
-      $set: {
-        ...LEGACY_OWNER_SERVICE_LOCATION,
-        updatedAt: LEGACY_OWNER_SERVICE_LOCATION.updatedAt || now,
-      },
-      $setOnInsert: {
-        createdAt: LEGACY_OWNER_SERVICE_LOCATION.createdAt || now,
-      },
-    },
-    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
-  );
-
-  const ownerSeeds = buildLegacyOwnerSeeds(serviceLocation._id);
-
-  for (const seed of ownerSeeds) {
-    const existingOwner = await Owner.findOne({
-      $or: [
-        { legacy_id: seed.legacy_id },
-        { email: seed.email },
-        { mobile: seed.mobile },
-      ],
-    }).lean();
-
-    if (existingOwner) {
-      await Owner.updateOne(
-        { _id: existingOwner._id },
-        {
-          $set: {
-            ...seed,
-            updatedAt: seed.updatedAt || now,
-          },
-          $setOnInsert: {
-            createdAt: seed.createdAt || now,
-          },
-        },
-      );
-      continue;
-    }
-
-    await Owner.create(seed);
   }
 };
 
@@ -1967,13 +1423,11 @@ export const getAdminModuleInfo = async () => {
     userCount,
     deletedUserCount,
     driverCount,
-    ownerCount,
     zoneCount
   ] = await Promise.all([
     User.countDocuments({ deletedAt: null }),
     User.countDocuments({ deletedAt: { $ne: null } }),
     Driver.countDocuments(),
-    Owner.countDocuments(),
     Zone.countDocuments(),
   ]);
   return {
@@ -1984,7 +1438,6 @@ export const getAdminModuleInfo = async () => {
       users: userCount,
       deleted_users: deletedUserCount,
       drivers: driverCount,
-      owners: ownerCount,
       zones: zoneCount,
     },
   };
@@ -2540,61 +1993,6 @@ export const createUser = async (payload) => {
   return serializeUser(user.toObject());
 };
 
-export const getOwnerDashboardData = async () => {
-  await ensureFleetOwnersSeeded();
-
-  const [
-    totalOwners,
-    approvedOwners,
-    totalDrivers,
-    approvedDrivers,
-    todayRides,
-  ] = await Promise.all([
-    Owner.countDocuments({}),
-    Owner.countDocuments({ approve: true }),
-    Driver.countDocuments({}),
-    Driver.countDocuments({ approve: true }),
-    Ride.countDocuments({
-      createdAt: {
-        $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-        $lt: new Date(new Date().setHours(23, 59, 59, 999)),
-      },
-    }),
-  ]);
-
-  console.log('[OwnerDashboardData] Counts fetched:', {
-    totalOwners,
-    approvedOwners,
-    totalDrivers,
-    approvedDrivers,
-    todayRides,
-  });
-
-  return {
-    total_owners: totalOwners,
-    approved_owners: approvedOwners,
-    pending_owners: totalOwners - approvedOwners,
-    total_drivers: totalDrivers,
-    approved_drivers: approvedDrivers,
-    pending_drivers: totalDrivers - approvedDrivers,
-    total_fleets: 0, // Placeholder
-    approved_fleets: 0,
-    pending_fleets: 0,
-    today_earnings: 0,
-    today_cash: 0,
-    today_wallet: 0,
-    today_online: 0,
-    admin_commission: 0,
-    driver_earnings: 0,
-    overall_earnings: 0,
-    overall_cash: 0,
-    overall_wallet: 0,
-    overall_online: 0,
-    overall_admin_comm: 0,
-    overall_owner_earnings: 0,
-  };
-};
-
 export const updateUser = async (id, payload) => {
   const update = {};
 
@@ -2983,7 +2381,7 @@ export const adjustUserWallet = async (id, payload = {}) => {
   return { balance: Number(nextBalance.toFixed(2)) };
 };
 
-export const listDrivers = async ({ page = 1, limit = 50, status, search, approve, isOnline, owner_id } = {}, currentAdmin = null) => {
+export const listDrivers = async ({ page = 1, limit = 50, status, search, approve, isOnline } = {}, currentAdmin = null) => {
   const safePage = Number(page) || 1;
   const safeLimit = Number(limit) || 50;
   const start = (safePage - 1) * safeLimit;
@@ -2992,13 +2390,6 @@ export const listDrivers = async ({ page = 1, limit = 50, status, search, approv
   if (currentAdmin) {
     assertAdminPermission(currentAdmin, 'drivers.view', 'drivers');
     Object.assign(query, buildServiceLocationScopeQuery(currentAdmin));
-  }
-
-  if (owner_id) {
-    const castedOwnerId = toObjectId(owner_id);
-    if (castedOwnerId) {
-      query.owner_id = castedOwnerId;
-    }
   }
 
   if (status) {
@@ -3032,13 +2423,6 @@ export const listDrivers = async ({ page = 1, limit = 50, status, search, approv
     .limit(safeLimit)
     .lean();
 
-  const ownerIds = [
-    ...new Set(
-      drivers
-        .map((driver) => String(driver.owner_id || ''))
-        .filter(Boolean),
-    ),
-  ];
   const serviceLocationIds = [
     ...new Set(
       drivers
@@ -3047,29 +2431,18 @@ export const listDrivers = async ({ page = 1, limit = 50, status, search, approv
     ),
   ];
 
-  const [owners, serviceLocations] = await Promise.all([
-    ownerIds.length
-      ? Owner.find({ _id: { $in: ownerIds } })
-          .select('_id company_name owner_name name email mobile')
-          .lean()
-      : [],
-    serviceLocationIds.length
-      ? ServiceLocation.find({ _id: { $in: serviceLocationIds } })
-          .select('_id service_location_name name country')
-          .lean()
-      : [],
-  ]);
+  const serviceLocations = serviceLocationIds.length
+    ? await ServiceLocation.find({ _id: { $in: serviceLocationIds } })
+        .select('_id service_location_name name country')
+        .lean()
+    : [];
 
-  const ownerMap = new Map(
-    owners.map((owner) => [String(owner._id), owner]),
-  );
   const serviceLocationMap = new Map(
     serviceLocations.map((location) => [String(location._id), location]),
   );
 
   const hydratedDrivers = drivers.map((driver) => ({
     ...driver,
-    owner_id: driver.owner_id ? ownerMap.get(String(driver.owner_id)) || driver.owner_id : null,
     service_location_id: driver.service_location_id
       ? serviceLocationMap.get(String(driver.service_location_id)) || driver.service_location_id
       : null,
@@ -3556,64 +2929,6 @@ export const listDriverWalletHistory = async (id) => {
   };
 };
 
-export const adjustOwnerWallet = async (id, payload = {}) => {
-  const amount = Number(payload.amount || 0);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new ApiError(400, 'Amount must be greater than 0');
-  }
-
-  const operation = String(payload.operation || 'credit').toLowerCase();
-  if (!['credit', 'debit'].includes(operation)) {
-    throw new ApiError(400, 'Operation must be credit or debit');
-  }
-
-  const owner = await Owner.findById(id);
-  if (!owner) {
-    throw new ApiError(404, 'Owner not found');
-  }
-
-  const currentBalance = Number(owner.wallet?.balance || 0);
-  const nextBalance = operation === 'credit' ? currentBalance + amount : currentBalance - amount;
-
-  owner.wallet = owner.wallet || {};
-  owner.wallet.balance = nextBalance;
-  owner.markModified('wallet');
-  await owner.save();
-
-  await OwnerWalletTransaction.create({
-    ownerId: id,
-    amount,
-    kind: operation,
-    title: payload.description || `Admin adjustment (${operation})`,
-    balance: nextBalance
-  });
-
-  return { balance: Number(nextBalance.toFixed(2)) };
-};
-
-export const listOwnerWalletHistory = async (id) => {
-  const owner = await Owner.findById(id).lean();
-
-  if (!owner) {
-    throw new ApiError(404, 'Owner not found');
-  }
-
-  const transactions = await OwnerWalletTransaction.find({ ownerId: id })
-    .sort({ createdAt: -1 })
-    .lean();
-
-  return {
-    balance: Number(owner.wallet?.balance || 0),
-    results: transactions.map(t => ({
-      _id: String(t._id),
-      amount: t.amount,
-      type: t.kind,
-      description: t.title,
-      createdAt: t.createdAt,
-    })),
-  };
-};
-
 export const listDeletedDrivers = async ({ page = 1, limit = 50 }) => {
   const safePage = Number(page) || 1;
   const safeLimit = Number(limit) || 50;
@@ -3834,7 +3149,6 @@ export const createDriver = async (payload = {}, currentAdmin = null) => {
     name,
     phone,
     email,
-    owner_id: payload.owner_id && mongoose.isValidObjectId(payload.owner_id) ? toObjectId(payload.owner_id) : null,
     service_location_id:
       serviceLocationId && mongoose.isValidObjectId(serviceLocationId) ? toObjectId(serviceLocationId) : null,
     country: payload.country || null,
@@ -3992,9 +3306,7 @@ export const deleteDriver = async (id) => {
 };
 
 export const getDriverById = async (id, currentAdmin = null) => {
-  const driver = await Driver.findById(id)
-    .populate('owner_id', 'name email mobile companyName')
-    .lean();
+  const driver = await Driver.findById(id).lean();
   if (!driver) {
     throw new ApiError(404, 'Driver not found');
   }
@@ -4559,59 +3871,6 @@ const toAdminRideRow = (ride) => {
   };
 };
 
-const toAdminDeliveryRow = (ride) => {
-  const requestCode = `DEL_${String(ride._id).slice(-12).toUpperCase()}`;
-  const status = String(ride.status || '').toLowerCase();
-  const liveStatus = String(ride.liveStatus || '').toLowerCase();
-  const parcel = ride.deliveryId?.parcel || {};
-
-  let tripStatus = 'UPCOMING';
-  if (status === RIDE_STATUS.COMPLETED) {
-    tripStatus = 'COMPLETED';
-  } else if (status === RIDE_STATUS.CANCELLED) {
-    tripStatus = 'CANCELLED';
-  } else if (
-    status === RIDE_STATUS.ONGOING ||
-    liveStatus === RIDE_LIVE_STATUS.STARTED ||
-    liveStatus === RIDE_LIVE_STATUS.ARRIVED
-  ) {
-    tripStatus = 'ON_TRIP';
-  }
-
-  return {
-    id: String(ride._id),
-    requestId: requestCode,
-    date: ride.createdAt,
-    userName: ride.userId?.name || parcel.senderName || 'Unknown User',
-    driverName: ride.driverId?.name || 'Unassigned',
-    transportType: ride.driverId?.vehicleType || ride.vehicleIconType || 'Parcel',
-    tripStatus,
-    rideStatus: ride.status,
-    liveStatus: ride.liveStatus,
-    paymentOption: String(ride.paymentMethod || 'cash').toUpperCase(),
-    fare: Number(ride.fare || 0),
-    pickupLabel: ride.pickupAddress || formatRidePointLabel(ride.pickupLocation, 'Pickup'),
-    dropLabel: ride.dropAddress || formatRidePointLabel(ride.dropLocation, 'Drop'),
-    pickupLocation: ride.pickupLocation,
-    dropLocation: ride.dropLocation,
-    parcel: {
-      category: parcel.category || '',
-      senderName: parcel.senderName || '',
-      receiverName: parcel.receiverName || '',
-    },
-    cancelled_by: ride.cancelled_by || '',
-    cancellation_reason: ride.cancellation_reason || '',
-    cancellation_charge: Number(ride.cancellation_charge || 0),
-    cancellation_status: ride.cancellation_status || 'none',
-    pending_cancellation_due: Number(ride.pending_cancellation_due || 0),
-    recovery_status: ride.recovery_status || 'none',
-    recovered_in_ride: ride.recovered_in_ride ? String(ride.recovered_in_ride) : null,
-    recovered_at: ride.recovered_at || null,
-    cancellation_time: ride.cancellation_time || null,
-    recovered_cancellation_due: Number(ride.recovered_cancellation_due || 0),
-  };
-};
-
 const toAdminIntercityTripRow = (ride) => {
   const requestCode = `INT_${String(ride._id).slice(-12).toUpperCase()}`;
   const status = String(ride.status || '').toLowerCase();
@@ -4714,8 +3973,9 @@ export const listRideRequests = async (query = {}) => {
   const tab = String(query.tab || 'all').toLowerCase();
   const search = String(query.search || '').trim().toLowerCase();
 
+  // Old parcel trips (parcel delivery was removed) are listed with the rides.
   const rides = await Ride.find({
-    serviceType: { $nin: ['parcel', 'intercity'] },
+    serviceType: { $ne: 'intercity' },
     adminHiddenAt: null,
   })
     .sort({ createdAt: -1 })
@@ -4744,59 +4004,6 @@ export const listRideRequests = async (query = {}) => {
         row.transportType,
         row.pickupLabel,
         row.dropLabel,
-      ].some((value) => String(value || '').toLowerCase().includes(search)),
-    );
-  }
-
-  return buildPaginator(rows, page, limit);
-};
-
-export const listDeliveries = async (query = {}) => {
-  const page = Number(query.page || 1);
-  const limit = Number(query.limit || 10);
-  const tab = String(query.tab || 'all').toLowerCase();
-  const search = String(query.search || '').trim().toLowerCase();
-
-  const rides = await Ride.find({ serviceType: 'parcel' })
-    .sort({ createdAt: -1 })
-    .populate('deliveryId')
-    .populate('userId', 'name phone')
-    .populate('driverId', 'name phone vehicleType vehicleNumber')
-    .lean();
-
-  let rows = rides.map(toAdminDeliveryRow);
-
-  if (tab === 'completed') {
-    rows = rows.filter((row) => row.tripStatus === 'COMPLETED');
-  } else if (tab === 'cancelled') {
-    rows = rows.filter((row) => row.tripStatus === 'CANCELLED');
-  } else if (tab === 'upcoming') {
-    rows = rows.filter((row) => row.tripStatus === 'UPCOMING');
-  } else if (tab === 'on trip' || tab === 'on_trip' || tab === 'ongoing') {
-    rows = rows.filter((row) => row.tripStatus === 'ON_TRIP');
-  }
-  if (tab === 'completed') {
-    rows = rows.filter((row) => row.tripStatus === 'COMPLETED');
-  } else if (tab === 'cancelled') {
-    rows = rows.filter((row) => row.tripStatus === 'CANCELLED');
-  } else if (tab === 'upcoming') {
-    rows = rows.filter((row) => row.tripStatus === 'UPCOMING');
-  } else if (tab === 'on trip' || tab === 'on_trip' || tab === 'ongoing') {
-    rows = rows.filter((row) => row.tripStatus === 'ON_TRIP');
-  }
-
-  if (search) {
-    rows = rows.filter((row) =>
-      [
-        row.requestId,
-        row.userName,
-        row.driverName,
-        row.transportType,
-        row.pickupLabel,
-        row.dropLabel,
-        row.parcel?.category,
-        row.parcel?.senderName,
-        row.parcel?.receiverName,
       ].some((value) => String(value || '').toLowerCase().includes(search)),
     );
   }
@@ -5701,550 +4908,6 @@ export const deleteSurgeSlot = async (id, currentAdmin = null) => {
   return true;
 };
 
-export const listOwners = async (queryArgs = {}, currentAdmin = null) => {
-  await ensureFleetOwnersSeeded();
-  if (currentAdmin) {
-    assertAdminPermission(currentAdmin, 'owners.view', 'owners');
-  }
-  const search = String(queryArgs.search || '').trim();
-
-  const query = currentAdmin ? buildServiceLocationScopeQuery(currentAdmin) : {};
-  if (search) {
-    const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    query.$or = [{ name: regex }, { mobile: regex }, { email: regex }, { company_name: regex }];
-  }
-
-  const owners = await Owner.find(query)
-    .populate(
-      'service_location_id',
-      'legacy_id company_key name service_location_name translation_dataset currency_name currency_code currency_symbol currency_pointer timezone country active createdAt updatedAt',
-    )
-    .sort({ createdAt: -1 })
-    .lean();
-
-  return owners.map(serializeOwner);
-};
-
-export const approveOwnerSignupFromDriver = async (driverId) => {
-  await ensureFleetOwnersSeeded();
-
-  const id = String(driverId || '').trim();
-  if (!id) {
-    throw new ApiError(400, 'Driver id is required');
-  }
-
-  const driver = await Driver.findById(id).select('+password').lean();
-  if (!driver) {
-    throw new ApiError(404, 'Driver not found');
-  }
-
-  const onboardingRole = String(driver?.onboarding?.role || '').toLowerCase();
-  if (onboardingRole !== 'owner') {
-    throw new ApiError(400, 'Driver is not an owner signup');
-  }
-
-  const company = driver?.onboarding?.company || {};
-  const companyName = String(company.name || '').trim();
-
-  if (!companyName) {
-    throw new ApiError(400, 'Owner company name is missing');
-  }
-
-  const email = String(driver.email || '').trim().toLowerCase();
-  const mobile = String(driver.phone || driver.mobile || '').trim();
-
-  if (!email) {
-    throw new ApiError(400, 'Owner email is missing');
-  }
-
-  if (!mobile) {
-    throw new ApiError(400, 'Owner mobile is missing');
-  }
-
-  const existingOwner =
-    (await Owner.findOne({ legacy_id: String(driver._id) }).lean()) ||
-    (await Owner.findOne({ $or: [{ email }, { mobile }] }).lean());
-
-  if (existingOwner) {
-    await Owner.updateOne(
-      { _id: existingOwner._id },
-      { $set: { approve: true, status: 'approved', active: true } },
-    );
-
-    await Driver.updateOne(
-      { _id: driver._id },
-      {
-        $set: {
-          approve: true,
-          status: 'approved',
-          'onboarding.convertedOwnerId': existingOwner._id,
-        },
-      },
-    );
-
-    const populatedOwner = await Owner.findById(existingOwner._id)
-      .populate(
-        'service_location_id',
-        'legacy_id company_key name service_location_name translation_dataset currency_name currency_code currency_symbol currency_pointer timezone country active createdAt updatedAt',
-      )
-      .lean();
-
-    return serializeOwner(populatedOwner);
-  }
-
-  const serviceLocationId =
-    company.serviceLocationId && mongoose.isValidObjectId(company.serviceLocationId)
-      ? toObjectId(company.serviceLocationId)
-      : null;
-
-  if (!driver.password) {
-    throw new ApiError(400, 'Owner password is missing');
-  }
-
-  const owner = await Owner.create({
-    company_name: companyName,
-    name: String(driver.name || companyName).trim(),
-    mobile,
-    email,
-    password: driver.password,
-    service_location_id: serviceLocationId,
-    legacy_service_location_id: serviceLocationId ? '' : String(company.serviceLocationId || '').trim(),
-    transport_type: String(company.registerFor || driver.registerFor || 'taxi').trim().toLowerCase(),
-    address: String(company.address || '').trim() || null,
-    postal_code: String(company.postalCode || '').trim() || null,
-    city: String(company.city || driver.city || company.serviceLocationName || '').trim() || null,
-    tax_number: String(company.taxNumber || '').trim() || null,
-    active: true,
-    approve: true,
-    status: 'approved',
-    legacy_id: String(driver._id),
-    user_snapshot: {
-      driver_id: String(driver._id),
-      source: 'driver_onboarding_owner',
-    },
-  });
-
-  await Driver.updateOne(
-    { _id: driver._id },
-    { $set: { approve: true, status: 'approved', 'onboarding.convertedOwnerId': owner._id } },
-  );
-
-  const populatedOwner = await Owner.findById(owner._id)
-    .populate(
-      'service_location_id',
-      'legacy_id company_key name service_location_name translation_dataset currency_name currency_code currency_symbol currency_pointer timezone country active createdAt updatedAt',
-    )
-    .lean();
-
-  return serializeOwner(populatedOwner);
-};
-
-export const getOwnerById = async (id, currentAdmin = null) => {
-    await ensureFleetOwnersSeeded();
-
-    const ownerId = String(id || '').trim();
-    if (!ownerId) throw new ApiError(400, 'Owner id is required');
-
-    const owner = await Owner.findOne(
-      mongoose.isValidObjectId(ownerId) ? { _id: ownerId } : { legacy_id: ownerId },
-    )
-      .populate(
-        'service_location_id',
-        'legacy_id company_key name service_location_name translation_dataset currency_name currency_code currency_symbol currency_pointer timezone country active createdAt updatedAt',
-      )
-      .lean();
-
-    if (!owner) throw new ApiError(404, 'Owner not found');
-    if (currentAdmin) {
-      assertAdminPermission(currentAdmin, 'owners.view', 'owners');
-      assertServiceLocationAccess(currentAdmin, owner.service_location_id?._id || owner.service_location_id);
-    }
-    return serializeOwner(owner);
-  };
-
-  export const createOwner = async (payload) => {
-    if (!payload.company_name?.trim()) {
-      throw new ApiError(400, 'Company name is required');
-    }
-    if (!payload.name?.trim()) {
-      throw new ApiError(400, 'Owner name is required');
-    }
-    if (!payload.mobile?.trim()) {
-      throw new ApiError(400, 'Mobile number is required');
-    }
-    if (!payload.email?.trim()) {
-      throw new ApiError(400, 'Email is required');
-    }
-    if (!payload.password || String(payload.password).length < 6) {
-      throw new ApiError(400, 'Password must be at least 6 characters');
-    }
-    if (payload.password !== payload.password_confirmation) {
-      throw new ApiError(400, 'Passwords do not match');
-    }
-
-    const normalizedEmail = String(payload.email).trim().toLowerCase();
-    const normalizedMobile = String(payload.mobile).trim();
-    const serviceLocationId =
-      payload.service_location_id && mongoose.isValidObjectId(payload.service_location_id)
-        ? toObjectId(payload.service_location_id)
-        : null;
-
-    const existingOwner = await Owner.findOne({
-      $or: [{ email: normalizedEmail }, { mobile: normalizedMobile }],
-    }).lean();
-
-    if (existingOwner) {
-      throw new ApiError(409, 'Owner with this email or mobile already exists');
-    }
-
-    const owner = await Owner.create({
-      company_name: String(payload.company_name).trim(),
-      owner_name: payload.owner_name ? String(payload.owner_name).trim() : null,
-      name: String(payload.name).trim(),
-      mobile: normalizedMobile,
-      email: normalizedEmail,
-      password: await hashPassword(String(payload.password)),
-      service_location_id: serviceLocationId,
-      legacy_service_location_id:
-        payload.legacy_service_location_id || (serviceLocationId ? '' : payload.service_location_id || ''),
-      transport_type: payload.transport_type || 'taxi',
-      phone: payload.phone || null,
-      address: payload.address || null,
-      postal_code: payload.postal_code || null,
-      city: payload.city || null,
-      tax_number: payload.tax_number || null,
-      active: normalizeBoolean(payload.active ?? true),
-      approve: normalizeBoolean(payload.approve ?? false),
-      status: normalizeBoolean(payload.approve ?? false) ? 'approved' : 'pending',
-    });
-
-    const populatedOwner = await Owner.findById(owner._id)
-      .populate(
-        'service_location_id',
-        'legacy_id company_key name service_location_name translation_dataset currency_name currency_code currency_symbol currency_pointer timezone country active createdAt updatedAt',
-      )
-      .lean();
-
-    return serializeOwner(populatedOwner);
-  };
-
-  export const updateOwner = async (id, payload) => {
-    const owner = await Owner.findById(id);
-    if (!owner) throw new ApiError(404, 'Owner not found');
-
-    if (payload.company_name !== undefined) {
-      owner.company_name = String(payload.company_name).trim();
-    }
-    if (payload.name !== undefined) {
-      owner.name = String(payload.name).trim();
-    }
-    if (payload.mobile !== undefined) {
-      const mobile = String(payload.mobile).trim();
-      const duplicateMobile = await Owner.findOne({ _id: { $ne: id }, mobile }).lean();
-      if (duplicateMobile) {
-        throw new ApiError(409, 'Another owner already uses this mobile number');
-      }
-      owner.mobile = mobile;
-    }
-    if (payload.email !== undefined) {
-      const email = String(payload.email).trim().toLowerCase();
-      const duplicateEmail = await Owner.findOne({ _id: { $ne: id }, email }).lean();
-      if (duplicateEmail) {
-        throw new ApiError(409, 'Another owner already uses this email');
-      }
-      owner.email = email;
-    }
-    if (payload.service_location_id !== undefined) {
-      if (payload.service_location_id && mongoose.isValidObjectId(payload.service_location_id)) {
-        owner.service_location_id = toObjectId(payload.service_location_id);
-        owner.legacy_service_location_id = '';
-      } else {
-        owner.service_location_id = null;
-        owner.legacy_service_location_id = payload.service_location_id || '';
-      }
-    }
-    if (payload.transport_type !== undefined) {
-      owner.transport_type = payload.transport_type || 'taxi';
-    }
-    if (payload.active !== undefined) {
-      owner.active = normalizeBoolean(payload.active);
-    }
-    if (payload.approve !== undefined) {
-      owner.approve = normalizeBoolean(payload.approve);
-      owner.status = owner.approve ? 'approved' : 'pending';
-    }
-    if (payload.status !== undefined) {
-      const normalizedStatus = String(payload.status || 'pending').trim().toLowerCase();
-      if (!['pending', 'approved', 'rejected'].includes(normalizedStatus)) {
-        throw new ApiError(400, 'Invalid owner status');
-      }
-      owner.status = normalizedStatus;
-      owner.approve = normalizedStatus === 'approved';
-      if (payload.active === undefined) {
-        owner.active = normalizedStatus !== 'rejected';
-      }
-    }
-    if (payload.password) {
-      if (String(payload.password).length < 6) {
-        throw new ApiError(400, 'Password must be at least 6 characters');
-      }
-      if (payload.password !== payload.password_confirmation) {
-        throw new ApiError(400, 'Passwords do not match');
-      }
-      owner.password = await hashPassword(String(payload.password));
-    }
-
-    if (payload.owner_name !== undefined) owner.owner_name = payload.owner_name || null;
-    if (payload.phone !== undefined) owner.phone = payload.phone || null;
-    if (payload.address !== undefined) owner.address = payload.address || null;
-    if (payload.postal_code !== undefined) owner.postal_code = payload.postal_code || null;
-    if (payload.city !== undefined) owner.city = payload.city || null;
-    if (payload.tax_number !== undefined) owner.tax_number = payload.tax_number || null;
-    if (payload.no_of_vehicles !== undefined) owner.no_of_vehicles = Number(payload.no_of_vehicles || 0);
-
-    await owner.save();
-
-    const populatedOwner = await Owner.findById(owner._id)
-      .populate(
-        'service_location_id',
-        'legacy_id company_key name service_location_name translation_dataset currency_name currency_code currency_symbol currency_pointer timezone country active createdAt updatedAt',
-      )
-      .lean();
-
-    return serializeOwner(populatedOwner);
-  };
-
-export const approveOwner = async (id, payload) =>
-  updateOwner(id, { approve: normalizeBoolean(payload.approve), active: true });
-
-export const listFleetVehicles = async () => {
-  await ensureFleetOwnersSeeded();
-
-  const items = await FleetVehicle.find()
-    .populate('owner_id', 'company_name owner_name name email mobile')
-    .populate('service_location_id', 'service_location_name name country')
-    .populate('vehicle_type_id', 'name type_name transport_type icon_types')
-    .sort({ createdAt: -1 })
-    .lean();
-
-  return { results: items.map(serializeFleetVehicle) };
-};
-
-export const createFleetVehicle = async (payload = {}) => {
-  await ensureFleetOwnersSeeded();
-
-  const ownerId = payload.owner_id || payload.ownerId;
-  const serviceLocationId = payload.service_location_id || payload.serviceLocationId;
-  const vehicleTypeId = payload.vehicle_type_id || payload.vehicleTypeId;
-
-  if (!ownerId) throw new ApiError(400, 'Owner is required');
-  if (!serviceLocationId) throw new ApiError(400, 'Service location is required');
-  if (!mongoose.isValidObjectId(ownerId)) throw new ApiError(400, 'Invalid owner id');
-  if (!mongoose.isValidObjectId(serviceLocationId)) throw new ApiError(400, 'Invalid service location id');
-  if (!payload.car_brand?.trim()) throw new ApiError(400, 'Car brand is required');
-  if (!payload.car_model?.trim()) throw new ApiError(400, 'Car model is required');
-  if (!payload.license_plate_number?.trim()) throw new ApiError(400, 'License plate number is required');
-  if (!payload.car_color?.trim()) throw new ApiError(400, 'Car color is required');
-
-  const normalizedPlate = String(payload.license_plate_number).trim().toUpperCase();
-
-  const existing = await FleetVehicle.findOne({
-    owner_id: toObjectId(ownerId),
-    license_plate_number: normalizedPlate,
-  }).lean();
-
-  if (existing) {
-    throw new ApiError(409, 'Fleet vehicle with this license plate already exists for this owner');
-  }
-
-  const item = await FleetVehicle.create({
-    owner_id: toObjectId(ownerId),
-    service_location_id: toObjectId(serviceLocationId),
-    transport_type: String(payload.transport_type || 'taxi').trim().toLowerCase(),
-    vehicle_type_id: vehicleTypeId && mongoose.isValidObjectId(vehicleTypeId) ? toObjectId(vehicleTypeId) : null,
-    car_brand: String(payload.car_brand).trim(),
-    car_model: String(payload.car_model).trim(),
-    license_plate_number: normalizedPlate,
-    car_color: String(payload.car_color).trim(),
-    status: String(payload.status || 'pending').trim().toLowerCase(),
-    reason: String(payload.reason || '').trim(),
-    active: payload.active !== undefined ? normalizeBoolean(payload.active) : true,
-  });
-
-  const populated = await FleetVehicle.findById(item._id)
-    .populate('owner_id', 'company_name owner_name name email mobile')
-    .populate('service_location_id', 'service_location_name name country')
-    .populate('vehicle_type_id', 'name type_name transport_type icon_types')
-    .lean();
-
-  return serializeFleetVehicle(populated);
-};
-
-export const updateFleetVehicle = async (id, payload = {}) => {
-  await ensureFleetOwnersSeeded();
-
-  const item = await FleetVehicle.findById(id);
-  if (!item) throw new ApiError(404, 'Fleet vehicle not found');
-
-  if (payload.owner_id !== undefined) {
-    if (payload.owner_id && !mongoose.isValidObjectId(payload.owner_id)) {
-      throw new ApiError(400, 'Invalid owner id');
-    }
-    item.owner_id = payload.owner_id ? toObjectId(payload.owner_id) : item.owner_id;
-  }
-  if (payload.service_location_id !== undefined) {
-    if (payload.service_location_id && !mongoose.isValidObjectId(payload.service_location_id)) {
-      throw new ApiError(400, 'Invalid service location id');
-    }
-    item.service_location_id = payload.service_location_id ? toObjectId(payload.service_location_id) : item.service_location_id;
-  }
-  if (payload.transport_type !== undefined) item.transport_type = String(payload.transport_type || '').trim().toLowerCase();
-  if (payload.vehicle_type_id !== undefined) {
-    item.vehicle_type_id =
-      payload.vehicle_type_id && mongoose.isValidObjectId(payload.vehicle_type_id) ? toObjectId(payload.vehicle_type_id) : null;
-  }
-  if (payload.car_brand !== undefined) item.car_brand = String(payload.car_brand || '').trim();
-  if (payload.car_model !== undefined) item.car_model = String(payload.car_model || '').trim();
-  if (payload.license_plate_number !== undefined) item.license_plate_number = String(payload.license_plate_number || '').trim().toUpperCase();
-  if (payload.car_color !== undefined) item.car_color = String(payload.car_color || '').trim();
-  if (payload.status !== undefined) item.status = String(payload.status || 'pending').trim().toLowerCase();
-  if (payload.reason !== undefined) item.reason = String(payload.reason || '').trim();
-  if (payload.active !== undefined) item.active = normalizeBoolean(payload.active);
-
-  await item.save();
-
-  const populated = await FleetVehicle.findById(item._id)
-    .populate('owner_id', 'company_name owner_name name email mobile')
-    .populate('service_location_id', 'service_location_name name country')
-    .populate('vehicle_type_id', 'name type_name transport_type icon_types')
-    .lean();
-
-  return serializeFleetVehicle(populated);
-};
-
-export const deleteFleetVehicle = async (id) => {
-  const deleted = await FleetVehicle.findByIdAndDelete(id);
-  if (!deleted) throw new ApiError(404, 'Fleet vehicle not found');
-  return true;
-};
-
-export const deleteOwner = async (id) => {
-  const owner = await Owner.findByIdAndDelete(id);
-  if (!owner) throw new ApiError(404, 'Owner not found');
-  return true;
-};
-
-  export const listOwnerBookings = async () => {
-    const items = await OwnerBooking.find()
-      .populate('owner_id', 'full_name name email mobile')
-      .populate('driver_id', 'name phone email vehicleNumber')
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return items.map(serializeOwnerBooking);
-  };
-
-  export const createOwnerBooking = async (payload) => {
-    if (!payload.booking_reference?.trim()) {
-      throw new ApiError(400, 'Booking reference is required');
-    }
-
-    if (!payload.customer_name?.trim()) {
-      throw new ApiError(400, 'Customer name is required');
-    }
-
-    const item = await OwnerBooking.create({
-      owner_id: payload.owner_id ? toObjectId(payload.owner_id) : null,
-      driver_id: payload.driver_id ? toObjectId(payload.driver_id) : null,
-      booking_reference: String(payload.booking_reference).trim(),
-      customer_name: String(payload.customer_name).trim(),
-      customer_phone: String(payload.customer_phone || '').trim(),
-      pickup_location: String(payload.pickup_location || '').trim(),
-      dropoff_location: String(payload.dropoff_location || '').trim(),
-      trip_type: payload.trip_type || 'city',
-      vehicle_type: String(payload.vehicle_type || '').trim(),
-      trip_date: payload.trip_date ? new Date(payload.trip_date) : null,
-      fare_amount: toNullableNumber(payload.fare_amount) ?? 0,
-      payment_status: payload.payment_status || 'pending',
-      booking_status: payload.booking_status || 'pending',
-      notes: String(payload.notes || '').trim(),
-      active: payload.active !== undefined ? normalizeBoolean(payload.active) : true,
-    });
-
-    const populatedItem = await OwnerBooking.findById(item._id)
-      .populate('owner_id', 'full_name name email mobile')
-      .populate('driver_id', 'name phone email vehicleNumber')
-      .lean();
-
-    return serializeOwnerBooking(populatedItem);
-  };
-
-  export const updateOwnerBooking = async (id, payload) => {
-    const item = await OwnerBooking.findById(id);
-    if (!item) throw new ApiError(404, 'Owner booking not found');
-
-    if (payload.owner_id !== undefined) {
-      item.owner_id = payload.owner_id ? toObjectId(payload.owner_id) : null;
-    }
-    if (payload.driver_id !== undefined) {
-      item.driver_id = payload.driver_id ? toObjectId(payload.driver_id) : null;
-    }
-    if (payload.booking_reference !== undefined) {
-      item.booking_reference = String(payload.booking_reference || '').trim();
-    }
-    if (payload.customer_name !== undefined) {
-      item.customer_name = String(payload.customer_name || '').trim();
-    }
-    if (payload.customer_phone !== undefined) {
-      item.customer_phone = String(payload.customer_phone || '').trim();
-    }
-    if (payload.pickup_location !== undefined) {
-      item.pickup_location = String(payload.pickup_location || '').trim();
-    }
-    if (payload.dropoff_location !== undefined) {
-      item.dropoff_location = String(payload.dropoff_location || '').trim();
-    }
-    if (payload.trip_type !== undefined) {
-      item.trip_type = payload.trip_type || 'city';
-    }
-    if (payload.vehicle_type !== undefined) {
-      item.vehicle_type = String(payload.vehicle_type || '').trim();
-    }
-    if (payload.trip_date !== undefined) {
-      item.trip_date = payload.trip_date ? new Date(payload.trip_date) : null;
-    }
-    if (payload.fare_amount !== undefined) {
-      item.fare_amount = toNullableNumber(payload.fare_amount) ?? 0;
-    }
-    if (payload.payment_status !== undefined) {
-      item.payment_status = payload.payment_status || 'pending';
-    }
-    if (payload.booking_status !== undefined) {
-      item.booking_status = payload.booking_status || 'pending';
-    }
-    if (payload.notes !== undefined) {
-      item.notes = String(payload.notes || '').trim();
-    }
-    if (payload.active !== undefined) {
-      item.active = normalizeBoolean(payload.active);
-    }
-
-    await item.save();
-
-    const populatedItem = await OwnerBooking.findById(item._id)
-      .populate('owner_id', 'full_name name email mobile')
-      .populate('driver_id', 'name phone email vehicleNumber')
-      .lean();
-
-    return serializeOwnerBooking(populatedItem);
-  };
-
-  export const deleteOwnerBooking = async (id) => {
-    const deleted = await OwnerBooking.findByIdAndDelete(id);
-    if (!deleted) throw new ApiError(404, 'Owner booking not found');
-    return true;
-  };
-
   const normalizeAdminEarningOption = (value) => String(value || '').trim();
 
   const formatAdminEarningDate = (value) => {
@@ -6450,10 +5113,9 @@ export const deleteOwner = async (id) => {
   };
 
 export const getDashboardData = async () => {
-  const [totalUsers, totalDrivers, totalOwners, approvedDrivers, rides, supportTicketStats] = await Promise.all([
+  const [totalUsers, totalDrivers, approvedDrivers, rides, supportTicketStats] = await Promise.all([
     User.countDocuments(),
     Driver.countDocuments(),
-    Owner.countDocuments(),
     Driver.countDocuments({ approve: true }),
     Ride.find()
       .select('status liveStatus fare paymentMethod commissionAmount driverEarnings driverId createdAt updatedAt completedAt')
@@ -6625,7 +5287,6 @@ export const getDashboardData = async () => {
         approved: approvedDrivers,
         declined: totalDrivers - approvedDrivers
       },
-      totalOwners,
       total_earnings: Number(totalOverallFare.toFixed(2)),
       payment_success_rate: 99.4,
       notifiedSos: {
@@ -6680,7 +5341,7 @@ export const getDashboardData = async () => {
   export const getTodayEarnings = async () => (await getDashboardData()).todayEarnings;
   export const getCancelChart = async () => (await getDashboardData()).cancelChart;
 
-  export const listWithdrawals = async () => WithdrawalRequest.find().populate('driver_id owner_id').sort({ createdAt: -1 }).lean();
+  export const listWithdrawals = async () => WithdrawalRequest.find().populate('driver_id').sort({ createdAt: -1 }).lean();
 
   export const listZones = async (currentAdmin = null) => {
     if (currentAdmin) {
@@ -7046,101 +5707,6 @@ export const createZone = async (payload, currentAdmin = null) => {
   };
 
 
-  export const listGoodsTypes = async () => {
-    const items = await GoodsType.find().sort({ createdAt: -1 }).lean();
-    const results = items.map(serializeGoodsType);
-
-    return {
-      success: true,
-      results,
-      paginator: {
-        current_page: 1,
-        data: results,
-        first_page_url: "https://k9rides.onrender.com/api/v1/admin/goods-types?page=1",
-        from: 1,
-        last_page: 1,
-        last_page_url: "https://k9rides.onrender.com/api/v1/admin/goods-types?page=1",
-        links: [
-          { url: null, label: "&laquo; Previous", active: false },
-          { url: "https://k9rides.onrender.com/api/v1/admin/goods-types?page=1", label: "1", active: true },
-          { url: null, label: "Next &raquo;", active: false }
-        ],
-        next_page_url: null,
-        path: "https://k9rides.onrender.com/api/v1/admin/goods-types",
-        per_page: 50,
-        prev_page_url: null,
-        to: results.length,
-        total: results.length
-      }
-    };
-  };
-
-  export const createGoodsType = async (payload) => {
-    const name = payload.goods_type_name || payload.name || '';
-    if (!name.trim()) {
-      throw new ApiError(400, 'Goods type name is required');
-    }
-
-    const active = payload.active !== undefined ?
-      (typeof payload.active === 'boolean' ? (payload.active ? 1 : 0) : Number(payload.active)) :
-      1;
-
-    const item = await GoodsType.create({
-      goods_type_name: name.trim(),
-      name: name.trim(),
-      goods_types_for: payload.goods_types_for || payload.goods_type_for || 'both',
-      status: payload.status || (active === 1 ? 'active' : 'inactive'),
-      active: active,
-      translation_dataset: payload.translation_dataset || '',
-      weight_slots: normalizeWeightSlots(payload.weight_slots) || [],
-    });
-
-    return serializeGoodsType(item.toObject());
-  };
-
-  export const updateGoodsType = async (id, payload) => {
-    const item = await GoodsType.findById(id);
-    if (!item) throw new ApiError(404, 'Goods type not found');
-
-    const name = payload.goods_type_name || payload.name;
-    if (name !== undefined) {
-      item.goods_type_name = name.trim();
-      item.name = name.trim();
-    }
-
-    if (payload.goods_types_for !== undefined || payload.goods_type_for !== undefined) {
-      item.goods_types_for = payload.goods_types_for || payload.goods_type_for || 'both';
-    }
-
-    if (payload.active !== undefined) {
-      item.active = typeof payload.active === 'boolean' ? (payload.active ? 1 : 0) : Number(payload.active);
-    }
-
-    if (payload.status !== undefined) {
-      item.status = payload.status;
-    } else if (payload.active !== undefined) {
-      item.status = item.active === 1 ? 'active' : 'inactive';
-    }
-
-    if (payload.translation_dataset !== undefined) {
-      item.translation_dataset = payload.translation_dataset;
-    }
-
-    const slots = normalizeWeightSlots(payload.weight_slots);
-    if (slots !== undefined) {
-      item.weight_slots = slots;
-    }
-
-    await item.save();
-    return serializeGoodsType(item.toObject());
-  };
-
-  export const deleteGoodsType = async (id) => {
-    const deleted = await GoodsType.findByIdAndDelete(id);
-    if (!deleted) throw new ApiError(404, 'Goods type not found');
-    return true;
-  };
-
   export const listRentalPackageTypes = async () => {
     const items = await RentalPackageType.find().sort({ createdAt: -1 }).lean();
     const results = items.map(serializeRentalPackageType);
@@ -7307,22 +5873,6 @@ export const listDriverDocumentUploadFields = async ({ activeOnly = true } = {})
       template_id: item.id,
       template_name: item.name,
       account_type: item.account_type,
-      image_type: item.image_type,
-      has_expiry_date: item.has_expiry_date,
-      has_identify_number: item.has_identify_number,
-    })),
-  );
-};
-
-export const listOwnerDocumentUploadFields = async ({ activeOnly = true } = {}) => {
-  const items = await listOwnerNeededDocuments();
-  const filteredItems = activeOnly ? items.filter((item) => item.active !== false) : items;
-
-  return filteredItems.flatMap((item) =>
-    buildOwnerDocumentFields(item).map((field) => ({
-      ...field,
-      template_id: item.id,
-      template_name: item.name,
       image_type: item.image_type,
       has_expiry_date: item.has_expiry_date,
       has_identify_number: item.has_identify_number,
@@ -7534,64 +6084,6 @@ export const listOwnerDocumentUploadFields = async ({ activeOnly = true } = {}) 
     return true;
   };
 
-
-  export const listOwnerNeededDocuments = async () => {
-    const items = await OwnerNeededDocument.find().sort({ createdAt: -1 }).lean();
-    return items.map(serializeOwnerNeededDocument);
-  };
-
-  export const createOwnerNeededDocument = async (payload) => {
-    if (!payload.name?.trim()) {
-      throw new ApiError(400, 'Document name is required');
-    }
-
-    const item = await OwnerNeededDocument.create({
-      name: String(payload.name).trim(),
-      image_type: String(payload.image_type || 'front_back').trim(),
-      has_expiry_date: normalizeBoolean(payload.has_expiry_date),
-      has_identify_number: normalizeBoolean(payload.has_identify_number),
-      is_editable: normalizeBoolean(payload.is_editable),
-      is_required: normalizeBoolean(payload.is_required),
-      active: payload.active !== undefined ? normalizeBoolean(payload.active) : true,
-    });
-
-    return serializeOwnerNeededDocument(item.toObject());
-  };
-
-  export const updateOwnerNeededDocument = async (id, payload) => {
-    const item = await OwnerNeededDocument.findById(id);
-    if (!item) throw new ApiError(404, 'Owner needed document not found');
-
-    if (payload.name !== undefined) {
-      item.name = String(payload.name || '').trim();
-    }
-    if (payload.image_type !== undefined) {
-      item.image_type = String(payload.image_type || 'front_back').trim();
-    }
-    if (payload.has_expiry_date !== undefined) {
-      item.has_expiry_date = normalizeBoolean(payload.has_expiry_date);
-    }
-    if (payload.has_identify_number !== undefined) {
-      item.has_identify_number = normalizeBoolean(payload.has_identify_number);
-    }
-    if (payload.is_editable !== undefined) {
-      item.is_editable = normalizeBoolean(payload.is_editable);
-    }
-    if (payload.is_required !== undefined) {
-      item.is_required = normalizeBoolean(payload.is_required);
-    }
-    if (payload.active !== undefined) {
-      item.active = normalizeBoolean(payload.active);
-    }
-    await item.save();
-    return serializeOwnerNeededDocument(item.toObject());
-  };
-
-  export const deleteOwnerNeededDocument = async (id) => {
-    const deleted = await OwnerNeededDocument.findByIdAndDelete(id);
-    if (!deleted) throw new ApiError(404, 'Owner needed document not found');
-    return true;
-  };
 
   export const listReferralTranslations = async () => {
     const [languages, translations] = await Promise.all([
@@ -8115,31 +6607,6 @@ export const buildDriverDutyReport = async (query = {}) => {
     };
   };
 
-  export const buildOwnerReport = async (query = {}) => {
-    const { service_location_id, status, date_option, from_date, to_date } = query;
-    const filter = {};
-    
-    if (service_location_id) filter.service_location_id = service_location_id;
-    if (status === 'active') filter.active = true;
-    else if (status === 'inactive') filter.active = false;
-
-    const dateFilter = buildDateFilter(date_option, from_date, to_date);
-    if (dateFilter) filter.createdAt = dateFilter;
-
-    const owners = await listOwners(filter);
-    return {
-      headers: ['company_name', 'name', 'email', 'transport_type', 'active', 'createdAt'],
-      rows: owners.map((item) => ({
-        company_name: item.company_name,
-        name: item.name,
-        email: item.email,
-        transport_type: item.transport_type,
-        active: item.active,
-        createdAt: item.createdAt ? new Date(item.createdAt).toLocaleString() : ''
-      }))
-    };
-  };
-
   export const buildFinanceReport = async (query = {}) => {
     const {
       transport_type,
@@ -8225,19 +6692,6 @@ export const buildDriverDutyReport = async (query = {}) => {
     return {
       headers: ['ride_id', 'driver', 'driver_phone', 'user', 'user_phone', 'transport_type', 'vehicle_type', 'payment_method', 'fare', 'admin_commission', 'driver_earnings', 'status', 'createdAt'],
       rows,
-    };
-  };
-
-  export const buildFleetFinanceReport = async () => {
-    const owners = await listOwners();
-    return {
-      headers: ['company_name', 'owner', 'transport_type', 'active'],
-      rows: owners.map((item) => ({
-        company_name: item.company_name,
-        owner: item.name,
-        transport_type: item.transport_type,
-        active: item.active,
-      }))
     };
   };
 
@@ -8495,7 +6949,7 @@ export const buildDriverDutyReport = async (query = {}) => {
 
   export const createOnboardingScreen = async (payload = {}) => {
     const audience = String(payload.audience || payload.screen || 'user').trim().toLowerCase();
-    if (!['user', 'driver', 'owner'].includes(audience)) {
+    if (!['user', 'driver'].includes(audience)) {
       throw new ApiError(400, 'Valid onboarding audience is required');
     }
 
@@ -8521,7 +6975,7 @@ export const buildDriverDutyReport = async (query = {}) => {
 
     if (payload.audience !== undefined || payload.screen !== undefined) {
       const audience = String(payload.audience || payload.screen || '').trim().toLowerCase();
-      if (!['user', 'driver', 'owner'].includes(audience)) {
+      if (!['user', 'driver'].includes(audience)) {
         throw new ApiError(400, 'Valid onboarding audience is required');
       }
       update.audience = audience;

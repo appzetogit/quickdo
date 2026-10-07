@@ -293,12 +293,9 @@ const Home = () => {
 
   const driverName = currentRide?.driver?.name || 'Captain';
   const serviceType = String(currentRide?.serviceType || currentRide?.type || 'ride').toLowerCase();
-  const vehicleLabel = currentRide?.driver?.vehicle || currentRide?.driver?.vehicleType || (serviceType === 'parcel' ? 'Parcel' : 'Taxi');
+  const vehicleLabel = currentRide?.driver?.vehicle || currentRide?.driver?.vehicleType || 'Taxi';
   const currentRideIcon = getCurrentRideIcon(currentRide);
-  const trackingPath =
-    serviceType === 'parcel'
-      ? `${routePrefix}/parcel/tracking`
-      : `${routePrefix}/ride/tracking`;
+  const trackingPath = `${routePrefix}/ride/tracking`;
   const rideStage = String(currentRide?.liveStatus || currentRide?.status || 'accepted').toLowerCase();
   const hasAssignedDriver = Boolean(currentRide?.driver?._id || currentRide?.driver?.id || currentRide?.driver?.name);
   const scheduledTimestamp = currentRide?.scheduledAt ? new Date(currentRide.scheduledAt).getTime() : NaN;
@@ -307,14 +304,12 @@ const Home = () => {
   const isScheduledAcceptedRide = ['ride', 'intercity'].includes(serviceType) && isScheduledUpcoming && hasAssignedDriver && ['accepted', 'arriving'].includes(rideStage);
   const rideStageLabel =
     rideStage === 'started'
-        ? serviceType === 'parcel' ? 'Parcel in transit' : 'Ride in progress'
+        ? 'Ride in progress'
         : rideStage === 'arrived'
-        ? serviceType === 'parcel' ? 'Parcel reached destination' : `${driverName} reached destination`
+        ? `${driverName} reached destination`
         : rideStage === 'arriving'
-        ? serviceType === 'parcel' ? `${driverName} reached sender` : `${driverName} has arrived`
-        : serviceType === 'parcel'
-          ? 'Parcel booked'
-          : 'Ride booked';
+        ? `${driverName} has arrived`
+        : 'Ride booked';
   const rideStageContextLabel = isScheduledAcceptedRide
     ? 'Driver assigned for your scheduled trip'
     : rideStageLabel;
@@ -546,9 +541,7 @@ const Home = () => {
               {/* Title and Subtitle Status */}
               <div className="min-w-0">
                 <h4 className="text-[16px] font-black text-slate-900 leading-tight tracking-tight">
-                  {serviceType === 'parcel' 
-                    ? 'Parcel Delivery' 
-                    : 'Quick Drop'}
+                  Quick Drop
                 </h4>
                 <p 
                   className="text-[12px] font-bold mt-1 flex items-center gap-0.5 leading-none"

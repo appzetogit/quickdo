@@ -64,7 +64,7 @@ export function registerHoldTarget(name, Model, notify) {
  * @param {object} args
  * @param {string} args.name        the registered target
  * @param {object} args.order       the order document
- * @param {string} args.vertical    'food' | 'quickCommerce' | 'medical'
+ * @param {string} args.vertical    'food' | 'quickCommerce'
  * @param {boolean} [args.shiftAcceptanceDeadline]  move acceptanceDeadlineAt out by the hold
  */
 export async function holdIfConfigured({ name, order, vertical, shiftAcceptanceDeadline = false }) {

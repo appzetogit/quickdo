@@ -15,7 +15,6 @@
 export const DRIVER_CLASSES = Object.freeze({
     TWO_WHEELER: 'two_wheeler',
     PASSENGER_TAXI: 'passenger_taxi',
-    PARCEL_VEHICLE: 'parcel_vehicle',
 });
 
 export const DRIVER_CLASS_LIST = Object.freeze(Object.values(DRIVER_CLASSES));
@@ -23,17 +22,14 @@ export const DRIVER_CLASS_LIST = Object.freeze(Object.values(DRIVER_CLASSES));
 /**
  * The capability a driver must hold to be sent each kind of job.
  *
- * `parcel` is separate from `taxi` on purpose. Parcel jobs ride the same
- * dispatcher as passenger trips, so without a capability of their own a rider
- * who signed up to carry boxes would be offered passengers -- which is exactly
- * what "only that section ride request" rules out. The dispatcher picks the
- * filter from the job's serviceType.
+ * Parcel delivery was removed (not in the SOW), and with it the `parcel`
+ * capability and the parcel-vehicle class. Drivers already on file keep the
+ * stored values; nothing grants them any more.
  */
 export const SERVICE_CAPABILITIES = Object.freeze({
     TAXI: 'taxi',
     DELIVERY: 'delivery',
     QUICK_COMMERCE: 'quickCommerce',
-    PARCEL: 'parcel',
 });
 
 /**
@@ -46,18 +42,15 @@ export const SERVICE_CAPABILITIES = Object.freeze({
 export const DRIVER_INTENTS = Object.freeze({
     // ---- I have a 2 wheeler -------------------------------------------------
     // A two-wheeler rider picks ONE of these two (see oneTwoWheelerIntent).
-    // Bike parcel goes with the delivery rider; Bike Taxi is passengers only,
-    // a commercial registration of its own (client, 2026-10-01). A delivery
-    // rider holding `parcel` is kept on work mode 'all' so the app also comes
-    // online on the ride dispatcher (coerceWorkMode); without `taxi` they are
-    // never offered passengers. Keys unchanged for riders already on file.
+    // Bike Taxi is passengers only, a commercial registration of its own
+    // (client, 2026-10-01). Keys unchanged for riders already on file (the
+    // `_parcel` suffix is historical; parcel delivery was removed).
     food_daily_medical_parcel: {
         driverClass: DRIVER_CLASSES.TWO_WHEELER,
-        label: 'Food + Daily needs + Medical + Bike parcel',
+        label: 'Food + Daily needs + Medical',
         capabilities: [
             SERVICE_CAPABILITIES.DELIVERY,
             SERVICE_CAPABILITIES.QUICK_COMMERCE,
-            SERVICE_CAPABILITIES.PARCEL,
         ],
     },
     bike_taxi_parcel: {
@@ -77,18 +70,6 @@ export const DRIVER_INTENTS = Object.freeze({
         label: 'I have a 4 wheeler',
         capabilities: [SERVICE_CAPABILITIES.TAXI],
     },
-
-    // ---- I have a vehicle for parcels --------------------------------------
-    parcel_delivery: {
-        driverClass: DRIVER_CLASSES.PARCEL_VEHICLE,
-        label: 'Parcel delivery',
-        capabilities: [SERVICE_CAPABILITIES.PARCEL],
-    },
-    heavy_parcel_delivery: {
-        driverClass: DRIVER_CLASSES.PARCEL_VEHICLE,
-        label: 'Heavy delivery',
-        capabilities: [SERVICE_CAPABILITIES.PARCEL],
-    },
 });
 
 export const DRIVER_INTENT_LIST = Object.freeze(Object.keys(DRIVER_INTENTS));
@@ -106,7 +87,6 @@ export const DRIVER_INTENT_LIST = Object.freeze(Object.keys(DRIVER_INTENTS));
 export const CLASS_VEHICLE_ICON_TYPES = Object.freeze({
     [DRIVER_CLASSES.TWO_WHEELER]: ['bike', 'scooty', 'scooter', 'ev_bike', 'evbike', 'motorcycle'],
     [DRIVER_CLASSES.PASSENGER_TAXI]: ['auto', 'car', 'sedan', 'suv', 'hatchback', 'xl'],
-    [DRIVER_CLASSES.PARCEL_VEHICLE]: ['truck', 'mini_truck', 'tempo', 'loader', 'van', 'pickup'],
 });
 
 /** The narrower list, once a passenger driver has said 3 or 4 wheels. */

@@ -20,7 +20,6 @@ const isDedupedGet = (url = '') => {
   return /^\/users\/me$/.test(requestPath) ||
     /^\/drivers\/me$/.test(requestPath) ||
     /^\/rides\/active\/me$/.test(requestPath) ||
-    /^\/deliveries\/active\/me$/.test(requestPath) ||
     /^\/admin\/general-settings\/[^/]+$/.test(requestPath) ||
     /^\/common\/payment-gateway$/.test(requestPath) ||
     /^\/admin\/(countries|service-locations|notification-channels)$/.test(requestPath) ||
@@ -75,7 +74,7 @@ const getSessionItem = (key) => {
 const getStoredTokenByRole = (role) => {
   const normalizedRole = normalizeAuthRole(role);
   const entries = (
-    normalizedRole === 'driver' || normalizedRole === 'owner'
+    normalizedRole === 'driver'
       ? [
           getSessionItem('driverToken'),
           getSessionItem('token'),
@@ -101,11 +100,6 @@ const getRoleFromPathname = () => {
 
   if (pathname.includes('/admin')) {
     return 'admin';
-  }
-
-  // Owners currently authenticate with driver tokens (fleet-owner flow).
-  if (pathname.includes('/taxi/owner')) {
-    return 'driver';
   }
 
   if (pathname.includes('/taxi/driver') || pathname.includes('/driver')) {
@@ -143,7 +137,7 @@ const clearStaleAuthState = (role = '', staleToken = '') => {
     localStorage.removeItem('userInfo');
   }
 
-  if (!normalizedRole || normalizedRole === 'driver' || normalizedRole === 'owner') {
+  if (!normalizedRole || normalizedRole === 'driver') {
     if (!staleToken || localStorage.getItem('driverToken') === staleToken) {
       localStorage.removeItem('driverToken');
     }
@@ -201,18 +195,17 @@ api.interceptors.request.use(
     const normalizedChatRole = String(chatRole || '').toLowerCase();
     const userToken = getStoredTokenByRole('user');
     const driverToken = getStoredTokenByRole('driver');
-    const ownerToken = getStoredTokenByRole('owner');
     const adminToken = getStoredTokenByRole('admin') || localStorage.getItem('adminToken');
 
     const isPublicUserRoute =
-      /^\/users\/(app-modules|goods-types|vehicle-types|register|signup|login|profile-image|auth\/send-otp|auth\/verify-otp|otp-login)(\/|$)/.test(requestPath);
+      /^\/users\/(app-modules|vehicle-types|register|signup|login|profile-image|auth\/send-otp|auth\/verify-otp|otp-login)(\/|$)/.test(requestPath);
     const isPublicDriverRoute =
       /^\/drivers\/(register|login|auth\/send-otp|auth\/verify-otp|onboarding\/send-otp|onboarding\/verify-otp|onboarding\/personal|onboarding\/referral|onboarding\/vehicle|onboarding\/documents|onboarding\/complete|onboarding\/session\/|service-locations)(\/|$)/.test(requestPath);
     const isAdminRoute =
       /^\/admin(\/|$)/.test(requestPath) ||
       /^\/(countries|common\/ride_modules|types\/|on-boarding(?:-|\/|$)|roles\/|permissions\/)/.test(requestPath);
     const isDriverRoute = /^\/drivers?(\/|$)/.test(requestPath);
-    const isUserRoute = /^\/(users|rides|deliveries|promos)(\/|$)/.test(requestPath);
+    const isUserRoute = /^\/(users|rides|promos)(\/|$)/.test(requestPath);
     const isSupportRoute = /^\/support(\/|$)/.test(requestPath);
     const isChatRoute = /^\/chats?(\/|$)/.test(requestPath);
     const pathRole = getRoleFromPathname();
@@ -225,9 +218,7 @@ api.interceptors.request.use(
       if (normalizedChatRole === 'admin') {
         token = adminToken;
       } else if (normalizedChatRole === 'driver') {
-        token = driverToken || ownerToken;
-      } else if (normalizedChatRole === 'owner') {
-        token = ownerToken || driverToken;
+        token = driverToken;
       } else if (normalizedChatRole === 'user') {
         token = userToken;
       }
@@ -237,16 +228,16 @@ api.interceptors.request.use(
       if (pathRole === 'admin') {
         token = adminToken;
       } else if (pathRole === 'driver') {
-        token = driverToken || ownerToken;
+        token = driverToken;
       } else {
         token = userToken;
       }
     } else if (isUserRoute) {
       token = userToken;
     } else if (isDriverRoute) {
-      token = driverToken || ownerToken;
+      token = driverToken;
     } else {
-      token = userToken || driverToken || ownerToken || adminToken;
+      token = userToken || driverToken || adminToken;
     }
 
     if (token) {

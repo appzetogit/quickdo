@@ -7,7 +7,7 @@ import BottomNavbar from '../components/BottomNavbar';
 const MOCK_PROMOS = [
   { id: '1', code: 'Quick Drop50',  discount: 50,  type: 'flat',    service: 'All Rides',    expiry: '30 Apr 2026', minFare: 100 },
   { id: '2', code: 'GOFREE',   discount: 100, type: 'flat',    service: 'Cab Only',     expiry: '15 Apr 2026', minFare: 150 },
-  { id: '3', code: 'SAVE20',   discount: 20,  type: 'percent', service: 'Parcel',       expiry: '30 Apr 2026', minFare: 50  },
+  { id: '3', code: 'SAVE20',   discount: 20,  type: 'percent', service: 'Bike Only',    expiry: '30 Apr 2026', minFare: 50  },
   { id: '4', code: 'NEWUSER',  discount: 75,  type: 'flat',    service: 'First Ride',   expiry: '30 Apr 2026', minFare: 80  },
 ];
 

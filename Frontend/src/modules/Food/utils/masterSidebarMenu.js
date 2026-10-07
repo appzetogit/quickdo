@@ -6,7 +6,7 @@ import { SERVICE_PROVIDER_ENABLED } from "@/config/features"
  *
  * Kept apart from adminSidebarMenu on purpose. That menu is rebased per
  * vertical -- /admin/food paths are rewritten to /admin/quick-commerce, words
- * like "Food" become "Product", and medical keeps an allowlist -- which is right
+ * like "Food" become "Product" -- which is right
  * for screens that exist once per vertical and wrong here: a link to Food's
  * banners must stay Food's banners whichever panel the operator came from.
  *
@@ -14,9 +14,7 @@ import { SERVICE_PROVIDER_ENABLED } from "@/config/features"
  *  - /admin/master/* screens hold ONE value for every service (Master settings,
  *    delivery earnings, promo limits, customers, admins).
  *  - "Food · ...", "Quick · ...", "Taxi · ..." entries are the services' own
- *    screens, gathered here so each group is managed from one place. Quick
- *    covers Medical too: pharmacies run on the quick-commerce API and share its
- *    banners, referral, customers and support.
+ *    screens, gathered here so each group is managed from one place.
  *
  * Zones are deliberately absent: every service keeps its own map.
  *
@@ -65,11 +63,11 @@ export const masterSidebarMenu = [
           { label: "Delivery Incentives", path: "/admin/master/delivery-incentives" },
           { label: "Order Batching", path: "/admin/master/order-batching" },
           // One catalogue for every partner: the partner app's sign-up (Food rider,
-          // Quick & Medical rider, bike taxi, cab, parcel) reads it for all of
+          // Quick rider, bike taxi, cab) reads it for all of
           // them, filtered by vehicle class. It lives on Taxi's screen, which is
           // why it used to be labelled "Taxi · Driver Documents".
           { label: "Partner Documents (all partners)", path: "/admin/master/partner-documents" },
-          // Food, Quick and Medical share one rider pool: every rider signs up and
+          // Food and Quick share one rider pool: every rider signs up and
           // works on the Food record, and Quick keeps linked copies. One list.
           // Taxi drivers are a separate pool. countKey / alertKey name the
           // sidebar-badges total shown beside the entry (alert = needs action).

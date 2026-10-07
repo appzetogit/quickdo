@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Edit2, Plus, Trash2 } from 'lucide-react';
 import { adminSupportService } from '../../../shared/services/supportTicketService';
 
-const USER_TYPES = ['user', 'driver', 'owner'];
+const USER_TYPES = ['user', 'driver'];
 
 const initialForm = {
   title: '',
@@ -142,7 +142,7 @@ const TicketTitle = () => {
               <h3 className="text-sm font-semibold text-gray-900">
                 {editingId ? 'Update Ticket Title' : 'Add Ticket Title'}
               </h3>
-              <p className="text-xs text-gray-400">Create support title for user/driver/owner flows</p>
+              <p className="text-xs text-gray-400">Create support title for user/driver flows</p>
             </div>
           </div>
 

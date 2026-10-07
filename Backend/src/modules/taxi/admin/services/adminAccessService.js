@@ -10,7 +10,6 @@ export const ADMIN_PERMISSIONS = [
   'drivers.view',
   'referrals.view',
   'subadmins.manage',
-  'owners.view',
   'reports.view',
   'support.view',
   'service_locations.view',
@@ -19,10 +18,8 @@ export const ADMIN_PERMISSIONS = [
   'vehicle_types.view',
   'rental.view',
   'set_prices.view',
-  'goods_types.view',
   'geofencing.view',
   'trips.view',
-  'deliveries.view',
   'ongoing.view',
   'settings.view',
 ];

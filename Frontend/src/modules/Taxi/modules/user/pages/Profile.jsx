@@ -32,7 +32,7 @@ const menuSections = [
     items: [
       { icon: User, title: 'Profile Settings', sub: 'Manage your personal info', path: '/taxi/user/profile/settings', bg: 'bg-indigo-50', color: 'text-indigo-600' },
       { icon: MapPin, title: 'Saved Addresses', sub: 'Home, office & others', path: '/taxi/user/profile/addresses', bg: 'bg-emerald-50', color: 'text-emerald-600' },
-      { icon: History, title: 'My Rides', sub: 'Rides, parcels & trips', path: '/taxi/user/activity', bg: 'bg-blue-50', color: 'text-blue-600' },
+      { icon: History, title: 'My Rides', sub: 'Rides & trips', path: '/taxi/user/activity', bg: 'bg-blue-50', color: 'text-blue-600' },
     ]
   },
   {

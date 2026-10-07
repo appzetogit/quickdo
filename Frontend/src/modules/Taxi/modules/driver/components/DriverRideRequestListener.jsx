@@ -59,13 +59,11 @@ const isScheduledRideForFuture = (value) => {
 
 const normalizeJobType = (job = {}) => {
     const value = String(job.type || job.serviceType || 'ride').toLowerCase();
-    if (value === 'parcel') return 'parcel';
     if (value === 'intercity') return 'intercity';
     return 'ride';
 };
 
 const getJobTitle = (type) => {
-    if (type === 'parcel') return 'Delivery';
     if (type === 'intercity') return 'Intercity Ride';
     return 'Taxi Ride';
 };
@@ -127,7 +125,7 @@ const DriverRideRequestListener = () => {
 
     const fetchActiveJob = useCallback(async (type = 'ride') => {
         const normalizedType = String(type || 'ride').toLowerCase();
-        const endpoint = normalizedType === 'parcel' ? '/deliveries/active/me' : '/rides/active/me';
+        const endpoint = '/rides/active/me';
         const driverToken = getLocalDriverToken();
         const response = await api.get(endpoint, {
             ...withDriverAuthorization(driverToken),

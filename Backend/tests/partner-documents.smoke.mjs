@@ -45,7 +45,7 @@ const { DriverNeededDocument } = await import('../src/modules/taxi/admin/models/
 await DriverNeededDocument.collection.insertMany([
   { name: 'aadhar card', slug: 'aadhar-card', template_type: 'document', image_type: 'front_back', applies_to: [], is_required: true, active: true, field_key: '' },
   { name: 'pan card', slug: 'pan-card', template_type: 'document', image_type: 'front_back', applies_to: ['two_wheeler'], is_required: true, active: true },
-  { name: 'Goods permit', slug: 'goods-permit', template_type: 'document', image_type: 'front', applies_to: ['parcel_vehicle'], is_required: true, active: true },
+  { name: 'Commercial badge', slug: 'commercial-badge', template_type: 'document', image_type: 'front', applies_to: ['passenger_taxi'], is_required: true, active: true },
   { name: 'Brand / Make', slug: 'vehicle-field-brand', template_type: 'vehicle_field', field_key: 'brand', active: true },
 ]);
 
@@ -56,19 +56,19 @@ await check('every document has a key the app can name its upload by', async () 
   assert.ok(documents.every((d) => d.key));
 });
 await check('a document for one class reaches only that class', async () => {
-  const parcel = await getOnboardingRequirements({ driverClass: 'parcel_vehicle', intents: ['parcel_delivery'] });
-  assert.deepEqual(parcel.documents.map((d) => d.key).sort(), ['aadhar-card', 'goods-permit']);
   const taxi = await getOnboardingRequirements({ driverClass: 'passenger_taxi', intents: ['four_wheeler'] });
-  assert.deepEqual(taxi.documents.map((d) => d.key), ['aadhar-card']);
+  assert.deepEqual(taxi.documents.map((d) => d.key).sort(), ['aadhar-card', 'commercial-badge']);
+  const bike = await getOnboardingRequirements({ driverClass: 'two_wheeler', intents: ['bike_taxi_parcel'] });
+  assert.ok(!bike.documents.some((d) => d.key === 'commercial-badge'));
 });
 await check('vehicle fields are not asked for as papers', async () => {
   const { documents } = await getOnboardingRequirements({ driverClass: 'two_wheeler', intents: ['food_daily_medical_parcel'] });
   assert.ok(!documents.some((d) => d.key === 'brand' || d.key === 'vehicle-field-brand'));
 });
 await check('a key the admin did set still wins', async () => {
-  await DriverNeededDocument.collection.updateOne({ slug: 'goods-permit' }, { $set: { field_key: 'goods_permit' } });
-  const { documents } = await getOnboardingRequirements({ driverClass: 'parcel_vehicle', intents: ['parcel_delivery'] });
-  assert.ok(documents.some((d) => d.key === 'goods_permit'));
+  await DriverNeededDocument.collection.updateOne({ slug: 'commercial-badge' }, { $set: { field_key: 'commercial_badge' } });
+  const { documents } = await getOnboardingRequirements({ driverClass: 'passenger_taxi', intents: ['four_wheeler'] });
+  assert.ok(documents.some((d) => d.key === 'commercial_badge'));
 });
 
 console.log('\nWhat the admin panel reads');

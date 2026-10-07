@@ -21,7 +21,6 @@ import {
   transferUserWallet,
   updateCurrentUser,
   uploadUserProfileImage,
-  uploadParcelPhoto,
   verifyRazorpayWalletTopup,
   verifyPhonePeWalletTopup,
   verifyUserOtpRequest,
@@ -30,14 +29,13 @@ import {
   getMySubscriptions,
   buySubscription,
 } from '../controllers/userController.js';
-import { getAppModules, getGoodsTypes, getPopularPlaces, getPublicSetPrices, getPublicVehicleTypeCatalog } from '../../admin/controllers/adminController.js';
+import { getAppModules, getPopularPlaces, getPublicSetPrices, getPublicVehicleTypeCatalog } from '../../admin/controllers/adminController.js';
 import { triggerUserSosAlert } from '../../safety/controllers/safetyController.js';
 
 export const userRouter = Router();
 
 userRouter.get('/app-modules', asyncHandler(getAppModules));
 userRouter.get('/intercity-packages', asyncHandler(getIntercityPackageCatalog));
-userRouter.get('/goods-types', asyncHandler(getGoodsTypes));
 userRouter.get('/vehicle-types', asyncHandler(getPublicVehicleTypeCatalog));
 // Landmarks the admin set on the zone the rider is standing in, nearest
 // first. Public: the destination screen renders before sign-in.
@@ -69,7 +67,6 @@ userRouter.post('/register', asyncHandler(registerUser));
 userRouter.post('/signup', asyncHandler(signupUser));
 userRouter.post('/login', asyncHandler(loginUser));
 userRouter.post('/profile-image', asyncHandler(uploadUserProfileImage));
-userRouter.post('/parcel-photo', asyncHandler(uploadParcelPhoto));
 userRouter.post('/auth/send-otp', asyncHandler(startUserOtpRequest));
 userRouter.post('/auth/verify-otp', asyncHandler(verifyUserOtpRequest));
 userRouter.post('/otp-login', asyncHandler(verifyUserPhoneForOtpLogin));

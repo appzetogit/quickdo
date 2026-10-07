@@ -237,13 +237,16 @@ export async function syncDeliveryApproval(driver) {
  */
 // Ordered widest-first; the order is what two admins ticking the same boxes
 // store, so it must stay stable.
-export const SERVICE_CAPABILITIES = Object.freeze(['taxi', 'delivery', 'quickCommerce', 'parcel']);
+export const SERVICE_CAPABILITIES = Object.freeze(['taxi', 'delivery', 'quickCommerce']);
+
+// Capabilities that no longer exist. Dropped quietly rather than refused, so a
+// driver who still holds one (parcel delivery was removed) can be re-saved.
+const RETIRED_CAPABILITIES = new Set(['parcel']);
 
 export const CAPABILITY_LABELS = Object.freeze({
     delivery: 'Food delivery',
     quickCommerce: 'Quick Commerce',
     taxi: 'Taxi',
-    parcel: 'Parcel & Porter',
 });
 
 /**
@@ -257,7 +260,7 @@ export function normalizeCapabilities(input) {
     const seen = new Set();
     for (const value of raw) {
         const key = String(value ?? '').trim();
-        if (!key) continue;
+        if (!key || RETIRED_CAPABILITIES.has(key.toLowerCase())) continue;
         const match = SERVICE_CAPABILITIES.find((c) => c.toLowerCase() === key.toLowerCase());
         if (!match) {
             const err = new Error(
@@ -290,17 +293,10 @@ export function normalizeCapabilities(input) {
  */
 export function coerceWorkMode(currentMode, capabilities) {
     const caps = new Set(capabilities);
-    // Parcel jobs are dispatched by the ride dispatcher, so the mode that
-    // receives them is 'taxi'. A driver holding only 'parcel' was coerced
-    // to 'delivery' and then sat online being offered nothing at all.
-    const canTaxi = caps.has('taxi') || caps.has('parcel');
+    const canTaxi = caps.has('taxi');
     const canDeliver = caps.has('delivery') || caps.has('quickCommerce');
     const mode = String(currentMode || 'all');
 
-    // A delivery rider who also carries bike parcels (parcel, no taxi): the app
-    // only listens to the ride dispatcher in 'all', and without `taxi` they are
-    // never offered passengers, so 'all' is their delivery mode.
-    if ((mode === 'delivery' || mode === 'quickCommerce') && canDeliver && caps.has('parcel') && !caps.has('taxi')) return 'all';
     if (mode === 'all' && canTaxi && canDeliver) return 'all';
     if (mode === 'taxi' && canTaxi) return 'taxi';
     if ((mode === 'delivery' || mode === 'quickCommerce') && canDeliver) return 'delivery';
@@ -400,7 +396,7 @@ export async function ensureUnifiedDriverForPartner(partner, { approved } = {}) 
  * Copy what the rider chose at sign-up onto the driver record.
  *
  * The app builds its duty toggle from the driver's serviceIntents/driverClass,
- * and dispatch matches parcels on the vehicle's type ('bike'). Approval copied
+ * and dispatch matches on the vehicle's type ('bike'). Approval copied
  * neither, and the new sign-up sends the vehicle as a catalogue id, which landed
  * in vehicleType as an id that matches no vehicle key.
  */

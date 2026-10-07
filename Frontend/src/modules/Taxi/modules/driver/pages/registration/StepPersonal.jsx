@@ -14,19 +14,14 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const StepPersonal = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const routePrefix = location.pathname.startsWith('/taxi/owner')
-        ? '/taxi/owner'
-        : '/taxi/driver';
+    const routePrefix = '/taxi/driver';
     const session = {
         ...getStoredDriverRegistrationSession(),
         ...(location.state || {}),
     };
     const phone = String(session.phone || '').replace(/\D/g, '').slice(-10);
     const registrationId = session.registrationId || '';
-    const role = routePrefix === '/taxi/owner'
-        ? 'owner'
-        : (session.role || 'driver');
-    const isOwner = role === 'owner';
+    const role = 'driver';
 
     const [formData, setFormData] = useState({
         fullName: session.fullName || '',
@@ -53,7 +48,7 @@ const StepPersonal = () => {
         }
 
         if (!NAME_REGEX.test(fullName)) {
-            setError(`${isOwner ? 'Owner' : 'Driver'} name should contain alphabets only`);
+            setError('Driver name should contain alphabets only');
             return;
         }
 

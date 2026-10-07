@@ -25,7 +25,7 @@ const incentiveTierSchema = new mongoose.Schema({
  * An admin-configured order-count ladder for one duty segment — mirrors the
  * Flutter rider app's DutySegment split:
  *   - foodAndQuick: food, quick-commerce and medicine deliveries.
- *   - taxiAndPorter: rides and parcel/porter jobs.
+ *   - taxiAndPorter: rides.
  *
  * Edits insert a new active version and deactivate the previous one (see
  * upsertIncentiveRuleController in incentiveController.js) rather than
@@ -37,11 +37,10 @@ const driverIncentiveRuleSchema = new mongoose.Schema(
     {
         segment: {
             type: String,
-            // foodAndQuick: food, daily needs, medical AND bike parcels (the
-            //   "Food + Daily needs + Medical + Bike parcel" rider).
-            // taxiAndPorter: passenger rides only, any vehicle (key kept for
+            // foodAndQuick: food, daily needs and medical deliveries.
+            // taxiAndPorter: passenger rides, any vehicle (key kept for
             //   the ladders already on file; shown as "Taxi").
-            // heavyParcel: parcel/porter jobs on anything but a 2-wheeler.
+            // heavyParcel: retired with parcel delivery; kept so old rules load.
             enum: ['foodAndQuick', 'taxiAndPorter', 'heavyParcel'],
             required: true,
             index: true,

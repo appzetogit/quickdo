@@ -39,13 +39,17 @@ const FEATURES = {
         collections: ['qc_dining_categories', 'qc_dining_restaurants', 'qc_dining_banners'],
     },
     parcel: {
-        models: [],
+        models: ['Delivery', 'TaxiGoodsType'],
         refs: [{ model: 'TaxiRide', label: 'parcel rides', filter: { serviceType: 'parcel' } }],
     },
     medical: {
         models: [],
-        collections: ['qc_medical_settings', 'medical_zones'],
-        refs: [{ collection: 'qc_orders', label: 'prescription orders', filter: { prescriptionOnly: true } }],
+        collections: ['qc_medical_settings', 'medical_zones', 'qc_medical_commission_default', 'qc_prescription_requests'],
+        refs: [
+            { collection: 'qc_orders', label: 'prescription orders', filter: { prescriptionOnly: true } },
+            { collection: 'qc_orders', label: 'MED- numbered orders', filter: { order_id: /^MED-/ } },
+            { collection: 'qc_restaurants', label: 'legacy pharmacy stores', filter: { storeType: 'pharmacy' } },
+        ],
     },
     fleetOwners: {
         models: ['TaxiOwner', 'TaxiOwnerBooking', 'TaxiOwnerNeededDocument', 'TaxiOwnerWalletTransaction', 'TaxiFleetVehicle'],

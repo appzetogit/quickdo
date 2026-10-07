@@ -1,7 +1,7 @@
 // No static icons
 
 export const PAGE_SIZE = 4;
-export const TABS = ['All', 'Rides', 'Parcels', 'Outstation', 'Scheduled', 'Support'];
+export const TABS = ['All', 'Rides', 'Outstation', 'Scheduled', 'Support'];
 
 export const pickFirstString = (...values) => {
   for (const value of values) {
@@ -93,11 +93,7 @@ export const coordLabel = (location, fallback) => {
   return fallback;
 };
 
-export const getVehicleVisual = (ride, type) => {
-  if (type === 'parcel') {
-    return null;
-  }
-
+export const getVehicleVisual = (ride) => {
   return getVehicleTypeAsset(
     ride?.vehicleIconType ||
     ride?.driver?.vehicleIconType ||
@@ -118,18 +114,17 @@ export const normalizeRide = (ride) => {
   const vehicle = ride.driver?.vehicleType || ride.vehicleIconType || 'Ride';
   const status = formatStatus(ride.status || ride.liveStatus);
   const serviceType = String(ride.serviceType || ride.type || 'ride').toLowerCase();
-  const type = serviceType === 'parcel' ? 'parcel' : 'ride';
+  // Old parcel trips (parcel delivery was removed) are shown as rides.
+  const type = 'ride';
   const pickup = ride.pickupAddress || coordLabel(ride.pickupLocation, 'Pickup');
   const drop = ride.dropAddress || coordLabel(ride.dropLocation, 'Drop');
   const isScheduled = Boolean(ride?.scheduledAt);
-  const isOutstation = serviceType === 'intercity' || Boolean(ride?.parcel?.isOutstation) || String(ride?.parcel?.deliveryScope || '').toLowerCase() === 'outstation';
-  const title = type === 'parcel'
-    ? (isScheduled ? 'Scheduled parcel' : isOutstation ? 'Outstation parcel' : status === 'Searching' ? 'Parcel request' : 'Parcel delivery')
-    : isScheduled
-      ? `Scheduled ride with ${driverName}`
-      : isOutstation
-        ? `Outstation trip with ${driverName}`
-        : (status === 'Searching' ? 'Ride request' : `Ride with ${driverName}`);
+  const isOutstation = serviceType === 'intercity';
+  const title = isScheduled
+    ? `Scheduled ride with ${driverName}`
+    : isOutstation
+      ? `Outstation trip with ${driverName}`
+      : (status === 'Searching' ? 'Ride request' : `Ride with ${driverName}`);
 
   return {
     id: ride.rideId || ride._id || ride.id,
@@ -142,15 +137,13 @@ export const normalizeRide = (ride) => {
     statusTone: getStatusTone(status),
     price: Number(ride.fare || 0).toFixed(0),
     ride,
-    vehicle: type === 'parcel' ? 'Parcel' : vehicle,
+    vehicle,
     driverName,
     eyebrow: isScheduled
       ? 'Scheduled booking'
       : isOutstation
         ? 'Outstation trip'
-        : type === 'parcel'
-          ? 'Delivery booking'
-          : 'Driver trip',
+        : 'Driver trip',
     driverImage: pickFirstString(
       ride?.driver?.profileImage,
       ride?.driver?.profile_image,
@@ -158,7 +151,7 @@ export const normalizeRide = (ride) => {
       ride?.driver?.avatar,
       buildAvatarFallback(driverName),
     ),
-    vehicleImage: getVehicleVisual(ride, type),
+    vehicleImage: getVehicleVisual(ride),
     sortTimestamp: toTimestamp(timeSource),
   };
 };

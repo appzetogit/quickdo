@@ -141,7 +141,6 @@ const GlobalSettings = () => {
                        { title: 'New Driver Onboarding', desc: 'Accept new registration requests via the Driver App.', status: true },
                        { title: 'Surge Pricing Automation', desc: 'Allow algorithm to increase prices during peak demands globally.', status: true },
                        { title: 'Cash Payments', desc: 'Allow users to select Cash as a payment method for rides.', status: true },
-                       { title: 'Parcel Delivery Module', desc: 'Enable the local parcel delivery capability in the User App.', status: false },
                        { title: 'Maximum Distance Limit', desc: 'Enable maximum distance restrictions for zone-based rides.', status: true, key: 'max_distance_limit' },
                      ].map((toggle, idx) => (
                         <div key={idx} className="flex items-center justify-between p-5 bg-gray-50 rounded-2xl border border-gray-100">

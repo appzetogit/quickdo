@@ -14,16 +14,11 @@ import { FoodNotification } from '../../../../core/notifications/models/notifica
 import { sendNotificationToOwner } from '../../../../core/notifications/firebase.service.js';
 import { FoodRestaurantSubscriptionSettings } from '../models/restaurantSubscriptionSettings.model.js';
 import { QCZone } from '../models/zone.model.js';
-import { zoneModelFor, ZONE_VERTICALS } from '../../shared/zoneServiceability.js';
+import { zoneModelFor } from '../../shared/zoneServiceability.js';
 
 /*
- * Zone reads and writes go to the vertical the panel is showing.
- *
- * /admin/medical and /admin/quick-commerce are the same screens against the
- * same routes, so the panel says which it is (`vertical`) on every zone call,
- * writes included. Absent means quick commerce -- every caller that predates
- * the split is asking about groceries, and defaulting the other way would let
- * a request with a missing parameter edit medical's map.
+ * Zone reads and writes. Quick commerce has one map (qc_zones); the old
+ * `vertical` parameter (Medical had its own) is accepted and ignored.
  */
 const zonesOf = (vertical) => zoneModelFor(vertical);
 import { invalidateActiveZonesCache } from '../../shared/zoneServiceability.js';
@@ -32,13 +27,8 @@ import { FoodItem } from '../models/food.model.js';
 import { FoodOffer } from '../models/offer.model.js';
 import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
-import {
-    assertMedicalOnboarding,
-    mergeStoreTypeUpdate,
-    normalizeDrugLicenceInput,
-    normalizeStoreTypeInput,
-} from '../../shared/storeType.js';
-import { normalizeStoreTypeFilter, storeTypeCondition, sellerIdsOfStoreType, applySellerScope } from '../../shared/storeScope.js';
+import { normalizeStoreTypeInput } from '../../shared/storeType.js';
+import { storeTypeCondition, sellerIdsOfStoreType, applySellerScope } from '../../shared/storeScope.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
@@ -392,9 +382,8 @@ export async function getRestaurants(query) {
     const filter = {};
     const zoneMatch = zoneMatchFrom(query);
     if (zoneMatch) filter.zoneId = zoneMatch;
-    // The Medical panel is this same list scoped to pharmacies. An unknown type
-    // is refused rather than ignored, so a bad value can never widen the list
-    // back to every seller.
+    // Optionally narrowed to one store type. An unknown type is refused rather
+    // than ignored, so a bad value can never widen the list back to every seller.
     const storeTypeFilter = storeTypeCondition(query.storeType);
     if (storeTypeFilter) filter.storeType = storeTypeFilter;
     if (status && ['pending', 'approved', 'rejected'].includes(status)) {
@@ -3140,23 +3129,14 @@ export async function updateRestaurantById(id, body = {}) {
     if (body.fssaiNumber !== undefined) doc.fssaiNumber = toStr(body.fssaiNumber);
     if (body.fssaiExpiry !== undefined) doc.fssaiExpiry = body.fssaiExpiry ? new Date(body.fssaiExpiry) : undefined;
 
-    // Store type + drug licence. Merged over what is stored before being checked, so
-    // an update cannot turn a grocery into a pharmacy simply by omitting the licence,
-    // and an existing pharmacy editing an unrelated field is not asked to resend one.
+    // Store type. A legacy pharmacy may send its own type back unchanged; nothing
+    // can be switched to pharmacy (the Medical vertical was removed). Drug-licence
+    // fields are no longer written.
     {
-        const storeType = normalizeStoreTypeInput(body.storeType);
-        const drugLicence = normalizeDrugLicenceInput(body);
-        if (storeType !== undefined || drugLicence !== undefined) {
-            const resolved = mergeStoreTypeUpdate(doc, {
-                ...(storeType !== undefined ? { storeType } : {}),
-                ...(drugLicence || {}),
-            });
-            assertMedicalOnboarding(resolved);
-            doc.storeType = resolved.storeType;
-            doc.drugLicenseNumber = resolved.drugLicenseNumber;
-            doc.drugLicenseImage = resolved.drugLicenseImage;
-            doc.drugLicenseExpiry = resolved.drugLicenseExpiry;
-        }
+        const storeType = normalizeStoreTypeInput(body.storeType, {
+            allowLegacy: doc.storeType === 'pharmacy',
+        });
+        if (storeType !== undefined) doc.storeType = storeType;
     }
 
     // Bank Details
@@ -4267,18 +4247,8 @@ export async function createRestaurantByAdmin(body) {
         approvedAt: new Date()
     };
 
-    // What kind of shop this is, and -- for a medical store -- the drug licence that
-    // lets it dispense. Validated against what will actually be stored, so a pharmacy
-    // cannot be created without a current licence. Admin-created sellers land
-    // 'approved' immediately, which is exactly why this cannot be checked later.
-    const storeType = normalizeStoreTypeInput(body.storeType);
-    const drugLicence = normalizeDrugLicenceInput(body);
-    const resolvedStore = mergeStoreTypeUpdate({}, { ...(storeType !== undefined ? { storeType } : {}), ...(drugLicence || {}) });
-    assertMedicalOnboarding(resolvedStore);
-    doc.storeType = resolvedStore.storeType;
-    doc.drugLicenseNumber = resolvedStore.drugLicenseNumber;
-    doc.drugLicenseImage = resolvedStore.drugLicenseImage;
-    doc.drugLicenseExpiry = resolvedStore.drugLicenseExpiry;
+    // What kind of shop this is. A new seller cannot be a pharmacy.
+    doc.storeType = normalizeStoreTypeInput(body.storeType) || 'grocery';
 
     if (body.zoneId !== undefined) {
         const zoneId = String(body.zoneId || '').trim();
@@ -4368,14 +4338,6 @@ export async function approveRestaurant(id) {
 
     const existing = await FoodRestaurant.findById(id).lean();
     if (!existing) return null;
-
-    // A pharmacy is approved only with everything it must hand over, whichever
-    // admin screen the approval came from. A pharmacy approved before (and now
-    // only confirming a location change) is not re-checked.
-    if (existing.status !== 'approved') {
-        const { assertApplicationComplete, partnerTypeOfSeller } = await import('../../shared/partnerOnboarding.js');
-        assertApplicationComplete(partnerTypeOfSeller(existing), existing);
-    }
 
     const $set = {
         status: 'approved',
@@ -5415,9 +5377,9 @@ export async function getEarningAddons() {
 
 /*
  * Earning Addon is retired. Each service's offers counted only that service's
- * orders (Food offers ignored Quick and Medical deliveries), while riders take
+ * orders (Food offers ignored Quick deliveries), while riders take
  * every kind. Master > Delivery Incentives replaces it: one ladder that counts
- * Food, Quick, Medical and bike-parcel orders together. Credited history stays
+ * Food and Quick orders together. Credited history stays
  * readable; no new offer is shown, created or credited.
  */
 export const EARNING_ADDON_RETIRED_MESSAGE =

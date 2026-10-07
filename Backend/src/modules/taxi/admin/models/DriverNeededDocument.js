@@ -80,9 +80,9 @@ const driverNeededDocumentSchema = new mongoose.Schema(
      * meant before this field existed -- reading "unset" as "nobody" would
      * empty the upload list on the day it ships.
      *
-     * A commercial badge belongs on a passenger taxi and nowhere else; a
-     * goods permit belongs on a parcel vehicle. Asking a bike rider for
-     * either is how an onboarding gets abandoned.
+     * A commercial badge belongs on a passenger taxi and nowhere else.
+     * Asking a bike rider for it is how an onboarding gets abandoned.
+     * ('parcel_vehicle' is retired; kept so old documents still save.)
      */
     applies_to: {
       type: [String],

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Phone, ChevronRight, Briefcase, UserRound, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Phone, ChevronRight, UserRound, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -27,53 +27,26 @@ const PhoneRegistration = () => {
         '',
     ).trim().toUpperCase();
     const [phone, setPhone] = useState(() => String(location.state?.phone || storedSession.phone || '').replace(/\D/g, '').slice(-10));
-    const [role, setRole] = useState(() => {
-        const normalizePortalRole = (value) => {
-            const normalized = String(value || '').toLowerCase();
-            if (normalized === 'owner') return 'owner';
-            return 'driver';
-        };
-
-        const stateRole = String(location.state?.role || '').toLowerCase();
-        if (stateRole) return normalizePortalRole(stateRole);
-
-        if (sharedReferralCode && location.pathname.startsWith('/taxi/driver')) {
-            return 'driver';
-        }
-
-        const savedRole = String(storedSession.role || '').toLowerCase();
-        return normalizePortalRole(savedRole);
-    });
+    const role = 'driver';
     const [agreed, setAgreed] = useState(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const phoneCardRef = useRef(null);
     const phoneInputRef = useRef(null);
-    const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+    const routePrefix = '/taxi/driver';
     const isLoginPage = location.pathname === `${routePrefix}/login` || location.pathname === `${routePrefix}/login/`;
     const appName = settings.general?.app_name || 'App';
 
-    const roleOptions = [
-        { id: 'driver', label: 'Driver', Icon: UserRound },
-        { id: 'owner', label: 'Owner', Icon: Briefcase },
-    ];
-
-    const modeConfig = useMemo(() => {
-        const isOwner = role === 'owner';
-
-        return {
-            badge: isOwner ? 'Enterprise' : 'Captain',
-            title: isLoginPage
-                ? `${isOwner ? 'Owner' : 'Driver'} Login`
-                : `Join ${appName}`,
-            subtitle: isLoginPage
-                ? `Enter your number to access account.`
-                : `Start your journey as a ${isOwner ? 'owner' : 'driver'}.`,
-            highlight: isOwner ? 'Manage fleet, payouts & drivers.' : 'Go online, get trips & earn daily.',
-            accentColor: isOwner ? '#1C2833' : '#4F46E5',
-            Icon: isOwner ? Briefcase : UserRound,
-        };
-    }, [appName, isLoginPage, role]);
+    const modeConfig = useMemo(() => ({
+        badge: 'Captain',
+        title: isLoginPage ? 'Driver Login' : `Join ${appName}`,
+        subtitle: isLoginPage
+            ? `Enter your number to access account.`
+            : 'Start your journey as a driver.',
+        highlight: 'Go online, get trips & earn daily.',
+        accentColor: '#4F46E5',
+        Icon: UserRound,
+    }), [appName, isLoginPage]);
 
     useEffect(() => {
         saveDriverRegistrationSession({
@@ -233,30 +206,6 @@ const PhoneRegistration = () => {
                     animate="visible"
                     className="space-y-5 relative z-20"
                 >
-                    <motion.div
-                        variants={itemVariants}
-                        className="flex items-center gap-1.5 mb-6 bg-[#F38F24]/5 p-1.5 rounded-[1rem] overflow-x-auto scroll-smooth w-full border border-[#F38F24]/10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
-                    >
-                        {roleOptions.map((option) => {
-                            const active = role === option.id;
-                            return (
-                                <motion.button
-                                    key={option.id}
-                                    layout
-                                    whileTap={{ scale: 0.97 }}
-                                    onClick={() => setRole(option.id)}
-                                    className={`flex-1 min-w-max flex items-center justify-center gap-2 py-2 px-3 rounded-xl transition-all whitespace-nowrap ${active
-                                        ? 'bg-white text-[#F38F24] shadow-sm border border-[#F38F24]/20'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    <option.Icon size={14} strokeWidth={active ? 2.5 : 2} className={active ? 'text-[#F38F24]' : ''} />
-                                    <span className="text-[11px] font-bold uppercase tracking-wide">{option.label}</span>
-                                </motion.button>
-                            );
-                        })}
-                    </motion.div>
-
                     <motion.section
                         variants={itemVariants}
                         ref={phoneCardRef}

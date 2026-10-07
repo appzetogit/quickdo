@@ -59,7 +59,7 @@ router.get('/earnings/:vertical', getEarningsController);
  * changing a platform setting.
  */
 router.get('/users', listGlobalUsersController);
-// Master > Orders: every order (Food, Quick, Medical, Taxi, Parcel) in one list.
+// Master > Orders: every order (Food, Quick, Taxi) in one list.
 router.get('/orders', async (req, res, next) => {
     try {
         const { listMasterOrders } = await import('../orders/masterOrders.service.js');

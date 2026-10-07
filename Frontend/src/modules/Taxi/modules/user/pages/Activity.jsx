@@ -41,7 +41,6 @@ const sortLatestFirst = (items = []) => [...items].sort((left, right) => Number(
 
 const getRideCategoryForTab = (tab) => {
   if (tab === 'Rides') return 'rides';
-  if (tab === 'Parcels') return 'parcels';
   if (tab === 'Outstation') return 'outstation';
   if (tab === 'Scheduled') return 'scheduled';
   return '';
@@ -49,9 +48,9 @@ const getRideCategoryForTab = (tab) => {
 
 const getHelperText = (tab) => {
   if (tab === 'Support') return 'Tickets and help requests';
-  if (tab === 'Outstation') return 'Long-distance trips and outstation deliveries';
+  if (tab === 'Outstation') return 'Long-distance trips';
   if (tab === 'Scheduled') return 'Bookings reserved for a later pickup time';
-  return 'Your recent trips, deliveries, and bookings';
+  return 'Your recent trips and bookings';
 };
 
 const Activity = () => {
@@ -173,11 +172,7 @@ const Activity = () => {
   }, [activeTab]);
 
   const handleItemClick = (item) => {
-    if (item.type === 'parcel') {
-      navigate(`${routePrefix}/parcel/detail/${item.id}`);
-    } else {
-      navigate(`${routePrefix}/ride/detail/${item.id}`, { state: { ride: item.ride } });
-    }
+    navigate(`${routePrefix}/ride/detail/${item.id}`, { state: { ride: item.ride } });
   };
   const helperText = useMemo(() => getHelperText(activeTab), [activeTab]);
 

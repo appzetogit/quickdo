@@ -148,15 +148,14 @@ const driverSchema = new mongoose.Schema(
     // being folded into 'delivery'. A driver can hold any combination.
     serviceCapabilities: {
       type: [String],
-      // 'parcel' is separate from 'taxi' on purpose. Parcel jobs ride the
-      // same dispatcher as passenger trips, so without a capability of its
-      // own a driver who signed up to carry boxes would be offered people.
+      // 'parcel' is retired (parcel delivery removed); kept so drivers already
+      // holding it still save. Nothing grants or dispatches on it.
       enum: ['taxi', 'delivery', 'quickCommerce', 'parcel'],
       default: ['taxi'],
     },
     /**
-     * What the driver said they have, at onboarding: a two wheeler, a taxi
-     * for passengers, or a vehicle for parcels.
+     * What the driver said they have, at onboarding: a two wheeler or a taxi
+     * for passengers. ('parcel_vehicle' is retired; kept for old records.)
      *
      * Decides which sub-options they were offered, which vehicle types they
      * could pick and which documents they had to upload. Kept so the admin
@@ -173,7 +172,7 @@ const driverSchema = new mongoose.Schema(
      *
      * Deliberately not the same thing as serviceCapabilities, which is what
      * the admin GRANTED. Keeping the request apart from the grant is what
-     * lets the approval screen show "they asked for food + parcel" next to
+     * lets the approval screen show "they asked for food + bike taxi" next to
      * the boxes the admin is about to tick.
      */
     serviceIntents: {

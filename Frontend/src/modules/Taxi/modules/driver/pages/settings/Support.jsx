@@ -6,7 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 const DriverSupport = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+    const routePrefix = '/taxi/driver';
     const [searchQuery, setSearchQuery] = useState('');
     const [activeFaq, setActiveFaq] = useState(null);
 

@@ -14,7 +14,6 @@ import toast from 'react-hot-toast';
 import {
   BarChart3,
   Bell,
-  Briefcase,
   Car,
   ChevronDown,
   ChevronLeft,
@@ -29,7 +28,6 @@ import {
   MapPin,
   MessageCircle,
   Monitor,
-  Package,
   PlusCircle,
   Search,
   Settings,
@@ -47,7 +45,6 @@ import {
   Wallet,
   Wrench,
   ShoppingBasket,
-  Pill,
   Zap,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -63,8 +60,6 @@ function cn(...inputs) {
 }
 
 const ADMIN_MODE = 'admin';
-const OWNER_MODE = 'owner';
-const MODE_STORAGE_KEY = 'adminPanelMode';
 const SIDEBAR_EXPANSION_STORAGE_KEY = 'adminSidebarExpandedGroups';
 const NOTIFICATION_DISMISS_STORAGE_KEY = 'adminNotificationDismissals';
 
@@ -181,7 +176,7 @@ const NOTIFICATION_PAGE_SIZE = 5;
 
 const readDismissedNotifications = () => {
   if (typeof window === 'undefined') {
-    return { ride_requests: [], bookings: [], chats: [] };
+    return { ride_requests: [], chats: [] };
   }
 
   try {
@@ -190,21 +185,16 @@ const readDismissedNotifications = () => {
 
     return {
       ride_requests: Array.isArray(parsed?.ride_requests) ? parsed.ride_requests : [],
-      bookings: Array.isArray(parsed?.bookings) ? parsed.bookings : [],
       chats: Array.isArray(parsed?.chats) ? parsed.chats : [],
     };
   } catch {
-    return { ride_requests: [], bookings: [], chats: [] };
+    return { ride_requests: [], chats: [] };
   }
 };
 
 const getNotificationEntryId = (tab, item = {}) => {
   if (tab === 'ride_requests') {
     return String(item.id || item.requestId || '').trim();
-  }
-
-  if (tab === 'bookings') {
-    return String(item._id || item.id || item.booking_reference || '').trim();
   }
 
   return String(item.id || '').trim();
@@ -279,8 +269,6 @@ const resolvePageTitle = (pathname, sections, appName) => {
 
   const label = findLabel(flattenItems(sections));
   if (label) return label;
-  if (pathname.includes('/owners')) return 'Owner Management';
-  if (pathname.includes('/fleet')) return 'Fleet Management';
   if (pathname.includes('/settings')) return 'Settings';
   if (pathname.includes('/reports')) return 'Reports';
   return `${appName || 'App'} Admin`;
@@ -539,70 +527,6 @@ const NestedGroup = ({
   );
 };
 
-const ModeSwitcher = ({ mode, setMode }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  const options = [
-    { id: ADMIN_MODE, label: 'Admin', subtitle: 'Core control panel' },
-    { id: OWNER_MODE, label: 'Owner', subtitle: 'Owner management modules' },
-  ];
-
-  const active = options.find((option) => option.id === mode) || options[0];
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setIsOpen((current) => !current)}
-        className="group flex items-center gap-3 rounded-2xl border border-neutral-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-2 shadow-sm transition-all hover:border-amber-400/30 hover:shadow-md active:scale-95"
-      >
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f8fafc] dark:bg-slate-900mber-50 text-amber-600 group-hover:bg-[#f8fafc] dark:bg-slate-900mber-600 group-hover:text-white transition-all">
-          <Briefcase size={16} />
-        </div>
-        <div className="text-left leading-tight">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Panel Mode</p>
-          <p className="text-[13px] font-extrabold text-neutral-900 dark:text-neutral-100">{active.label}</p>
-        </div>
-        <ChevronDown size={14} className="text-neutral-300 transition-transform group-hover:text-amber-400" />
-      </button>
-
-      {isOpen && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl ring-1 ring-black/5 animate-in fade-in slide-in-from-top-2 duration-200">
-          {options.map((option) => {
-            const selected = option.id === mode;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => {
-                  setMode(option.id);
-                  setIsOpen(false);
-                }}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all ${selected ? 'bg-[#f8fafc] dark:bg-slate-900mber-600 text-white shadow-lg shadow-amber-200' : 'hover:bg-neutral-50 dark:bg-slate-900'
-                  }`}
-              >
-                <span
-                  className={`h-2.5 w-2.5 rounded-full transition-all ${selected ? 'bg-white dark:bg-slate-900' : 'bg-neutral-300'
-                    }`}
-                />
-                <span className="flex-1">
-                  <span className={`block text-[13px] font-bold ${selected ? 'text-white' : 'text-neutral-900 dark:text-neutral-100'}`}>
-                    {option.label}
-                  </span>
-                  <span className={`block text-[11px] ${selected ? 'text-amber-100' : 'text-neutral-500'}`}>
-                    {option.subtitle}
-                  </span>
-                </span>
-                {selected && <div className="h-1.5 w-1.5 rounded-full bg-white dark:bg-slate-900 animate-pulse" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -622,11 +546,9 @@ const AdminLayout = () => {
     results: [],
     paginator: { current_page: 1, last_page: 1, total: 0 },
   });
-  const [bookingsFeed, setBookingsFeed] = useState([]);
   const [chatNotifications, setChatNotifications] = useState([]);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [rideRequestPage, setRideRequestPage] = useState(1);
-  const [bookingPage, setBookingPage] = useState(1);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [dismissedNotifications, setDismissedNotifications] = useState(() => readDismissedNotifications());
   const [expandedSidebarGroups, setExpandedSidebarGroups] = useState(() => {
@@ -737,11 +659,6 @@ const AdminLayout = () => {
     [dismissedNotifications],
   );
 
-  const dismissedBookingSet = useMemo(
-    () => new Set((dismissedNotifications.bookings || []).map((item) => String(item).trim()).filter(Boolean)),
-    [dismissedNotifications],
-  );
-
   const dismissedChatSet = useMemo(
     () => new Set((dismissedNotifications.chats || []).map((item) => String(item).trim()).filter(Boolean)),
     [dismissedNotifications],
@@ -750,11 +667,6 @@ const AdminLayout = () => {
   const visibleRideRequestResults = useMemo(
     () => rideRequestFeed.results.filter((item) => !dismissedRideRequestSet.has(getNotificationEntryId('ride_requests', item))),
     [dismissedRideRequestSet, rideRequestFeed.results],
-  );
-
-  const visibleBookingsFeed = useMemo(
-    () => bookingsFeed.filter((item) => !dismissedBookingSet.has(getNotificationEntryId('bookings', item))),
-    [bookingsFeed, dismissedBookingSet],
   );
 
   const visibleChatNotifications = useMemo(
@@ -782,11 +694,6 @@ const AdminLayout = () => {
   const dismissCurrentNotifications = () => {
     if (notificationTab === 'ride_requests') {
       visibleRideRequestResults.forEach((item) => dismissNotification('ride_requests', item));
-      return;
-    }
-
-    if (notificationTab === 'bookings') {
-      visibleBookingsFeed.forEach((item) => dismissNotification('bookings', item));
       return;
     }
 
@@ -839,7 +746,6 @@ const AdminLayout = () => {
               { label: 'Vehicle Type', path: '/taxi/admin/pricing/vehicle-type', permission: 'vehicle_types.view' },
               { label: 'Set Price', path: '/taxi/admin/pricing/set-price', permission: 'set_prices.view' },
               { label: 'Surge Time Slots', path: '/taxi/admin/pricing/surge', permission: 'set_prices.view' },
-              { label: 'Goods Types', path: '/taxi/admin/pricing/goods-types', permission: 'goods_types.view' },
             ],
           },
           {
@@ -852,7 +758,6 @@ const AdminLayout = () => {
             ],
           },
           { icon: Car, label: 'Trip Requests', path: '/taxi/admin/trips', permission: 'trips.view' },
-          { icon: Package, label: 'Delivery Requests', path: '/taxi/admin/deliveries', permission: 'deliveries.view' },
           { icon: Clock, label: 'Ongoing Requests', path: '/taxi/admin/ongoing', permission: 'ongoing.view' },
         ],
       },
@@ -903,31 +808,13 @@ const AdminLayout = () => {
             ],
           },
           {
-            icon: Briefcase,
-            label: 'Owner Management',
-            subItems: [
-              { label: 'Owner Dashboard', path: '/taxi/admin/owners/dashboard', permission: 'owners.view' },
-              { label: 'Pending Owners', path: '/taxi/admin/owners/pending', permission: 'owners.view' },
-              { label: 'Manage Owners', path: '/taxi/admin/owners', permission: 'owners.view' },
-              { label: 'Fleet Drivers', path: '/taxi/admin/fleet/drivers', permission: 'owners.view' },
-              { label: 'Pending Fleet Drivers', path: '/taxi/admin/fleet/blocked', permission: 'owners.view' },
-              { label: 'Manage Fleet', path: '/taxi/admin/fleet/manage', permission: 'owners.view' },
-              { label: 'Owner Needed Document', path: '/taxi/admin/owners/documents', permission: 'owners.view' },
-              { label: 'Fleet Needed Document', path: '/taxi/admin/fleet/documents', permission: 'owners.view' },
-              { label: 'Deleted Owners', path: '/taxi/admin/owners/deleted', permission: 'owners.view' },
-              { label: 'Bookings', path: '/taxi/admin/owners/bookings', permission: 'owners.view' },
-            ],
-          },
-          {
             icon: FileText,
             label: 'Report',
             subItems: [
               { label: 'User Report', path: '/taxi/admin/reports/user', permission: 'reports.view' },
               { label: 'Driver Report', path: '/taxi/admin/reports/driver', permission: 'reports.view' },
               { label: 'Driver Duty Report', path: '/taxi/admin/reports/driver-duty', permission: 'reports.view' },
-              // { label: 'Owner Report', path: '/taxi/admin/reports/owner', permission: 'reports.view' },
               { label: 'Finance Report', path: '/taxi/admin/reports/finance', permission: 'reports.view' },
-              { label: 'Fleet Finance Report', path: '/taxi/admin/reports/fleet-finance', permission: 'reports.view' },
             ],
           },
           {
@@ -1019,45 +906,6 @@ const AdminLayout = () => {
     []
   );
 
-  /*
-  const ownerSections = useMemo(
-    () => [
-      {
-        title: 'Owner Mode',
-        items: [
-          {
-            icon: Briefcase,
-            label: 'Owner Management',
-            subItems: [
-              { label: 'Owner Dashboard', path: '/taxi/admin/owners/dashboard', permission: 'owners.view' },
-              { label: 'Pending Owners', path: '/taxi/admin/owners/pending', permission: 'owners.view' },
-              { label: 'Manage Owners', path: '/taxi/admin/owners', permission: 'owners.view' },
-              {
-                label: 'Owner Wallet',
-                subItems: [{ label: 'Withdrawal Requests', path: '/taxi/admin/owners/wallet/withdrawals', permission: 'wallet.view' }],
-              },
-              {
-                label: 'Fleet Management',
-                subItems: [
-                  { label: 'Fleet Drivers', path: '/taxi/admin/fleet/drivers', permission: 'owners.view' },
-                  { label: 'Pending Fleet Drivers', path: '/taxi/admin/fleet/blocked', permission: 'owners.view' },
-                  { label: 'Fleet Needed Document', path: '/taxi/admin/fleet/documents', permission: 'owners.view' },
-                  { label: 'Manage Fleet', path: '/taxi/admin/fleet/manage', permission: 'owners.view' },
-                ],
-              },
-              { label: 'Owner Needed Document', path: '/taxi/admin/owners/documents', permission: 'owners.view' },
-              { label: 'Deleted Owners', path: '/taxi/admin/owners/deleted', permission: 'owners.view' },
-              { label: 'Bookings', path: '/taxi/admin/owners/bookings', permission: 'owners.view' },
-            ],
-          },
-        ],
-      },
-    ],
-    []
-  );
-  */
-
-  const isOwnerRoute = location.pathname.startsWith('/taxi/admin/owners') || location.pathname.startsWith('/taxi/admin/fleet');
   const isAdminChatRoute = pathMatches(location.pathname, '/taxi/admin/chat');
   const mode = ADMIN_MODE;
   const sidebarSections = useMemo(
@@ -1083,52 +931,19 @@ const AdminLayout = () => {
       .slice(0, 14);
   }, [searchEntries, searchTerm]);
 
-  const pagedBookings = useMemo(() => {
-    const total = visibleBookingsFeed.length;
-    const lastPage = Math.max(1, Math.ceil(total / NOTIFICATION_PAGE_SIZE));
-    const currentPage = Math.min(bookingPage, lastPage);
-    const start = (currentPage - 1) * NOTIFICATION_PAGE_SIZE;
-
-    return {
-      results: visibleBookingsFeed.slice(start, start + NOTIFICATION_PAGE_SIZE),
-      paginator: {
-        current_page: currentPage,
-        last_page: lastPage,
-        total,
-      },
-    };
-  }, [bookingPage, visibleBookingsFeed]);
-
   const activeNotificationMeta =
     notificationTab === 'ride_requests'
       ? rideRequestFeed.paginator
-      : notificationTab === 'bookings'
-        ? pagedBookings.paginator
-        : { current_page: 1, last_page: 1, total: chatNotifications.length };
+      : { current_page: 1, last_page: 1, total: chatNotifications.length };
 
   const totalNotificationItems =
     Math.max(0, Number(rideRequestFeed?.paginator?.total || 0) - dismissedRideRequestSet.size) +
-    visibleBookingsFeed.length +
     visibleChatNotifications.length;
 
   const currentNotificationCount =
     notificationTab === 'ride_requests'
       ? visibleRideRequestResults.length
-      : notificationTab === 'bookings'
-        ? pagedBookings.results.length
-        : visibleChatNotifications.length;
-
-  const setMode = (nextMode) => {
-    localStorage.setItem(MODE_STORAGE_KEY, nextMode);
-
-    if (nextMode === OWNER_MODE && !isOwnerRoute) {
-      navigate('/taxi/admin/owners/dashboard');
-    }
-
-    if (nextMode === ADMIN_MODE && isOwnerRoute) {
-      navigate('/taxi/admin/dashboard');
-    }
-  };
+      : visibleChatNotifications.length;
 
   useEffect(() => {
     const handleDocumentClick = (event) => {
@@ -1240,14 +1055,6 @@ const AdminLayout = () => {
           return;
         }
 
-        if (notificationTab === 'chats') {
-          return;
-        }
-
-        const response = await adminService.getOwnerBookings();
-        if (!isMounted) return;
-
-        setBookingsFeed(response?.data?.results || response?.results || []);
       } catch (error) {
         console.error('Failed to load admin notifications:', error);
 
@@ -1258,8 +1065,6 @@ const AdminLayout = () => {
             results: [],
             paginator: { current_page: 1, last_page: 1, total: 0 },
           });
-        } else if (notificationTab === 'bookings') {
-          setBookingsFeed([]);
         }
       } finally {
         if (isMounted) {
@@ -1273,7 +1078,7 @@ const AdminLayout = () => {
     return () => {
       isMounted = false;
     };
-  }, [bookingPage, isNotificationsOpen, notificationTab, rideRequestPage]);
+  }, [isNotificationsOpen, notificationTab, rideRequestPage]);
 
   useEffect(() => {
     if (!isSearchOpen) return undefined;
@@ -1536,19 +1341,6 @@ const AdminLayout = () => {
                   <ShoppingBasket className="w-3.5 h-3.5 text-[var(--sb-ink-faint)]" />
                   Quick
                 </button>}
-                {/* Medical sits beside Quick in every panel's switcher; it was only
-                    added to the food one, so it vanished on the way here. */}
-                {showPanel("medical") && <button
-                  type="button"
-                  onClick={() => navigate("/admin/medical")}
-                  className={cn(
-                    "flex-1 min-w-0 flex flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] leading-none font-bold rounded-lg transition-all duration-300",
-                    "text-[var(--sb-ink-faint)] hover:text-[var(--sb-ink-soft)] hover:bg-[var(--sb-hover)]"
-                  )}
-                >
-                  <Pill className="w-3.5 h-3.5 text-[var(--sb-ink-faint)]" />
-                  Medical
-                </button>}
               </div>
             )}
           </div>
@@ -1573,7 +1365,6 @@ const AdminLayout = () => {
                     <SidebarGroup
                       key={item.label}
                       {...item}
-                      forceOpen={mode === OWNER_MODE}
                       isCollapsed={isCollapsed}
                       pathname={location.pathname}
                       groupKey={`${section.title}:${item.label}`}
@@ -1636,7 +1427,7 @@ const AdminLayout = () => {
                       <div>
                         <p className="text-sm font-extrabold text-slate-900">Notifications</p>
                         <p className="mt-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 dark:text-slate-500">
-                          Latest bookings, ride requests, and support chats
+                          Latest ride requests and support chats
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1655,7 +1446,7 @@ const AdminLayout = () => {
                       </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-slate-50 dark:bg-slate-800 p-1">
+                    <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 dark:bg-slate-800 p-1">
                       <button
                         type="button"
                         onClick={() => {
@@ -1668,19 +1459,6 @@ const AdminLayout = () => {
                           }`}
                       >
                         Ride Requests
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNotificationTab('bookings');
-                          setBookingPage(1);
-                        }}
-                        className={`rounded-xl px-3 py-2 text-xs font-bold transition-all ${notificationTab === 'bookings'
-                          ? 'bg-white dark:bg-slate-900 text-slate-900 shadow-sm'
-                          : 'text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-slate-900'
-                          }`}
-                      >
-                        Bookings
                       </button>
                       <button
                         type="button"
@@ -1763,63 +1541,6 @@ const AdminLayout = () => {
                           ))}
                         </div>
                       )
-                    ) : notificationTab === 'bookings' ? pagedBookings.results.length === 0 ? (
-                      <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-4 py-8 text-center">
-                        <p className="text-sm font-bold text-slate-900">No bookings found</p>
-                        <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400 dark:text-slate-500">Recent bookings will show up here.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {pagedBookings.results.map((item) => (
-                          <button
-                            key={item._id || item.id || item.booking_reference}
-                            type="button"
-                            onClick={() => {
-                              navigate('/taxi/admin/owners/bookings');
-                              setIsNotificationsOpen(false);
-                            }}
-                            className="relative w-full rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 text-left transition-all hover:border-indigo-200 hover:bg-indigo-50/40"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-bold text-slate-900">
-                                  {item.booking_reference || 'Booking'} · {item.customer_name || 'Customer'}
-                                </p>
-                                <p className="mt-1 truncate text-xs font-semibold text-slate-500 dark:text-slate-400 dark:text-slate-500">
-                                  {item.pickup_location || 'Pickup'} to {item.dropoff_location || 'Drop'}
-                                </p>
-                              </div>
-                              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                                {item.booking_status || 'Pending'}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                              <span>{item.owner_id?.name || item.owner_id?.company_name || 'Owner booking'}</span>
-                              <span>{formatRelativeAdminTime(item.trip_date || item.createdAt)}</span>
-                            </div>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                dismissNotification('bookings', item);
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  dismissNotification('bookings', item);
-                                }
-                              }}
-                              className="absolute right-3 top-3 inline-flex rounded-lg p-1.5 text-slate-400 dark:text-slate-500 transition-all hover:bg-rose-50 hover:text-rose-600"
-                              aria-label="Delete notification"
-                            >
-                              <Trash2 size={14} />
-                            </span>
-                          </button>
-                        ))}
-                      </div>
                     ) : visibleChatNotifications.length === 0 ? (
                       <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-4 py-8 text-center">
                         <p className="text-sm font-bold text-slate-900">No new chats found</p>
@@ -1883,8 +1604,6 @@ const AdminLayout = () => {
                       onClick={() => {
                         if (notificationTab === 'ride_requests') {
                           setRideRequestPage((current) => Math.max(1, current - 1));
-                        } else {
-                          setBookingPage((current) => Math.max(1, current - 1));
                         }
                       }}
                       className="rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 transition-all hover:bg-slate-50 dark:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1902,8 +1621,6 @@ const AdminLayout = () => {
                       onClick={() => {
                         if (notificationTab === 'ride_requests') {
                           setRideRequestPage((current) => current + 1);
-                        } else {
-                          setBookingPage((current) => current + 1);
                         }
                       }}
                       className="rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 transition-all hover:bg-slate-50 dark:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"

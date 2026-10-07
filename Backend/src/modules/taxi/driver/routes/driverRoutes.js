@@ -7,9 +7,6 @@ import {
   completeOnboarding,
   createDriverPaymentQr,
   createDriverWithdrawalRequest,
-  createOwnerFleetDriver,
-  updateOwnerFleetDriver,
-  updateOwnerFleetVehicle,
   deleteCurrentDriverAccount,
   deleteDriverEmergencyContact,
   claimDriverIncentiveReward,
@@ -28,8 +25,6 @@ import {
   cancelDriverActiveRide,
   declineDriverRideOffer,
   getDriverScheduledRides,
-  getOwnerFleetDrivers,
-  getOwnerFleetDashboard,
   getMyWallet,
   getOnboardingSession,
   getServiceLocations,
@@ -52,9 +47,6 @@ import {
   updateDriverVehicle,
   verifyOnboardingOtp,
   verifyDriverLoginOtpRequest,
-  addOwnerVehicle,
-  getOwnerFleetVehicles,
-  deleteOwnerFleetVehicle,
   updateCurrentDriverDocument,
 } from "../controllers/driverController.js";
 import { triggerDriverSosAlert } from '../../safety/controllers/safetyController.js';
@@ -70,12 +62,12 @@ driverRouter.post(
 );
 driverRouter.get(
   "/me",
-  authenticate(["driver", "owner"], { allowPending: true }),
+  authenticate(["driver"], { allowPending: true }),
   asyncHandler(getCurrentDriver),
 );
 driverRouter.patch(
   "/me",
-  authenticate(["driver", "owner"]),
+  authenticate(["driver"]),
   asyncHandler(updateCurrentDriver),
 );
 driverRouter.delete(
@@ -90,7 +82,7 @@ driverRouter.post(
 );
 driverRouter.post(
   "/sos",
-  authenticate(["driver", "owner"]),
+  authenticate(["driver"]),
   asyncHandler(triggerDriverSosAlert),
 );
 driverRouter.get(
@@ -110,7 +102,7 @@ driverRouter.delete(
 );
 driverRouter.patch(
   "/documents/:documentKey",
-  authenticate(["driver", "owner"], { allowPending: true }),
+  authenticate(["driver"], { allowPending: true }),
   asyncHandler(updateCurrentDriverDocument),
 );
 driverRouter.get(
@@ -208,46 +200,6 @@ driverRouter.patch(
   asyncHandler(updateDriverVehicle),
 );
 driverRouter.get("/approval-status", asyncHandler(getDriverApprovalStatus));
-driverRouter.get(
-  "/fleet/dashboard",
-  authenticate(["owner"]),
-  asyncHandler(getOwnerFleetDashboard),
-);
-driverRouter.get(
-  "/fleet/drivers",
-  authenticate(["driver", "owner"]),
-  asyncHandler(getOwnerFleetDrivers),
-);
-driverRouter.post(
-  "/fleet/drivers",
-  authenticate(["driver", "owner"]),
-  asyncHandler(createOwnerFleetDriver),
-);
-driverRouter.patch(
-  "/fleet/drivers/:driverId",
-  authenticate(["driver", "owner"]),
-  asyncHandler(updateOwnerFleetDriver),
-);
-driverRouter.get(
-  "/fleet/vehicles",
-  authenticate(["driver", "owner"]),
-  asyncHandler(getOwnerFleetVehicles),
-);
-driverRouter.post(
-  "/fleet/vehicles",
-  authenticate(["driver", "owner"]),
-  asyncHandler(addOwnerVehicle),
-);
-driverRouter.patch(
-  "/fleet/vehicles/:vehicleId",
-  authenticate(["driver", "owner"]),
-  asyncHandler(updateOwnerFleetVehicle),
-);
-driverRouter.delete(
-  "/fleet/vehicles/:vehicleId",
-  authenticate(["driver", "owner"]),
-  asyncHandler(deleteOwnerFleetVehicle),
-);
 driverRouter.get("/service-locations", asyncHandler(getServiceLocations));
 driverRouter.get(
   "/document-templates",

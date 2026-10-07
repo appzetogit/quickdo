@@ -66,15 +66,6 @@ const ActionsSection = () => {
           path={resolvePath('/ride/select-location')}
           delay={0.1}
         />
-
-        <ActionCard
-          title="Delivery"
-          description="Send parcels across the city"
-          image="/5_Parcel.png"
-          bgColor="bg-[#334155]"
-          path={resolvePath('/parcel/type')}
-          delay={0.2}
-        />
       </div>
     </div>
   );

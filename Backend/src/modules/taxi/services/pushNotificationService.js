@@ -163,7 +163,7 @@ const sendPushToTargets = async ({
   for (const batch of chunk(dedupedTargets, 500)) {
     /*
      * dataOnly: no notification block, so Android hands the push to the app
-     * instead of dropping a silent copy in the tray. A ride/parcel offer needs
+     * instead of dropping a silent copy in the tray. A ride offer needs
      * that: the delivery app rings its full-screen alert only from a data
      * message, which is how food offers already arrive. Title and body travel
      * in the data for the app to show.

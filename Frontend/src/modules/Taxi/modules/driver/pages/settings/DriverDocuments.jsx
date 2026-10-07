@@ -69,7 +69,7 @@ const toTimestamp = (value) => {
 const DriverDocuments = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+  const routePrefix = '/taxi/driver';
   const focusDocumentKey = String(location.state?.focusDocumentKey || '').trim();
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState(null);

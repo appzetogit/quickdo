@@ -716,39 +716,6 @@ export const uploadUserProfileImage = async (req, res) => {
   });
 };
 
-/**
- * One photograph of a parcel, hosted.
- *
- * Takes the same `dataUrl` the profile-image route takes and returns a URL,
- * so nothing ever stores an image inside a ride document. Both the customer
- * app (at booking) and the captain (at pickup and at delivery) post here.
- */
-export const uploadParcelPhoto = async (req, res) => {
-  const dataUrl = String(req.body?.dataUrl || '');
-
-  if (!dataUrl) {
-    throw new ApiError(400, 'dataUrl is required');
-  }
-
-  if (dataUrl.length > 12_000_000) {
-    throw new ApiError(413, 'Image is too large');
-  }
-
-  const uploadResult = await uploadDataUrlToCloudinary({
-    dataUrl,
-    folder: env.cloudinary.folder + '/parcel-photos',
-    publicIdPrefix: 'parcel-photo',
-  });
-
-  res.status(201).json({
-    success: true,
-    data: {
-      secureUrl: uploadResult.secureUrl,
-      publicId: uploadResult.publicId,
-    },
-  });
-};
-
 export const updateCurrentUser = async (req, res) => {
   const userId = req.auth?.sub;
 

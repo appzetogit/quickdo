@@ -15,7 +15,6 @@ import { WalletTransaction } from '../driver/models/WalletTransaction.js';
 import { incrementDriverTodaySummaryForCompletedRide } from '../driver/services/driverTodaySummaryService.js';
 import { applyDriverWalletAdjustment, ensureDriverWalletCanAcceptRide, settleCompletedRideWallet } from '../driver/services/walletService.js';
 import { releaseDriverAssignment } from '../driver/services/driverAssignmentService.js';
-import { Delivery } from '../user/models/Delivery.js';
 import { RideBid } from '../user/models/RideBid.js';
 import { Ride } from '../user/models/Ride.js';
 import { User } from '../user/models/User.js';
@@ -25,7 +24,6 @@ import { applyPromoToRideInTransaction } from './promoService.js';
 import { getTipSettings } from './appSettingsService.js';
 import { getBidRideSettings } from './transportSettingsService.js';
 import { computeRideFare } from '../common/rideFare.js';
-import { resolveWeightSlot } from './weightSlotService.js';
 import { pickSurgeSlot, surgeFromPercent } from '../common/surgeSlot.js';
 import { SurgeSlot } from '../admin/models/SurgeSlot.js';
 import { measureTrip, measureTripRoad } from '../common/tripMeasure.js';
@@ -64,7 +62,6 @@ const clearUserActiveRideIfPresent = async (user) => {
   activeRide.status = RIDE_STATUS.CANCELLED;
   activeRide.liveStatus = RIDE_LIVE_STATUS.CANCELLED;
   await activeRide.save();
-  await syncDeliveryWithRide(activeRide);
 
   await Promise.all([
     activeRide.driverId ? Driver.findByIdAndUpdate(activeRide.driverId, { isOnRide: false }) : Promise.resolve(),
@@ -130,7 +127,21 @@ const normalizeRidePaymentMethod = (paymentMethod) => (
 
 const normalizeServiceType = (serviceType) => {
   const normalized = String(serviceType || 'ride').trim().toLowerCase();
-  return ['parcel', 'intercity'].includes(normalized) ? normalized : 'ride';
+  return normalized === 'intercity' ? 'intercity' : 'ride';
+};
+
+/*
+ * Parcel delivery was removed (not in the SOW). Old parcel rides keep their
+ * serviceType and parcel fields so they still load and save; nothing may
+ * create or quote a new one.
+ */
+const assertNotParcelBooking = ({ serviceType, transport_type } = {}) => {
+  if (
+    String(serviceType || '').trim().toLowerCase() === 'parcel'
+    || String(transport_type || '').trim().toLowerCase() === 'delivery'
+  ) {
+    throw new ApiError(400, 'Parcel delivery is not available.');
+  }
 };
 
 const ensureUserWallet = async (userId) => {
@@ -396,60 +407,6 @@ const normalizeAddress = (value = '') => String(value || '').trim();
 const generateRideOtp = () => String(Math.floor(1000 + Math.random() * 9000));
 const DEFAULT_BID_STEP_AMOUNT = 10;
 const DEFAULT_MAX_BID_STEPS = 5;
-
-/**
- * The sender's photos, as a list of URLs.
- *
- * Capped at two: they are shown side by side and an unbounded list from a
- * client is a document that grows without limit. Anything that is not a plain
- * http(s) URL is dropped -- the upload endpoint returns URLs, so a data URI
- * here means someone tried to store an image in the ride document.
- */
-const normalizeParcelPhotos = (value) => {
-  const list = Array.isArray(value) ? value : [value];
-  return list
-    .map((item) => String(item || '').trim())
-    .filter((url) => {
-      const lower = url.toLowerCase();
-      return lower.startsWith('http://') || lower.startsWith('https://');
-    })
-    .slice(0, 2);
-};
-
-const normalizeParcelPayload = (parcel = {}) => ({
-  category: String(parcel.category || '').trim(),
-  weight: String(parcel.weight || '').trim(),
-  description: String(parcel.description || '').trim(),
-  deliveryCategory: String(parcel.deliveryCategory || parcel.delivery_category || '').trim().toLowerCase(),
-  goodsTypeFor: String(parcel.goodsTypeFor || parcel.goods_type_for || '').trim(),
-  photos: normalizeParcelPhotos(parcel.photos),
-  // The captain fills these in later, through the parcel-photos route.
-  // Never taken from the booking payload: a sender must not be able to
-  // supply the proof that the parcel was collected in good condition.
-  pickupPhotos: [],
-  deliveryPhotos: [],
-  deliveryScope: String(parcel.deliveryScope || (parcel.isOutstation ? 'outstation' : 'city')).trim().toLowerCase() === 'outstation'
-    ? 'outstation'
-    : 'city',
-  isOutstation: Boolean(parcel.isOutstation || String(parcel.deliveryScope || '').trim().toLowerCase() === 'outstation'),
-  senderName: String(parcel.senderName || '').trim(),
-  senderMobile: String(parcel.senderMobile || '').trim(),
-  receiverName: String(parcel.receiverName || '').trim(),
-  receiverMobile: String(parcel.receiverMobile || '').trim(),
-});
-
-// Stamps the resolved weight slot onto the stored parcel (label and charge as
-// they were when booked, so a later edit to the goods type cannot rewrite it).
-const withWeightSlot = (parcelPayload, weightSlot) => (weightSlot
-  ? {
-    ...parcelPayload,
-    goodsTypeId: weightSlot.goodsTypeId,
-    weightSlotId: weightSlot.id,
-    weightSlotLabel: weightSlot.label,
-    weightCharge: weightSlot.price,
-    weight: parcelPayload.weight || weightSlot.label,
-  }
-  : parcelPayload);
 
 const normalizeIntercityPayload = (intercity = {}) => ({
   bookingId: String(intercity.bookingId || '').trim(),
@@ -948,14 +905,9 @@ const normalizeRideTransportType = (value = 'taxi') => {
 };
 
 /**
- * The active zone a pickup falls in, which decides surge. Rides only: parcels
- * have never carried surge.
+ * The active zone a pickup falls in, which decides surge.
  */
-const findSurgeZoneForPickup = async ({ pickupPoint, serviceLocationId = null, transportType = 'taxi' }) => {
-  if (transportType === 'delivery') {
-    return null;
-  }
-
+const findSurgeZoneForPickup = async ({ pickupPoint, serviceLocationId = null }) => {
   return Zone.findOne({
     ...(serviceLocationId ? { service_location_id: serviceLocationId } : {}),
     active: true,
@@ -1008,14 +960,9 @@ export const quoteRideFares = async ({
   vehicleTypeIds = [],
   transport_type,
   service_location_id,
-  weightSlotId,
-  goodsTypeId,
 }) => {
+  assertNotParcelBooking({ transport_type });
   const transportType = normalizeRideTransportType(transport_type);
-  // The parcel's weight slot, resolved from the goods type -- the amount is
-  // never taken from the app. Added to each vehicle's base price below.
-  const weightSlot = await resolveWeightSlot({ weightSlotId, goodsTypeId });
-  const weightExtra = weightSlot ? weightSlot.price : 0;
   const serviceLocationId =
     service_location_id && mongoose.Types.ObjectId.isValid(service_location_id)
       ? new mongoose.Types.ObjectId(service_location_id)
@@ -1028,7 +975,7 @@ export const quoteRideFares = async ({
     const { assertTripInsidePickupZone } = await import('./matchingService.js');
     await assertTripInsidePickupZone({ pickupCoords: pickupPoint, dropCoords: dropPoint, stops });
   }
-  const surgeZone = await findSurgeZoneForPickup({ pickupPoint, serviceLocationId, transportType });
+  const surgeZone = await findSurgeZoneForPickup({ pickupPoint, serviceLocationId });
   const surgeSlots = await loadZoneSurgeSlots(surgeZone?._id);
   // Measured exactly as createRideRecord measures it.
   const trip = await measureTripRoad({ pickup: pickupPoint, drop: dropPoint, stops });
@@ -1048,12 +995,12 @@ export const quoteRideFares = async ({
       transportType,
       vehicleTypeId,
     });
-    const base = computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes, extraAmount: weightExtra });
+    const base = computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes });
     const surge = base
       ? resolveRideSurge({ surgeZone, pricingRule, slots: surgeSlots, vehicleTypeId, fareBeforeSurge: base.fareBeforeSurge })
       : null;
     const fare = base
-      ? { ...computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes, surgeAmount: surge.amount, extraAmount: weightExtra }), surgePercent: surge.percent, surgeSlotName: surge.slotName }
+      ? { ...computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes, surgeAmount: surge.amount }), surgePercent: surge.percent, surgeSlotName: surge.slotName }
       : null;
     // The measured trip travels with the quote so the app can SHOW the same
     // distance it is being charged for. Without it the app displayed its own
@@ -1092,42 +1039,6 @@ const buildDriverVehicleAcceptFilter = async (ride) => {
   return clauses.length > 1 ? { $or: clauses } : clauses[0];
 };
 
-const syncDeliveryWithRide = async (ride) => {
-  if (!ride || (ride.serviceType || 'ride') !== 'parcel') {
-    return null;
-  }
-
-  const payload = {
-    rideId: ride._id,
-    userId: ride.userId,
-    driverId: ride.driverId || null,
-    vehicleTypeId: ride.vehicleTypeId || null,
-    vehicleIconType: ride.vehicleIconType || '',
-    vehicleIconUrl: ride.vehicleIconUrl || '',
-    status: ride.status,
-    liveStatus: ride.liveStatus,
-    pickupLocation: ride.pickupLocation,
-    pickupAddress: normalizeAddress(ride.pickupAddress),
-    dropLocation: ride.dropLocation,
-    dropAddress: normalizeAddress(ride.dropAddress),
-    fare: ride.fare,
-    paymentMethod: ride.paymentMethod,
-    parcel: normalizeParcelPayload(ride.parcel),
-    acceptedAt: ride.acceptedAt || null,
-    startedAt: ride.startedAt || null,
-    completedAt: ride.completedAt || null,
-  };
-
-  if (ride.deliveryId) {
-    return Delivery.findByIdAndUpdate(ride.deliveryId, payload, { returnDocument: 'after' });
-  }
-
-  const delivery = await Delivery.create(payload);
-  ride.deliveryId = delivery._id;
-  await ride.save();
-  return delivery;
-};
-
 export const createRideRecord = async ({
   userId,
   pickupCoords,
@@ -1143,7 +1054,6 @@ export const createRideRecord = async ({
   vehicleIconUrl,
   paymentMethod,
   serviceType,
-  parcel,
   intercity,
   promo_code,
   service_location_id,
@@ -1153,6 +1063,8 @@ export const createRideRecord = async ({
   userMaxBidFare,
   bidStepAmount,
 }) => {
+  assertNotParcelBooking({ serviceType, transport_type });
+
   const user = await User.findById(userId);
 
   if (!user) {
@@ -1175,13 +1087,11 @@ export const createRideRecord = async ({
    */
   /*
    * ...and ends in the same zone: the drop and every stop must be inside the
-   * pickup's zone. Intercity trips and outstation parcels leave it by design.
+   * pickup's zone. Intercity trips leave it by design.
    */
   {
     const leavesZoneByDesign = normalizeServiceType(serviceType) === 'intercity'
-      || normalizeRideTransportType(transport_type) === 'intercity'
-      || Boolean(parcel?.isOutstation)
-      || String(parcel?.deliveryScope || '').trim().toLowerCase() === 'outstation';
+      || normalizeRideTransportType(transport_type) === 'intercity';
     const { assertTripInsidePickupZone, findZoneByPickup } = await import('./matchingService.js');
     if (!leavesZoneByDesign) {
       await assertTripInsidePickupZone({ pickupCoords, dropCoords, stops });
@@ -1224,7 +1134,6 @@ export const createRideRecord = async ({
   const surgeZone = await findSurgeZoneForPickup({
     pickupPoint,
     serviceLocationId: resolvedServiceLocationId,
-    transportType: normalizedTransportType,
   });
 
   const { pricingRule, allowedPaymentMethods } = await getAllowedRidePaymentMethodsForPricing({
@@ -1240,22 +1149,14 @@ export const createRideRecord = async ({
    * rides), so the fare a rider confirms is the fare they are charged. Surge is
    * added below via rideSurgeAmount, as before.
    */
-  // The weight slot is looked up from the goods type by its id -- the app only
-  // names it, the amount is the admin's.
-  const weightSlot = await resolveWeightSlot({
-    weightSlotId: parcel?.weightSlotId,
-    goodsTypeId: parcel?.goodsTypeId,
-  });
-
   const fareQuote = computeRideFare({
     pricingRule,
     transportType: normalizedTransportType,
     distanceMeters: safeEstimatedDistanceMeters,
     durationMinutes: safeEstimatedDurationMinutes,
-    extraAmount: weightSlot ? weightSlot.price : 0,
   });
 
-  if (!fareQuote && normalizedTransportType !== 'delivery') {
+  if (!fareQuote) {
     /*
      * This used to charge whatever fare the app sent. With no price row that
      * was the app's guess -- the new Bike was billed at Sedan rates -- and any
@@ -1265,10 +1166,7 @@ export const createRideRecord = async ({
     throw new ApiError(400, 'This ride type is not available here yet. Please choose another.');
   }
 
-  // Parcels ('delivery') have no price rows yet and still take the app's
-  // figure, as they always have. That path is just as open to a doctored fare
-  // and needs its own prices before it can be closed.
-  const safeFare = fareQuote ? fareQuote.fareBeforeSurge : clientFare;
+  const safeFare = fareQuote.fareBeforeSurge;
 
   const normalizedPaymentMethod = normalizeRidePaymentMethod(paymentMethod);
   const resolvedRequestedPaymentMethod = allowedPaymentMethods.includes(normalizedPaymentMethod)
@@ -1491,7 +1389,6 @@ export const createRideRecord = async ({
       service_location_id: resolvedServiceLocationId,
       transport_type: normalizedTransportType,
       pricingSnapshot,
-      parcel: withWeightSlot(normalizeParcelPayload(parcel), weightSlot),
       intercity: normalizeIntercityPayload(intercity),
       scheduledAt: normalizedScheduledAt,
       status: RIDE_STATUS.SEARCHING,
@@ -1501,7 +1398,6 @@ export const createRideRecord = async ({
 
     user.currentRideId = ride._id;
     await user.save();
-    await syncDeliveryWithRide(ride);
 
     return ride;
   }
@@ -1547,7 +1443,6 @@ export const createRideRecord = async ({
             service_location_id: resolvedServiceLocationId,
             transport_type: normalizedTransportType,
             pricingSnapshot,
-            parcel: withWeightSlot(normalizeParcelPayload(parcel), weightSlot),
             intercity: normalizeIntercityPayload(intercity),
             scheduledAt: normalizedScheduledAt,
             status: RIDE_STATUS.SEARCHING,
@@ -1588,7 +1483,6 @@ export const createRideRecord = async ({
       await rideDoc.save({ session });
 
       await session.commitTransaction();
-      await syncDeliveryWithRide(rideDoc);
       return rideDoc;
     } catch (error) {
       lastError = error;
@@ -1611,7 +1505,6 @@ export const createRideRecord = async ({
 
 export const getRideDetails = async (rideId) => {
   const ride = await Ride.findById(rideId)
-    .populate('deliveryId')
     .populate('userId', 'name phone')
     .populate('driverId', 'name phone profileImage vehicleType vehicleIconType vehicleNumber vehicleColor vehicleMake vehicleModel vehicleImage rating vehicleTypeId');
 
@@ -1639,7 +1532,6 @@ const activeRideStatuses = [RIDE_STATUS.SEARCHING, RIDE_STATUS.ACCEPTED, RIDE_ST
 
 const populateRideRealtime = async (rideId) => {
   const ride = await Ride.findById(rideId)
-    .populate('deliveryId')
     .populate('userId', 'name phone email')
     .populate('driverId', 'name phone profileImage vehicleType vehicleIconType vehicleNumber vehicleColor vehicleMake vehicleModel vehicleImage rating vehicleTypeId');
 
@@ -1659,7 +1551,6 @@ const populateRideRealtime = async (rideId) => {
 export const serializeRideRealtime = (ride) => ({
   rideId: String(ride._id),
   room: getRideRoom(ride._id),
-  deliveryId: ride.deliveryId?._id ? String(ride.deliveryId._id) : ride.deliveryId ? String(ride.deliveryId) : null,
   type: ride.serviceType || 'ride',
   serviceType: ride.serviceType || 'ride',
   status: ride.status,
@@ -1726,7 +1617,6 @@ export const serializeRideRealtime = (ride) => ({
     }
     : null,
   otp: ride.otp || '',
-  parcel: ride.deliveryId?.parcel || ride.parcel || null,
   intercity: ride.intercity || null,
   commissionAmount: ride.commissionAmount,
   driverEarnings: ride.driverEarnings,
@@ -1860,23 +1750,9 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
   if (normalizedCategory === 'rides') {
     query.serviceType = 'ride';
     query.scheduledAt = null;
-  } else if (normalizedCategory === 'parcels') {
-    query.serviceType = 'parcel';
-    query.scheduledAt = null;
-    query['parcel.isOutstation'] = { $ne: true };
-    query['parcel.deliveryScope'] = { $ne: 'outstation' };
   } else if (normalizedCategory === 'outstation') {
     query.scheduledAt = null;
-    query.$or = [
-      { serviceType: 'intercity' },
-      {
-        serviceType: 'parcel',
-        $or: [
-          { 'parcel.isOutstation': true },
-          { 'parcel.deliveryScope': 'outstation' },
-        ],
-      },
-    ];
+    query.serviceType = 'intercity';
   } else if (normalizedCategory === 'scheduled') {
     query.scheduledAt = { $ne: null };
   }
@@ -1890,7 +1766,6 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
   const ridesQuery = Ride.find(query)
     .select([
       '_id',
-      'deliveryId',
       'serviceType',
       'status',
       'liveStatus',
@@ -1905,7 +1780,6 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
       'estimatedDurationMinutes',
       'paymentMethod',
       'otp',
-      'parcel',
       'intercity',
       'pricingSnapshot',
       'commissionAmount',
@@ -1949,10 +1823,6 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
     .populate(counterpartPath, counterpartSelect)
     .lean();
 
-  if (role === 'user') {
-    ridesQuery.populate('deliveryId', 'parcel');
-  }
-
   const [rides, total] = await Promise.all([
     ridesQuery,
     Ride.countDocuments(query),
@@ -1961,7 +1831,6 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
   return {
     results: rides.map((ride) => ({
       rideId: String(ride._id),
-      deliveryId: ride.deliveryId?._id ? String(ride.deliveryId._id) : ride.deliveryId ? String(ride.deliveryId) : null,
       type: ride.serviceType || 'ride',
       serviceType: ride.serviceType || 'ride',
       status: ride.status,
@@ -1979,7 +1848,6 @@ export const listRideHistoryForIdentity = async ({ role, entityId, limit = 50, p
       estimatedDurationMinutes: ride.estimatedDurationMinutes || 0,
       paymentMethod: ride.paymentMethod,
       otp: ride.otp || '',
-      parcel: ride.deliveryId?.parcel || ride.parcel || null,
       intercity: ride.intercity || null,
       pricingSnapshot: ride.pricingSnapshot || null,
       commissionAmount: ride.commissionAmount,
@@ -2108,7 +1976,6 @@ export const acceptRideAssignment = async ({ rideId, driverId }) => {
       await ride.save({ session });
       await driver.save({ session });
       await session.commitTransaction();
-      await syncDeliveryWithRide(ride);
 
       return ride;
     } catch (error) {
@@ -2370,7 +2237,6 @@ export const updateRideLifecycle = async ({ rideId, driverId, nextStatus, paymen
   }
 
   await ride.save();
-  await syncDeliveryWithRide(ride);
 
   let walletUpdate = null;
 
@@ -2401,8 +2267,8 @@ export const updateRideLifecycle = async ({ rideId, driverId, nextStatus, paymen
     await processCompletedRideReferralReward(ride);
     await processCompletedDriverReferralReward(ride);
 
-    // Daily order-target incentive progress (rides and parcel/porter jobs
-    // both count toward the taxiAndPorter target). Fire-and-forget and
+    // Daily order-target incentive progress (counts toward the taxiAndPorter
+    // target). Fire-and-forget and
     // idempotent per rider/rule/day — must never fail ride completion.
     import('../../../core/incentives/services/incentiveService.js')
       .then(({ onTaxiRideCompleted }) => onTaxiRideCompleted({ driverId, ride }))
@@ -2779,7 +2645,6 @@ export const acceptRideBidAssignment = async ({ rideId, bidId, userId }) => {
       );
 
       await session.commitTransaction();
-      await syncDeliveryWithRide(ride);
 
       return ride;
     } catch (error) {

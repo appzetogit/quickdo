@@ -13,7 +13,6 @@ import {
   IndianRupee,
   Loader2,
   MapPin,
-  Package,
   TrendingUp,
   User,
 } from 'lucide-react';
@@ -24,7 +23,6 @@ import { getDriverRideHistory } from '../services/registrationService';
 const TABS = [
   { id: 'all', label: 'All' },
   { id: 'ride', label: 'Rides' },
-  { id: 'parcel', label: 'Deliveries' },
 ];
 
 const STATUS_FILTERS = [
@@ -142,7 +140,8 @@ const normalizePaymentLabel = (ride = {}) => {
 };
 
 const normalizeRide = (ride) => {
-  const type = String(ride?.serviceType || ride?.type || 'ride').toLowerCase() === 'parcel' ? 'parcel' : 'ride';
+  // Old parcel trips (parcel delivery was removed) are shown as rides.
+  const type = 'ride';
   const status = formatStatus(ride?.status || ride?.liveStatus);
   const timeSource = getRideTimeSource(ride);
   const passengerName = ride?.user?.name || 'Passenger';
@@ -156,8 +155,8 @@ const normalizeRide = (ride) => {
   return {
     id: ride?.rideId || ride?._id || '',
     type,
-    title: type === 'parcel' ? 'Delivery job' : 'Ride trip',
-    subtitle: type === 'parcel' ? `Customer: ${passengerName}` : `Rider: ${passengerName}`,
+    title: 'Ride trip',
+    subtitle: `Rider: ${passengerName}`,
     dateLabel: formatDateLabel(timeSource),
     shortDate: formatShortDate(timeSource),
     earnings,
@@ -409,8 +408,8 @@ const RideRequests = () => {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${item.type === 'parcel' ? 'bg-primary-orange/5 text-accent-orange' : 'bg-slate-100 text-slate-900'}`}>
-                    {item.type === 'parcel' ? <Package size={18} strokeWidth={2.5} /> : <Bike size={18} strokeWidth={2.5} />}
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 text-slate-900">
+                    <Bike size={18} strokeWidth={2.5} />
                   </div>
                   <div className="space-y-0.5">
                     <h4 className="text-[14px] font-black text-slate-900 uppercase tracking-tight leading-none">{item.title}</h4>

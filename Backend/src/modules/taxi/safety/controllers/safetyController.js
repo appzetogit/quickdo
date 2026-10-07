@@ -1,7 +1,6 @@
 import { asyncHandler } from '../../../../utils/asyncHandler.js';
 import { SafetyAlert } from '../../common/models/SafetyAlert.js';
 import { Driver } from '../../driver/models/Driver.js';
-import { Delivery } from '../../user/models/Delivery.js';
 import { Ride } from '../../user/models/Ride.js';
 import { User } from '../../user/models/User.js';
 import { emitToAdmins } from '../../services/dispatchService.js';
@@ -79,54 +78,26 @@ const serializeSafetyAlert = (alert = {}) => {
   };
 };
 
-const readRideContext = async ({ rideId, deliveryId }) => {
-  let ride = null;
-  let delivery = null;
-
-  if (rideId) {
-    ride = await Ride.findById(rideId)
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicle')
-      .lean();
+const readRide = async (rideId) => {
+  if (!rideId) {
+    return null;
   }
 
-  if (deliveryId) {
-    delivery = await Delivery.findById(deliveryId)
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicle')
-      .lean();
-  }
-
-  if (!delivery && ride?.deliveryId) {
-    delivery = await Delivery.findById(ride.deliveryId)
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicle')
-      .lean();
-  }
-
-  if (!ride && delivery?.rideId) {
-    ride = await Ride.findById(delivery.rideId)
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicle')
-      .lean();
-  }
-
-  return { ride, delivery };
+  return Ride.findById(rideId)
+    .populate('userId', 'name phone')
+    .populate('driverId', 'name phone vehicle')
+    .lean();
 };
 
-const deriveServiceType = ({ requestedServiceType, ride, delivery }) => {
+const deriveServiceType = ({ requestedServiceType, ride }) => {
   const direct = cleanString(requestedServiceType).toLowerCase();
-  if (['ride', 'parcel', 'intercity', 'general'].includes(direct)) {
+  if (['ride', 'intercity', 'general'].includes(direct)) {
     return direct;
   }
 
   const rideType = cleanString(ride?.serviceType || ride?.type).toLowerCase();
-  if (['ride', 'parcel', 'intercity'].includes(rideType)) {
+  if (['ride', 'intercity'].includes(rideType)) {
     return rideType;
-  }
-
-  if (delivery) {
-    return 'parcel';
   }
 
   return 'general';
@@ -136,7 +107,6 @@ const createAlertRecord = async ({
   sourceApp,
   authId,
   rideId,
-  deliveryId,
   serviceType,
   location,
   locationLabel,
@@ -146,25 +116,23 @@ const createAlertRecord = async ({
   tripCode,
   vehicleLabel,
 }) => {
-  const { ride, delivery } = await readRideContext({ rideId, deliveryId });
+  const ride = await readRide(rideId);
   const actorUser = sourceApp === 'user'
     ? await User.findById(authId).select('name phone').lean()
-    : ride?.userId || delivery?.userId || null;
+    : ride?.userId || null;
   const actorDriver = sourceApp === 'driver'
     ? await Driver.findById(authId).select('name phone vehicle').lean()
-    : ride?.driverId || delivery?.driverId || null;
+    : ride?.driverId || null;
   const coords =
     normalizeCoordinates(location)
-    || normalizeCoordinates(delivery?.pickupLocation)
     || normalizeCoordinates(ride?.pickupLocation);
 
   const created = await SafetyAlert.create({
     sourceApp,
-    serviceType: deriveServiceType({ requestedServiceType: serviceType, ride, delivery }),
+    serviceType: deriveServiceType({ requestedServiceType: serviceType, ride }),
     userId: sourceApp === 'user' ? authId : actorUser?._id || null,
     driverId: sourceApp === 'driver' ? authId : actorDriver?._id || null,
     rideId: ride?._id || rideId || null,
-    deliveryId: delivery?._id || deliveryId || null,
     riderName: cleanString(actorUser?.name),
     riderPhone: cleanString(actorUser?.phone),
     driverName: cleanString(actorDriver?.name),
@@ -173,19 +141,15 @@ const createAlertRecord = async ({
     tripCode:
       cleanString(tripCode)
       || cleanString(ride?.bookingId)
-      || cleanString(ride?._id)
-      || cleanString(delivery?._id),
+      || cleanString(ride?._id),
     pickupAddress:
       cleanString(pickupAddress)
-      || cleanString(delivery?.pickupAddress)
       || cleanString(ride?.pickupAddress),
     dropAddress:
       cleanString(dropAddress)
-      || cleanString(delivery?.dropAddress)
       || cleanString(ride?.dropAddress),
     locationLabel:
       cleanString(locationLabel)
-      || cleanString(delivery?.pickupAddress)
       || cleanString(ride?.pickupAddress),
     location: coords ? { type: 'Point', coordinates: coords } : undefined,
     notes: cleanString(notes),
@@ -205,7 +169,6 @@ export const triggerUserSosAlert = asyncHandler(async (req, res) => {
     sourceApp: 'user',
     authId: req.auth.sub,
     rideId: cleanString(req.body?.rideId),
-    deliveryId: cleanString(req.body?.deliveryId),
     serviceType: req.body?.serviceType,
     location: req.body?.location,
     locationLabel: req.body?.locationLabel,
@@ -228,7 +191,6 @@ export const triggerDriverSosAlert = asyncHandler(async (req, res) => {
     sourceApp: 'driver',
     authId: req.auth.sub,
     rideId: cleanString(req.body?.rideId),
-    deliveryId: cleanString(req.body?.deliveryId),
     serviceType: req.body?.serviceType,
     location: req.body?.location,
     locationLabel: req.body?.locationLabel,

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  Building2,
   ChevronRight,
   Clock,
   History,
@@ -19,7 +18,6 @@ import { toast } from 'react-hot-toast';
 const roleOptions = [
   { id: 'user', label: 'User', icon: User },
   { id: 'driver', label: 'Driver', icon: Truck },
-  { id: 'owner', label: 'Owner', icon: Building2 },
 ];
 
 const inputClass =
@@ -57,7 +55,6 @@ const WalletPayment = () => {
       let res;
       if (role === 'user') res = await adminService.searchUsers(searchQuery);
       else if (role === 'driver') res = await adminService.searchDrivers(searchQuery);
-      else if (role === 'owner') res = await adminService.searchOwners(searchQuery);
       
       setSearchResults(res.data.results || []);
     } catch (err) {
@@ -73,7 +70,6 @@ const WalletPayment = () => {
       let res;
       if (role === 'user') res = await adminService.getUserWalletHistory(entity._id);
       else if (role === 'driver') res = await adminService.getDriverWalletHistory(entity._id);
-      else if (role === 'owner') res = await adminService.getOwnerWalletHistory(entity._id);
       
       setHistory(res.data.results || []);
       setBalance(res.data.balance || 0);
@@ -87,21 +83,20 @@ const WalletPayment = () => {
   const handleSelectEntity = (entity) => {
     setSelectedEntity(entity);
     setSearchResults([]);
-    setSearchQuery(`${entity.name || entity.owner_name} (${entity.phone || entity.mobile})`);
+    setSearchQuery(`${entity.name} (${entity.phone || entity.mobile})`);
     fetchHistory(entity);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!amount || amount <= 0) return toast.error('Enter valid amount');
-    if (!selectedEntity) return toast.error('Select a user/driver/owner');
+    if (!selectedEntity) return toast.error('Select a user/driver');
 
     setSubmitting(true);
     try {
       const data = { amount: Number(amount), operation, description };
       if (role === 'user') await adminService.adjustUserWallet(selectedEntity._id, data);
       else if (role === 'driver') await adminService.adjustDriverWallet(selectedEntity._id, data);
-      else if (role === 'owner') await adminService.adjustOwnerWallet(selectedEntity._id, data);
 
       toast.success(`Successfully ${operation}ed ₹${amount}`);
       setAmount('');
@@ -126,7 +121,7 @@ const WalletPayment = () => {
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Wallet Payment</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Manage and adjust balances for Users, Drivers, and Fleet Owners
+              Manage and adjust balances for Users and Drivers
             </p>
           </div>
         </div>
@@ -150,7 +145,7 @@ const WalletPayment = () => {
             <div className="space-y-5">
               <div>
                 <label className={labelClass}>Select Role</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {roleOptions.map((roleOption) => (
                     <button
                       key={roleOption.id}
@@ -216,11 +211,11 @@ const WalletPayment = () => {
                         className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-gray-50"
                       >
                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700">
-                          {(item.name || item.owner_name || '?')[0].toUpperCase()}
+                          {(item.name || '?')[0].toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-gray-900">
-                            {item.name || item.owner_name}
+                            {item.name}
                           </p>
                           <p className="truncate text-xs text-gray-500">
                             {item.phone || item.mobile || item.email}
@@ -307,11 +302,11 @@ const WalletPayment = () => {
               </div>
               <div className="mt-4 flex items-center gap-3 rounded-lg bg-gray-50 p-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-700">
-                    {(selectedEntity.name || selectedEntity.owner_name || '?')[0].toUpperCase()}
+                    {(selectedEntity.name || '?')[0].toUpperCase()}
                   </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">
-                    {selectedEntity.name || selectedEntity.owner_name}
+                    {selectedEntity.name}
                   </p>
                   <p className="text-xs text-gray-500">{selectedEntity.phone || selectedEntity.mobile}</p>
                 </div>

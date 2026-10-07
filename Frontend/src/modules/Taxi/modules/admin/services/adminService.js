@@ -80,7 +80,6 @@ export const adminService = {
   // Wallet Payment APIs
   searchUsers: (query) => api.get(`/admin/users?search=${query}`),
   searchDrivers: (query) => api.get(`/admin/drivers?search=${query}`),
-  searchOwners: (query) => api.get(`/admin/owners?search=${query}`),
 
   adjustUserWallet: (id, data) => api.post(`/admin/wallet/users/${id}/adjust`, data),
   getUserWalletHistory: (id) => api.get(`/admin/wallet/users/${id}/history`),
@@ -93,9 +92,6 @@ export const adminService = {
     api.get(`/admin/wallet/drivers/withdrawals/request/${requestId}`, { params }),
   approveDriverWithdrawalRequest: (requestId) => api.patch(`/admin/wallet/drivers/withdrawals/${requestId}/approve`),
   rejectDriverWithdrawalRequest: (requestId) => api.patch(`/admin/wallet/drivers/withdrawals/${requestId}/reject`),
-
-  adjustOwnerWallet: (id, data) => api.post(`/admin/wallet/owners/${id}/adjust`, data),
-  getOwnerWalletHistory: (id) => api.get(`/admin/wallet/owners/${id}/history`),
 
   getReferralDashboard: () => api.get('/admin/referral/dashboard'),
 
@@ -123,23 +119,6 @@ export const adminService = {
   getLocationVehicleTypes: (locationId, transportType) => api.get(`/types/${locationId}?transport_type=${transportType}`),
 
   /**
-   * Owner Management
-   */
-  getOwners: () => api.get('/admin/owner-management/manage-owners'),
-  getOwner: (id) => api.get(`/admin/owner-management/manage-owners/${id}`),
-  createOwner: (ownerData) => api.post('/admin/owner-management/manage-owners', ownerData),
-  updateOwner: (id, ownerData) => api.patch(`/admin/owner-management/manage-owners/${id}`, ownerData),
-  deleteOwner: (id) => api.delete(`/admin/owner-management/manage-owners/${id}`),
-  approveOwner: (id, data) => api.patch(`/admin/owner-management/manage-owners/${id}/approve`, data),
-  approveOwnerSignupFromDriver: (driverId) =>
-    api.patch(`/admin/owner-management/pending-owners/${driverId}/approve`),
-  getOwnerBookings: () => api.get('/admin/owner-management/bookings'),
-  createOwnerBooking: (data) => api.post('/admin/owner-management/bookings', data),
-  updateOwnerBooking: (id, data) => api.patch(`/admin/owner-management/bookings/${id}`, data),
-  deleteOwnerBooking: (id) => api.delete(`/admin/owner-management/bookings/${id}`),
-  getOwnerDashboard: () => api.get('/admin/owner-management/dashboard'),
-
-  /**
    * Reports Management
    * PRO-TIP: We use window.open for downloads to handle the stream directly or axios with responseType: 'blob'
    */
@@ -155,17 +134,9 @@ export const adminService = {
     const query = new URLSearchParams(params).toString();
     return api.get(`/admin/reports/driver-duty/download?${query}`, { responseType: 'blob' });
   },
-  downloadOwnerReport: (params) => {
-    const query = new URLSearchParams(params).toString();
-    return api.get(`/admin/reports/owner/download?${query}`, { responseType: 'blob' });
-  },
   downloadFinanceReport: (params) => {
     const query = new URLSearchParams(params).toString();
     return api.get(`/admin/reports/finance/download?${query}`, { responseType: 'blob' });
-  },
-  downloadFleetFinanceReport: (params) => {
-    const query = new URLSearchParams(params).toString();
-    return api.get(`/admin/reports/fleet-finance/download?${query}`, { responseType: 'blob' });
   },
   getReportOptions: () => api.get('/admin/reports/options'),
 
@@ -187,8 +158,6 @@ export const adminService = {
     api.get(`/admin/ride-requests?page=${page}&limit=${limit}&tab=${encodeURIComponent(tab)}&search=${encodeURIComponent(search)}`),
   listRideRequests: ({ page = 1, limit = 10, tab = 'all', search = '' } = {}) =>
     api.get(`/admin/ride-requests?page=${page}&limit=${limit}&tab=${encodeURIComponent(tab)}&search=${encodeURIComponent(search)}`),
-  getDeliveries: ({ page = 1, limit = 10, tab = 'all', search = '' } = {}) =>
-    api.get(`/admin/deliveries?page=${page}&limit=${limit}&tab=${encodeURIComponent(tab)}&search=${encodeURIComponent(search)}`),
   getTrips: ({ page = 1, limit = 10, tab = 'all', search = '' } = {}) =>
     api.get(`/admin/trips?page=${page}&limit=${limit}&tab=${encodeURIComponent(tab)}&search=${encodeURIComponent(search)}`),
   deleteOngoingRide: (id) => api.delete(`/admin/ongoing-rides/${id}`),

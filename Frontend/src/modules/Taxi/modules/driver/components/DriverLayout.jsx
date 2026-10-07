@@ -2,21 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
     clearDriverAuthState,
-    getAuthenticatedDriverRole,
     getCurrentDriver,
     getLocalDriverToken,
-    getStoredDriverRole,
 } from '../services/registrationService';
 import DriverRideRequestListener from './DriverRideRequestListener';
 
 const unwrapDriver = (response) => response?.data?.data || response?.data || response;
-const getPortalPrefix = (pathname = '', role = '') => {
-    if (pathname.startsWith('/taxi/owner')) {
-        return '/taxi/owner';
-    }
-
-    return String(role || '').toLowerCase() === 'owner' ? '/taxi/owner' : '/taxi/driver';
-};
 
 const isDriverApproved = (driver) => {
     if (!driver) {
@@ -46,54 +37,29 @@ const onboardingRoutes = new Set([
     '/taxi/driver/step-documents',
     '/taxi/driver/registration-status',
     '/taxi/driver/status',
-    '/taxi/owner/lang-select',
-    '/taxi/owner/login',
-    '/taxi/owner/reg-phone',
-    '/taxi/owner/otp-verify',
-    '/taxi/owner/step-personal',
-    '/taxi/owner/step-referral',
-    '/taxi/owner/step-vehicle',
-    '/taxi/owner/step-documents',
-    '/taxi/owner/registration-status',
-    '/taxi/owner/status',
 ]);
 
 const softEntryRoutes = new Set([
     '/taxi/driver/welcome',
     '/taxi/driver/login',
     '/taxi/driver/reg-phone',
-    '/taxi/owner/login',
-    '/taxi/owner/reg-phone',
 ]);
 
-const redirectToDriverLogin = (navigate, pathname = '', role = '') => {
+const redirectToDriverLogin = (navigate) => {
     clearDriverAuthState();
-    navigate(`${getPortalPrefix(pathname, role)}/login`, { replace: true });
+    navigate('/taxi/driver/login', { replace: true });
 };
 
-const getStoredRole = () => String(getStoredDriverRole() || 'driver').toLowerCase();
-const getAuthenticatedRole = () => String(getAuthenticatedDriverRole() || 'driver').toLowerCase();
-
-const getAuthenticatedDriverHome = (pathname = '') => (
-    getAuthenticatedRole() === 'owner'
-        ? `${getPortalPrefix(pathname, 'owner')}/dashboard`
-        : '/taxi/driver/home'
-);
-
-const getPendingDriverRoute = (pathname = '') => `${getPortalPrefix(pathname)}/registration-status`;
+const authenticatedHome = '/taxi/driver/home';
+const pendingDriverRoute = '/taxi/driver/registration-status';
 const isPendingAllowedRoute = (pathname = '') =>
     [
         '/taxi/driver/documents',
-        '/taxi/owner/documents',
-        '/taxi/driver/support',
-        '/taxi/owner/support',
-        '/taxi/driver/help-support',
-        '/taxi/owner/help-support',
-        '/taxi/driver/support/chat',
-        '/taxi/owner/support/chat',
-        '/taxi/driver/support/tickets',
-        '/taxi/owner/support/tickets',
-    ].includes(pathname);
+            '/taxi/driver/support',
+            '/taxi/driver/help-support',
+            '/taxi/driver/support/chat',
+            '/taxi/driver/support/tickets',
+        ].includes(pathname);
 
 const DriverLayout = () => {
     const location = useLocation();
@@ -107,14 +73,12 @@ const DriverLayout = () => {
         const currentPath = location.pathname;
         const onboardingState = location.state || {};
         const token = getLocalDriverToken();
-        const authenticatedHome = getAuthenticatedDriverHome(currentPath);
-        const authenticatedRole = getAuthenticatedRole();
         const shouldVerifyOnboardingRoute =
             Boolean(token)
             && (
                 softEntryRoutes.has(currentPath)
                 || (
-                    (currentPath === '/taxi/driver/lang-select' || currentPath === '/taxi/owner/lang-select')
+                    currentPath === '/taxi/driver/lang-select'
                     && !onboardingState.registrationFlow
                     && !onboardingState.allowAuthenticated
                 )
@@ -130,7 +94,7 @@ const DriverLayout = () => {
             setIsAllowed(false);
             verifiedTokenRef.current = '';
             verifiedApprovalRef.current = false;
-            redirectToDriverLogin(navigate, currentPath, authenticatedRole);
+            redirectToDriverLogin(navigate);
             return;
         }
 
@@ -165,7 +129,7 @@ const DriverLayout = () => {
                     setIsAllowed(false);
                     verifiedTokenRef.current = '';
                     verifiedApprovalRef.current = false;
-                    navigate(getPendingDriverRoute(currentPath), { replace: true });
+                    navigate(pendingDriverRoute, { replace: true });
                     return;
                 }
 
@@ -179,7 +143,7 @@ const DriverLayout = () => {
                 }
 
                 if (
-                    (currentPath === '/taxi/driver/lang-select' || currentPath === '/taxi/owner/lang-select')
+                    currentPath === '/taxi/driver/lang-select'
                     && !onboardingState.registrationFlow
                     && !onboardingState.allowAuthenticated
                 ) {
@@ -195,21 +159,21 @@ const DriverLayout = () => {
                 verifiedApprovalRef.current = false;
 
                 if (error?.status === 401) {
-                    redirectToDriverLogin(navigate, currentPath, authenticatedRole);
+                    redirectToDriverLogin(navigate);
                     return;
                 }
 
                 if (error?.status === 404) {
-                    redirectToDriverLogin(navigate, currentPath, authenticatedRole);
+                    redirectToDriverLogin(navigate);
                     return;
                 }
 
                 if (error?.status === 403) {
-                    navigate(getPendingDriverRoute(currentPath), { replace: true });
+                    navigate(pendingDriverRoute, { replace: true });
                     return;
                 }
 
-                navigate(getPendingDriverRoute(currentPath), { replace: true });
+                navigate(pendingDriverRoute, { replace: true });
             } finally {
                 if (active) {
                     setIsChecking(false);
@@ -233,7 +197,7 @@ const DriverLayout = () => {
             ) : (
                 <>
                     <Outlet context={{ isAllowed }} />
-                    {isAllowed && getStoredRole() === 'driver' && <DriverRideRequestListener />}
+                    {isAllowed && <DriverRideRequestListener />}
                 </>
             )}
         </div>

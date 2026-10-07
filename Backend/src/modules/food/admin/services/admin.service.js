@@ -1,5 +1,6 @@
 import { safeRiderZoneFilter } from '../../../../core/zones/riderZones.js';
-import mongoose from 'mongoose';
+import mongoose from 'mongoose';
+
 import { referralSettingsFor } from '../../../../core/referral/referralSettings.service.js';
 import { zoneMatchFrom } from '../../../../core/admin/adminZoneScope.js';
 import { shouldAutoMark99, crossedInto99Cap } from '../../shared/ninetyNineStore.js';
@@ -4604,9 +4605,9 @@ export async function getEarningAddons() {
 
 /*
  * Earning Addon is retired. Each service's offers counted only that service's
- * orders (Food offers ignored Quick and Medical deliveries), while riders take
+ * orders (Food offers ignored Quick deliveries), while riders take
  * every kind. Master > Delivery Incentives replaces it: one ladder that counts
- * Food, Quick, Medical and bike-parcel orders together. Credited history stays
+ * Food and Quick orders together. Credited history stays
  * readable; no new offer is shown, created or credited.
  */
 export const EARNING_ADDON_RETIRED_MESSAGE =
@@ -5012,8 +5013,8 @@ export async function getDeliverymanReviews(query = {}) {
  *
  * The list's Delete button called an API that did not exist, so nothing ever
  * happened. Deactivated rather than deleted: the wallet, any cash they owe and
- * their order history stay. They go offline on every side (Food, Quick/Medical
- * through the food record, taxi/parcel through the driver record), lose their
+ * their order history stay. They go offline on every side (Food, Quick
+ * through the food record, taxi through the driver record), lose their
  * push tokens, and every app call is refused (auth.middleware).
  */
 export async function deactivateDeliveryPartner(id) {
@@ -5765,7 +5766,7 @@ export async function getCashLimitSettlements(query = {}) {
 }
 
 /**
- * Totals for the Master menu. Food, Quick and Medical share one rider pool
+ * Totals for the Master menu. Food and Quick share one rider pool
  * (every rider signs up and works on the Food record; Quick keeps linked
  * copies), so riders are counted once, from Food. Taxi drivers are their own
  * pool. Customers are one collection for every app.

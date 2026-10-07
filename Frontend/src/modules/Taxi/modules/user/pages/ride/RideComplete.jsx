@@ -119,7 +119,7 @@ const RideComplete = () => {
     driver: state.driver || {
       name: 'Captain',
       rating: '4.9',
-      vehicle: (String(state.serviceType || state.type || 'ride').toLowerCase() === 'parcel') ? 'Delivery' : 'Taxi',
+      vehicle: 'Taxi',
       plate: 'Assigned',
       profileImage: '',
       vehicleImage: '',
@@ -151,7 +151,7 @@ const RideComplete = () => {
   const driver = rideDetails.driver;
 
   const driverImage = driver.profileImage || '';
-  const vehicleLabel = driver.vehicle || driver.vehicleType || (serviceType === 'parcel' ? 'Delivery' : 'Taxi');
+  const vehicleLabel = driver.vehicle || driver.vehicleType || 'Taxi';
   const hasVehiclePhoto = isLikelyVehiclePhoto(driver.vehicleImage) && !vehicleImageBroken;
   const vehicleVisual = hasVehiclePhoto ? driver.vehicleImage : getVehicleIcon(serviceType, {
     ...driver,
@@ -590,13 +590,13 @@ const RideComplete = () => {
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
               {isRideFinalized
-                ? (serviceType === 'parcel' ? 'Delivery Completed' : 'Ride Completed')
-                : (serviceType === 'parcel' ? 'Reached Destination' : 'Reached Destination')}
+                ? 'Ride Completed'
+                : 'Reached Destination'}
             </p>
             <h1 className="text-[22px] font-black text-[#0F766E]">
               {isRideFinalized
-                ? (serviceType === 'parcel' ? 'Package delivered' : 'You have arrived')
-                : (serviceType === 'parcel' ? 'Package reached destination' : 'Driver reached destination')}
+                ? 'You have arrived'
+                : 'Driver reached destination'}
             </h1>
           </div>
         </div>

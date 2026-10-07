@@ -11,7 +11,6 @@ import {
     ChevronRight,
     Star,
     CheckCircle2,
-    Package,
     User,
     ArrowUpRight,
     ArrowLeft,
@@ -122,13 +121,11 @@ const formatAddressFromPoint = (point, fallback) => {
 
 const normalizeTripType = (job = {}) => {
     const value = String(job.type || job.serviceType || 'ride').toLowerCase();
-    if (value === 'parcel') return 'parcel';
     if (value === 'intercity') return 'intercity';
     return 'ride';
 };
 
 const getTripTitle = (type) => {
-    if (type === 'parcel') return 'Delivery';
     if (type === 'intercity') return 'Intercity Ride';
     return 'Taxi Ride';
 };
@@ -658,8 +655,7 @@ const ActiveTrip = () => {
         const hydrateTripState = async () => {
             try {
                 const driverToken = getLocalDriverToken();
-                const [activeDelivery, activeRide] = await Promise.allSettled([
-                    api.get('/deliveries/active/me', withDriverAuthorization(driverToken)),
+                const [activeRide] = await Promise.allSettled([
                     api.get('/rides/active/me', withDriverAuthorization(driverToken)),
                 ]);
 
@@ -667,16 +663,10 @@ const ActiveTrip = () => {
                     return;
                 }
 
-                const deliveryPayload =
-                    activeDelivery.status === 'fulfilled' ? unwrapApiPayload(activeDelivery.value) : null;
                 const ridePayload =
                     activeRide.status === 'fulfilled' ? unwrapApiPayload(activeRide.value) : null;
 
-                const currentJob = getJobRideId(deliveryPayload)
-                    ? deliveryPayload
-                    : getJobRideId(ridePayload)
-                        ? ridePayload
-                        : null;
+                const currentJob = getJobRideId(ridePayload) ? ridePayload : null;
                 const currentRideId = getJobRideId(currentJob);
                 const currentStatus = String(currentJob?.liveStatus || currentJob?.status || '').toLowerCase();
 
@@ -720,7 +710,6 @@ const ActiveTrip = () => {
     const effectiveState = hydratedTripState || routeState;
 
     const tripType = effectiveState?.type || 'ride';
-    const isParcel = tripType === 'parcel';
     const liveRequest = effectiveState?.request || {};
     const liveRaw = liveRequest.raw || {};
     const rideId = getJobRideId(liveRequest) || getJobRideId(effectiveState);
@@ -856,10 +845,6 @@ const ActiveTrip = () => {
     const pickupDistanceMeters = useMemo(
         () => getDistanceMeters(driverPosition, pickupPosition),
         [driverPosition, pickupPosition],
-    );
-    const dropDistanceMeters = useMemo(
-        () => getDistanceMeters(driverPosition, dropPosition),
-        [driverPosition, dropPosition],
     );
     const riderDistanceLabel = useMemo(
         () => formatDistanceLabel(pickupDistanceMeters),
@@ -1227,22 +1212,7 @@ const ActiveTrip = () => {
         pickupAddressLabel,
     ]);
 
-    const tripData = isParcel ? {
-        sender: {
-            name: liveRaw.parcel?.senderName || 'Sender',
-            rating: '5.0',
-            phone: liveRaw.parcel?.senderMobile || '',
-        },
-        receiver: {
-            name: liveRaw.parcel?.receiverName || 'Receiver',
-            phone: liveRaw.parcel?.receiverMobile || '',
-        },
-        pickup: getAreaName(liveRaw.pickupAddress || liveRequest?.pickup, formatAddressFromPoint(liveRaw.pickupLocation, 'Pickup area')),
-        drop: getAreaName(liveRaw.dropAddress || liveRequest?.drop, formatAddressFromPoint(liveRaw.dropLocation, 'Drop area')),
-        baseFare: `Rs ${liveRaw.baseFare || effectiveState?.request?.raw?.baseFare || liveRequest?.baseFare || liveRaw.fare || 120}`,
-        fare: `Rs ${liveRaw.fare || effectiveState?.request?.raw?.fare || liveRequest?.fare || 120}`,
-        payment: effectiveState?.paymentMethod || 'Online'
-    } : {
+    const tripData = {
         user: {
             name: liveRaw.user?.name || liveRequest?.user?.name || 'Passenger',
             rating: liveRaw.user?.rating || liveRequest?.user?.rating || '4.8',
@@ -1384,13 +1354,12 @@ const ActiveTrip = () => {
     }, [rideStops]);
 
     const canMarkArrived = true;
-    const canDeliverParcel = true;
     const isWaitingForOtp = phase === 'otp_verification' && Boolean(waitingStartedAt);
-    const pickupContact = isParcel ? tripData.sender : tripData.user;
-    const destinationContact = isParcel ? tripData.receiver : tripData.user;
-    const tripSummaryTitle = isParcel ? 'Delivery Summary' : 'Ride Summary';
-    const tripSummarySubtitle = isParcel ? 'Review the delivery details before you close the order.' : 'Review the trip details before you close the ride.';
-    const destinationRoleLabel = isParcel ? 'Receiver' : 'Rider';
+    const pickupContact = tripData.user;
+    const destinationContact = tripData.user;
+    const tripSummaryTitle = 'Ride Summary';
+    const tripSummarySubtitle = 'Review the trip details before you close the ride.';
+    const destinationRoleLabel = 'Rider';
     const paymentModeLabel = selectedPaymentMode
         ? (selectedPaymentMode === 'cash' ? 'Cash' : 'Online')
         : (effectiveState?.paymentMethod || liveRequest?.payment || tripData.payment || 'Pending');
@@ -1400,7 +1369,7 @@ const ActiveTrip = () => {
         explicitCommissionAmount: liveRaw?.commissionAmount ?? effectiveState?.commissionAmount,
         explicitDriverEarnings: liveRaw?.driverEarnings ?? effectiveState?.driverEarnings,
     });
-    const paymentCollectionLabel = isParcel ? 'receiver' : 'rider';
+    const paymentCollectionLabel = 'rider';
     const routeStrokeColor = '#0F766E';
     const routeAccentSoft = hexToRgba(routeStrokeColor, 0.08);
     const routeAccentMuted = hexToRgba(routeStrokeColor, 0.18);
@@ -1446,8 +1415,8 @@ const ActiveTrip = () => {
                 peer: {
                     name: pickupContact?.name || 'Passenger',
                     phone: pickupContact?.phone || '',
-                    subtitle: `${isParcel ? 'Sender' : 'Passenger'} - Active now`,
-                    role: isParcel ? 'Sender' : 'Passenger',
+                    subtitle: 'Passenger - Active now',
+                    role: 'Passenger',
                 },
             },
         });
@@ -2215,7 +2184,7 @@ const ActiveTrip = () => {
                         className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-xl"
                         style={{ backgroundColor: routeStrokeColor }}
                     >
-                        {isParcel ? <Package size={20} strokeWidth={2.5} /> : <img src={carIcon} alt="Taxi" className="h-7 w-7 object-contain" />}
+                        <img src={carIcon} alt="Taxi" className="h-7 w-7 object-contain" />
                     </div>
                     <div className="flex-1 space-y-0.5 overflow-hidden">
                         <h4 className="text-[9px] font-semibold uppercase tracking-wide leading-none flex items-center gap-2" style={{ color: routeStrokeColor }}>
@@ -2274,16 +2243,16 @@ const ActiveTrip = () => {
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-3">
                                     <div className="w-12 h-12 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-center">
-                                        {isParcel ? <Package size={22} className="text-slate-900" /> : <User size={22} className="text-slate-400" />}
+                                        <User size={22} className="text-slate-400" />
                                     </div>
                                     <div className="space-y-0.5">
                                         <h4 className="text-[15px] font-semibold text-slate-900 tracking-tight uppercase">
-                                            {isParcel ? tripData.sender.name : tripData.user.name}
+                                            {tripData.user.name}
                                         </h4>
                                         <div className="flex items-center gap-1.5 opacity-60">
                                             <Star size={10} fill={routeStrokeColor} className="text-black" />
                                             <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">
-                                                {isParcel ? tripData.sender.rating : tripData.user.rating} • {riderDistanceLabel}
+                                                {tripData.user.rating} • {riderDistanceLabel}
                                             </p>
                                         </div>
                                     </div>
@@ -2342,7 +2311,7 @@ const ActiveTrip = () => {
                                 className={`w-full h-13 text-white rounded-xl flex items-center justify-center gap-2 text-[13px] font-bold uppercase tracking-wide shadow-lg transition-opacity ${canMarkArrived ? '' : 'opacity-70'}`}
                                 style={{ backgroundColor: routeStrokeColor, boxShadow: `0 12px 24px ${routeAccentMuted}` }}
                             >
-                                {isParcel ? 'Arrived at Sender' : 'I Have Arrived'} <CheckCircle2 size={18} strokeWidth={3} />
+                                I Have Arrived <CheckCircle2 size={18} strokeWidth={3} />
                             </motion.button>
                         </motion.div>
                     )}
@@ -2358,7 +2327,7 @@ const ActiveTrip = () => {
                             <div className="text-center mb-6">
                                 <h3 className="text-xl font-semibold text-slate-900 tracking-tight uppercase leading-none">Security Pin</h3>
                                 <p className="text-[10px] font-bold text-slate-400 tracking-wide uppercase mt-2">
-                                    Ask <span className="text-slate-900">{isParcel ? 'Sender' : 'Passenger'}</span> for Start PIN
+                                    Ask <span className="text-slate-900">Passenger</span> for Start PIN
                                 </p>
                             </div>
                             {isWaitingForOtp && (
@@ -2476,11 +2445,11 @@ const ActiveTrip = () => {
                             <div className="bg-slate-50 rounded-2xl p-3 mb-6 border border-slate-100 flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center">
-                                        {isParcel ? <Package size={18} className="text-white" /> : <User size={18} className="text-white opacity-40" />}
+                                        <User size={18} className="text-white opacity-40" />
                                     </div>
                                     <div className="min-w-0 space-y-0.5">
-                                        <p className="text-[13px] font-semibold text-slate-900 leading-none uppercase truncate">{isParcel ? tripData.receiver.name : tripData.user.name}</p>
-                                        <p className="text-[8px] font-semibold text-slate-400 uppercase tracking-wide">{isParcel ? 'Receiver' : 'Passenger'}</p>
+                                        <p className="text-[13px] font-semibold text-slate-900 leading-none uppercase truncate">{tripData.user.name}</p>
+                                        <p className="text-[8px] font-semibold text-slate-400 uppercase tracking-wide">Passenger</p>
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
@@ -2488,26 +2457,6 @@ const ActiveTrip = () => {
                                     <button onClick={() => callContact(destinationContact?.phone)} className="shrink-0 w-9 h-9 bg-white rounded-lg border border-slate-100 flex items-center justify-center" style={{ color: routeStrokeColor }} aria-label="Call destination contact"><Phone size={16} strokeWidth={2.5} /></button>
                                 </div>
                             </div>
-                            {isParcel && (
-                                <div className="mb-4 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <p className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-400">Delivery Radius</p>
-                                            <p className="mt-1 text-[12px] font-black text-slate-900">
-                                                {Math.round(dropDistanceMeters)} m away from receiver
-                                            </p>
-                                        </div>
-                                        <div className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${canDeliverParcel ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'}`}>
-                                            {canDeliverParcel ? 'Unlocked' : 'Within 100 m'}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            {isParcel && arrivalGuardError && (
-                                <p className="-mt-1 mb-4 text-center text-[11px] font-black text-red-500 uppercase tracking-wider">
-                                    {arrivalGuardError}
-                                </p>
-                            )}
                             <motion.button
                                 whileTap={{ scale: 0.96 }}
                                 onClick={() => {
@@ -2519,10 +2468,10 @@ const ActiveTrip = () => {
                                     setDriverPaymentStatus('pending');
                                     setPhase('payment_confirm');
                                 }}
-                                className={`w-full h-15 text-white rounded-xl flex items-center justify-center gap-3 text-[14px] font-semibold uppercase tracking-wide shadow-xl transition-opacity ${isParcel && !canDeliverParcel ? 'opacity-70' : ''}`}
+                                className="w-full h-15 text-white rounded-xl flex items-center justify-center gap-3 text-[14px] font-semibold uppercase tracking-wide shadow-xl transition-opacity"
                                 style={{ backgroundColor: routeStrokeColor, boxShadow: `0 18px 30px ${routeAccentMuted}` }}
                             >
-                                {isParcel ? 'Deliver Parcel' : 'Arrived at Destination'} <ChevronRight size={18} strokeWidth={3} />
+                                Arrived at Destination <ChevronRight size={18} strokeWidth={3} />
                             </motion.button>
                         </motion.div>
                     )}
@@ -2599,7 +2548,7 @@ const ActiveTrip = () => {
                                             </div>
 
                                             <p className="mt-3 text-[11px] font-semibold text-slate-500">
-                                                {isParcel ? 'Parcel delivered and awaiting payment confirmation.' : 'Passenger reached destination and ready to complete.'}
+                                                Passenger reached destination and ready to complete.
                                             </p>
                                         </div>
                                         <div className="rounded-2xl px-3 py-2 text-right" style={{ backgroundColor: routeAccentSoft }}>
@@ -2655,7 +2604,7 @@ const ActiveTrip = () => {
                                         <div className="flex items-center justify-between gap-3">
                                             <div className="flex items-center gap-3">
                                                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
-                                                    {isParcel ? <Package size={18} strokeWidth={2.5} /> : <User size={18} strokeWidth={2.5} />}
+                                                    <User size={18} strokeWidth={2.5} />
                                                 </div>
                                                 <div className="min-w-0">
                                                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{destinationRoleLabel}</p>
@@ -2671,7 +2620,7 @@ const ActiveTrip = () => {
                                 </div>
                                 <div className="border-t border-slate-100 px-5 py-4">
                                     <div className="rounded-2xl px-5 py-4 text-center shadow-[0_10px_24px_rgba(15,23,42,0.12)]" style={{ backgroundColor: routeStrokeColor }}>
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/65">Collect from {isParcel ? 'Receiver' : 'Rider'}</p>
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/65">Collect from Rider</p>
                                         <p className="mt-2 text-[22px] font-black text-white">{formatCurrencyAmount(fareAmount)}</p>
                                     </div>
                                 </div>
@@ -2710,7 +2659,7 @@ const ActiveTrip = () => {
                                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Cash Selected</p>
                                     <p className="mt-2 text-[16px] font-black text-slate-900">Collect {displayFare} from the {paymentCollectionLabel}</p>
                                     <p className="mt-1 text-[11px] font-bold text-slate-500">
-                                        Once you have the cash in hand, tap below to close this {isParcel ? 'delivery' : 'ride'}.
+                                        Once you have the cash in hand, tap below to close this ride.
                                     </p>
                                     <button
                                         onClick={async () => {

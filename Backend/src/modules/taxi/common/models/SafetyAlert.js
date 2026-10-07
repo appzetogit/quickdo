@@ -48,6 +48,7 @@ const safetyAlertSchema = new mongoose.Schema(
     },
     serviceType: {
       type: String,
+      // 'parcel' is retired (parcel delivery removed); kept so old alerts still save.
       enum: ['ride', 'parcel', 'intercity', 'general'],
       default: 'general',
       lowercase: true,

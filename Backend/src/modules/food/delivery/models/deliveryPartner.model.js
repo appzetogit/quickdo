@@ -43,6 +43,7 @@ const deliveryPartnerSchema = new mongoose.Schema(
      */
     driverClass: {
         type: String,
+        // 'parcel_vehicle' is retired (parcel delivery removed); kept for old records.
         enum: ['two_wheeler', 'passenger_taxi', 'parcel_vehicle', ''],
         default: '',
         index: true,

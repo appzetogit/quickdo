@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 import {
-  Bike, ChevronLeft, ChevronRight, Layers, Loader2, Package, Pill, RefreshCw, Search, ShoppingBasket, Trash2, UtensilsCrossed,
+  Bike, ChevronLeft, ChevronRight, Layers, Loader2, RefreshCw, Search, ShoppingBasket, Trash2, UtensilsCrossed,
 } from "lucide-react"
 import { platformSettingsAPI } from "@food/api"
 import AssignRiderButton from "@food/components/admin/orders/manual-assign/AssignRiderButton"
@@ -12,9 +12,9 @@ import { canAssignRider, isManualPending } from "@food/components/admin/orders/m
 /**
  * Master > Orders: every order on the platform in one list, a tab per service.
  *
- * Food, Quick Commerce and Medical orders can be handed to a rider from here
+ * Food and Quick Commerce orders can be handed to a rider from here
  * (the same assign window as each service's own order screen; the call goes to
- * that service's admin API). Taxi and parcel trips are dispatched by the ride
+ * that service's admin API). Taxi trips are dispatched by the ride
  * engine and are listed read-only.
  */
 
@@ -22,17 +22,13 @@ const TABS = [
   { key: "all", label: "All orders", icon: Layers },
   { key: "food", label: "Food", icon: UtensilsCrossed },
   { key: "quick", label: "Quick Commerce", icon: ShoppingBasket },
-  { key: "medical", label: "Medical", icon: Pill },
   { key: "taxi", label: "Taxi", icon: Bike },
-  { key: "parcel", label: "Parcel", icon: Package },
 ]
 
 const SOURCE_STYLE = {
   food: { label: "Food", cls: "bg-orange-50 text-orange-700 border-orange-200" },
   quick: { label: "Quick", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  medical: { label: "Medical", cls: "bg-purple-50 text-purple-700 border-purple-200" },
   taxi: { label: "Taxi", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  parcel: { label: "Parcel", cls: "bg-amber-50 text-amber-800 border-amber-200" },
 }
 
 const STATUSES = [
@@ -198,7 +194,7 @@ export default function MasterOrders() {
           <div>
             <h1 className="text-2xl font-semibold text-neutral-900">All orders</h1>
             <p className="mt-1 text-sm text-neutral-600">
-              Food, Quick Commerce, Medical, Taxi and Parcel in one place. Assign a rider to any Food, Quick or Medical order.
+              Food, Quick Commerce and Taxi in one place. Assign a rider to any Food or Quick order.
             </p>
           </div>
           <button
@@ -235,7 +231,7 @@ export default function MasterOrders() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search order number (FOD-, QC-, MED-)"
+              placeholder="Search order number (FOD-, QC-)"
               className="w-full rounded-lg border border-neutral-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-neutral-900 focus:outline-none"
             />
           </div>

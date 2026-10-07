@@ -47,14 +47,18 @@ await check('All: every order, newest first, with counts per service', async () 
   const r = await listMasterOrders({ tab: 'all' });
   assert.deepEqual(r.orders.map((o) => o.orderId).slice(0, 4), ['FOD-1', 'MED-1', 'QC-1', r.orders[3].orderId]);
   assert.equal(r.total, 6);
-  assert.deepEqual(r.counts, { food: 2, quick: 1, medical: 1, taxi: 1, parcel: 1 });
+  // The old MED- (pharmacy) order is a Quick order now: no Medical tab.
+  // The old parcel trip is a ride now: no Parcel tab.
+  assert.deepEqual(r.counts, { food: 2, quick: 2, taxi: 2 });
 });
 
 await check('each tab shows only its service', async () => {
-  assert.deepEqual((await listMasterOrders({ tab: 'medical' })).orders.map((o) => o.orderId), ['MED-1']);
-  assert.deepEqual((await listMasterOrders({ tab: 'quick' })).orders.map((o) => o.orderId), ['QC-1']);
-  assert.equal((await listMasterOrders({ tab: 'parcel' })).orders[0].source, 'parcel');
-  assert.equal((await listMasterOrders({ tab: 'taxi' })).orders[0].source, 'taxi');
+  await assert.rejects(() => listMasterOrders({ tab: 'medical' }), /Unknown tab/);
+  await assert.rejects(() => listMasterOrders({ tab: 'parcel' }), /Unknown tab/);
+  assert.deepEqual((await listMasterOrders({ tab: 'quick' })).orders.map((o) => o.orderId), ['MED-1', 'QC-1']);
+  const taxi = (await listMasterOrders({ tab: 'taxi' })).orders;
+  assert.equal(taxi.length, 2);
+  assert.ok(taxi.every((o) => o.source === 'taxi' && o.orderId.startsWith('RIDE-')));
 });
 
 await check('rows carry names, store, rider, and the API vertical for assigning', async () => {
@@ -68,13 +72,15 @@ await check('rows carry names, store, rider, and the API vertical for assigning'
   assert.equal(med.storeName, 'Quick Medical');
   assert.equal(med.customerName, 'Ravi');
   assert.equal(med.vertical, 'quickCommerce');
+  assert.equal(med.source, 'quick');
 });
 
 await check('status filter and order-number search', async () => {
   assert.deepEqual((await listMasterOrders({ tab: 'food', status: 'delivered' })).orders.map((o) => o.orderId), ['FOD-2']);
   const active = await listMasterOrders({ tab: 'all', status: 'active' });
   assert.ok(!active.orders.some((o) => ['FOD-2'].includes(o.orderId)));
-  assert.ok(active.orders.some((o) => o.source === 'parcel'));
+  // The searching (old parcel) trip is active.
+  assert.ok(active.orders.some((o) => o.source === 'taxi'));
   assert.deepEqual((await listMasterOrders({ tab: 'all', search: 'med-1' })).orders.map((o) => o.orderId), ['MED-1']);
 });
 

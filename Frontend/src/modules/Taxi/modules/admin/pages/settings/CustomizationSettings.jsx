@@ -261,16 +261,13 @@ const CustomizationSettings = () => {
               <ToggleField label="Show WAZE Map Navigation on Driver App" name="enable_waze_navigation" value={settings.enable_waze_navigation} onChange={handleChange} />
               <ToggleField label="Show Wallet Feature On Mobile App User" name="show_wallet_feature_on_mobile_app" value={settings.show_wallet_feature_on_mobile_app} onChange={handleChange} />
               <ToggleField label="Show Wallet Feature On Mobile App Driver" name="show_wallet_feature_for_driver" value={settings.show_wallet_feature_for_driver} onChange={handleChange} />
-              <ToggleField label="Show Wallet Feature On Mobile App Owner" name="show_wallet_feature_for_owner" value={settings.show_wallet_feature_for_owner} onChange={handleChange} />
               <ToggleField label="Show Instant Ride Feature on Mobile App" name="show_instant_ride_feature_on_mobile_app" value={settings.show_instant_ride_feature_on_mobile_app} onChange={handleChange} />
               <ToggleField label="Show Wallet Money Transfer Feature On Mobile App For User" name="enable_wallet_transfer_user" value={settings.enable_wallet_transfer_user} onChange={handleChange} />
               <ToggleField label="Show Wallet Money Transfer Feature On Mobile App For Driver" name="enable_wallet_transfer_driver" value={settings.enable_wallet_transfer_driver} onChange={handleChange} />
-              <ToggleField label="Show Wallet Money Transfer Feature On Mobile App For Owner" name="enable_wallet_transfer_owner" value={settings.enable_wallet_transfer_owner} onChange={handleChange} />
               <ToggleField label="Enable Outstation Round Trip Feature" name="enable_outstation_round_trip" value={settings.enable_outstation_round_trip} onChange={handleChange} />
               <ToggleField label="Show Incentive Feature" name="show_incentive_feature_for_driver" value={settings.show_incentive_feature_for_driver} onChange={handleChange} />
               <ToggleField label="Enable Driver Loyalty Feature" name="enable_driver_loyalty" value={settings.enable_driver_loyalty} onChange={handleChange} />
               <ToggleField label="Enable Country Restrict on Map" name="enable_country_restrict_on_map" value={settings.enable_country_restrict_on_map} onChange={handleChange} />
-              <ToggleField label="Show Owner Module Feature on Mobile App" name="enable_owner_module" value={settings.enable_owner_module} onChange={handleChange} />
               <ToggleField label="Show Ride OTP Feature" name="show_ride_otp" value={settings.show_ride_otp} onChange={handleChange} />
               <ToggleField label="Show Delivery Ride Otp On Loading Feature" name="enable_delivery_otp_load" value={settings.enable_delivery_otp_load} onChange={handleChange} />
               <ToggleField label="Show Delivery Ride Otp On Unloading Feature" name="enable_delivery_otp_unload" value={settings.enable_delivery_otp_unload} onChange={handleChange} />
@@ -343,18 +340,6 @@ const CustomizationSettings = () => {
               <div className="hidden md:block"></div>
               <ToggleField label="Enable Mobile OTP" name="driver_mobile_otp" value={settings.driver_mobile_otp} onChange={handleChange} />
               <ToggleField label="Enable Mobile Password" name="driver_mobile_password" value={settings.driver_mobile_password} onChange={handleChange} />
-           </div>
-
-           <SectionHeader title="Owner Sign-in" />
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 mb-4">
-              <ToggleField label="Enable Owner Email Login" name="owner_email_login" value={settings.owner_email_login} onChange={handleChange} />
-              <div className="hidden md:block"></div>
-              <ToggleField label="Enable Email OTP" name="owner_email_otp" value={settings.owner_email_otp} onChange={handleChange} />
-              <ToggleField label="Enable Email Password" name="owner_email_password" value={settings.owner_email_password} onChange={handleChange} />
-              <ToggleField label="Enable Owner Mobile Login" name="owner_mobile_login" value={settings.owner_mobile_login} onChange={handleChange} />
-              <div className="hidden md:block"></div>
-              <ToggleField label="Enable Mobile OTP" name="owner_mobile_otp" value={settings.owner_mobile_otp} onChange={handleChange} />
-              <ToggleField label="Enable Mobile Password" name="owner_mobile_password" value={settings.owner_mobile_password} onChange={handleChange} />
            </div>
 
            <div className="mt-8 flex justify-end pt-6 border-t border-slate-100 dark:border-slate-700/50">

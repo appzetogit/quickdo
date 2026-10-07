@@ -8,7 +8,6 @@ import {
   MapPin,
   Navigation,
   Phone,
-  Package,
   Route,
   User,
   X,
@@ -128,21 +127,20 @@ const IncomingRideRequest = ({
 
   if (!visible || !data) return null;
 
-  const isParcel = data.type === 'parcel';
   const isIntercity = data.type === 'intercity';
   const scheduledAt = data.scheduledAt || data.raw?.scheduledAt || data.raw?.ride?.scheduledAt || null;
   const isScheduledRequest = Boolean(scheduledAt);
   const title = isPreviewMode
-    ? (isParcel ? 'Scheduled delivery' : isIntercity ? 'Scheduled intercity trip' : 'Scheduled ride')
+    ? (isIntercity ? 'Scheduled intercity trip' : 'Scheduled ride')
     : (isScheduledRequest
-      ? (isParcel ? 'Scheduled delivery request' : isIntercity ? 'Scheduled intercity request' : 'Scheduled ride request')
-      : (isParcel ? 'New delivery request' : isIntercity ? 'New intercity request' : 'New ride request'));
+      ? (isIntercity ? 'Scheduled intercity request' : 'Scheduled ride request')
+      : (isIntercity ? 'New intercity request' : 'New ride request'));
   const intercityRoute = [data.raw?.intercity?.fromCity, data.raw?.intercity?.toCity].filter(Boolean).join(' to ');
-  const category = data.raw?.parcel?.category || data.raw?.parcel?.weight || (isParcel ? 'Parcel delivery' : isIntercity ? intercityRoute || 'Intercity trip' : 'Passenger ride');
+  const category = isIntercity ? intercityRoute || 'Intercity trip' : 'Passenger ride';
   const payment = normalizePayment(data.payment);
   const timerProgress = Math.max(0, Math.min(100, (timer / requestDurationSeconds) * 100));
-  const accentClass = isParcel ? 'bg-primary-orange/50' : isIntercity ? 'bg-yellow-400' : 'bg-blue-600';
-  const accentTextClass = isParcel ? 'text-accent-orange' : isIntercity ? 'text-yellow-700' : 'text-blue-600';
+  const accentClass = isIntercity ? 'bg-yellow-400' : 'bg-blue-600';
+  const accentTextClass = isIntercity ? 'text-yellow-700' : 'text-blue-600';
   const pickupAddress = data.raw?.pickupAddress || data.pickup || 'Pickup point';
   const dropAddress = data.raw?.dropAddress || data.drop || 'Drop point';
   const attemptCount = Number(data.attempt || data.raw?.attempt || 1);
@@ -192,7 +190,7 @@ const IncomingRideRequest = ({
             <div className="flex items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
                 <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] ${accentClass} text-slate-950 shadow-[0_10px_24px_rgba(0,0,0,0.24)]`}>
-                  {isParcel ? <Package size={26} /> : isIntercity ? <Navigation size={26} /> : <Bike size={26} />}
+                  {isIntercity ? <Navigation size={26} /> : <Bike size={26} />}
                 </div>
                 <div className="min-w-0">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">{isPreviewMode ? 'Scheduled trip' : 'Ride offer'}</p>
@@ -230,7 +228,7 @@ const IncomingRideRequest = ({
               ) : (
                 <div
                   className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full"
-                  style={{ background: `conic-gradient(${isParcel ? '#f97316' : isIntercity ? '#facc15' : '#2563eb'} ${timerProgress}%, rgba(255,255,255,0.14) 0)` }}
+                  style={{ background: `conic-gradient(${isIntercity ? '#facc15' : '#2563eb'} ${timerProgress}%, rgba(255,255,255,0.14) 0)` }}
                 >
                   <div className="grid h-[48px] w-[48px] place-items-center rounded-full bg-slate-950">
                     <span className="text-[20px] font-black leading-none">{timer}</span>
@@ -418,7 +416,7 @@ const IncomingRideRequest = ({
                         type="button"
                         onClick={() => onSubmitBid?.(bidBaseFare)}
                         disabled={isAccepting}
-                        className={`flex h-[58px] w-full items-center justify-center rounded-[18px] ${accentClass} px-5 text-[13px] font-black uppercase tracking-[0.16em] ${isParcel || isIntercity ? 'text-slate-950' : 'text-white'} shadow-[0_14px_30px_rgba(37,99,235,0.28)] transition-all active:scale-95 disabled:opacity-70`}
+                        className={`flex h-[58px] w-full items-center justify-center rounded-[18px] ${accentClass} px-5 text-[13px] font-black uppercase tracking-[0.16em] ${isIntercity ? 'text-slate-950' : 'text-white'} shadow-[0_14px_30px_rgba(37,99,235,0.28)] transition-all active:scale-95 disabled:opacity-70`}
                       >
                         {isAccepting ? 'Submitting...' : 'Send Bid'}
                       </button>
@@ -428,7 +426,7 @@ const IncomingRideRequest = ({
                       type="button"
                       onClick={() => onAccept(data)}
                       disabled={isAccepting}
-                      className={`flex h-[58px] items-center justify-center rounded-[18px] ${accentClass} px-5 text-[13px] font-black uppercase tracking-[0.16em] ${isParcel || isIntercity ? 'text-slate-950' : 'text-white'} shadow-[0_14px_30px_rgba(37,99,235,0.28)] transition-all active:scale-95 disabled:opacity-70`}
+                      className={`flex h-[58px] items-center justify-center rounded-[18px] ${accentClass} px-5 text-[13px] font-black uppercase tracking-[0.16em] ${isIntercity ? 'text-slate-950' : 'text-white'} shadow-[0_14px_30px_rgba(37,99,235,0.28)] transition-all active:scale-95 disabled:opacity-70`}
                     >
                       {isAccepting ? 'Accepting...' : 'Accept ride'}
                     </button>

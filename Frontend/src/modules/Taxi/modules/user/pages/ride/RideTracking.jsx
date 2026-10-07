@@ -502,7 +502,7 @@ const RideTracking = () => {
       calculateBearing(driverPosition, activeDestination),
     );
   }, [activeDestination, driverPosition, rideRealtime?.driverLocation?.heading, routePath]);
-  const vehicleLabel = driver.vehicle || driver.vehicleType || (serviceType === 'parcel' ? 'Parcel' : 'Taxi');
+  const vehicleLabel = driver.vehicle || driver.vehicleType || 'Taxi';
   const nextDriverImage = resolveAssetUrl(
     driver.profileImage || driver.profile_image || driver.image || driver.avatar || driver.selfie || '',
   );
@@ -512,20 +512,18 @@ const RideTracking = () => {
   const driverImage = driverImageBroken ? '' : (nextDriverImage || driverImageFallback);
   const vehicleImage = vehicleImageBroken ? '' : (nextVehicleImage || vehicleImageFallback);
   const hasVehiclePhoto = isLikelyVehiclePhoto(vehicleImage) && !vehicleImageBroken;
-  const arrivalDriverName = driver.name || (serviceType === 'parcel' ? 'Agent' : 'Driver');
+  const arrivalDriverName = driver.name || 'Driver';
   const driverSubtitle = isWaitingForOtp
     ? `${arrivalDriverName} has arrived`
     : isScheduledUpcoming && !hasLiveDriverLocation
       ? 'Driver assigned. Live tracking starts closer to pickup time'
       : tripStatus === 'arrived'
-        ? (serviceType === 'parcel' ? 'Parcel reached destination' : 'Driver reached destination')
+        ? 'Driver reached destination'
         : tripStatus === 'started' || tripStatus === 'ongoing'
-          ? (serviceType === 'parcel' ? 'Parcel picked up' : 'Trip started')
-          : serviceType === 'parcel'
-            ? 'Delivery agent is on the way'
-            : 'Captain is on the way';
+          ? 'Trip started'
+          : 'Captain is on the way';
   const vehicleDetails = [driver.vehicleColor, driver.vehicleMake, driver.vehicleModel].filter(Boolean).join(' ');
-  const activeRideEndpoint = serviceType === 'parcel' ? '/deliveries/active/me' : '/rides/active/me';
+  const activeRideEndpoint = '/rides/active/me';
   const latestStateRef = useRef(state);
   const latestFallbackDriverRef = useRef(fallbackDriver);
   const latestDriverRef = useRef(driver);
@@ -1699,7 +1697,7 @@ const RideTracking = () => {
                 <img src={vehicleIcon} alt={vehicleLabel} className="h-6 w-6 object-contain opacity-60" />
               ) : (
                 <span className="text-2xl select-none">
-                  {serviceType === 'parcel' ? '📦' : '🚗'}
+                  🚗
                 </span>
               )}
             </div>

@@ -23,7 +23,7 @@ const deliveryRegisterSchema = z.object({
     // What the partner answered to "what do you have?". zod strips unnamed
     // keys, so without these the answer would arrive and vanish.
     driverClass: z
-        .enum(['two_wheeler', 'passenger_taxi', 'parcel_vehicle'])
+        .enum(['two_wheeler', 'passenger_taxi'])
         .optional()
         .or(z.literal('')),
     // Sent as an array, or comma-separated when it comes through multipart.

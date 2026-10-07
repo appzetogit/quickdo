@@ -48,6 +48,9 @@ const foodHeroBannerSchema = new mongoose.Schema(
          */
         module: {
             type: String,
+            // 'medical' is legacy (the Medical vertical was removed): kept so
+            // existing banners still save; nothing creates one any more.
+            // 'porter' (parcel) is legacy the same way: parcel delivery was removed.
             enum: ['food', 'taxi', 'quick_commerce', 'medical', 'porter', 'rental', 'services'],
             default: 'food',
             index: true,

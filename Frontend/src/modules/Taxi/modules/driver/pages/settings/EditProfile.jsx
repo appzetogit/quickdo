@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Camera, User, Phone, Mail, Check, CheckCircle2, Loader2, X } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useImageUpload } from '../../../../shared/hooks/useImageUpload';
 import { getCurrentDriver, updateDriverProfile } from '../../services/registrationService';
 import toast from 'react-hot-toast';
@@ -15,8 +15,7 @@ const unwrapDriver = (response) => response?.data?.data || response?.data || res
 
 const EditProfile = () => {
     const navigate = useNavigate();
-    const location = useLocation();
-    const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+    const routePrefix = '/taxi/driver';
     const [showSuccess, setShowSuccess] = useState(false);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);

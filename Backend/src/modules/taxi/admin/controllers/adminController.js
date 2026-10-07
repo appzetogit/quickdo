@@ -163,14 +163,6 @@ export const listDriverWalletHistory = asyncHandler(async (req, res) =>
   ok(res, await adminService.listDriverWalletHistory(req.params.id)),
 );
 
-export const adjustOwnerWallet = asyncHandler(async (req, res) =>
-  ok(res, await adminService.adjustOwnerWallet(req.params.id, req.body)),
-);
-
-export const listOwnerWalletHistory = asyncHandler(async (req, res) =>
-  ok(res, await adminService.listOwnerWalletHistory(req.params.id)),
-);
-
 export const getNegativeBalanceDrivers = asyncHandler(async (req, res) =>
   ok(res, await adminService.listNegativeBalanceDrivers(req.query)),
 );
@@ -337,9 +329,6 @@ export const getOngoingRides = asyncHandler(async (req, res) =>
 export const getRideRequests = asyncHandler(async (req, res) =>
   ok(res, await adminService.listRideRequests(req.query)),
 );
-export const getDeliveries = asyncHandler(async (req, res) =>
-  ok(res, await adminService.listDeliveries(req.query)),
-);
 export const getIntercityTrips = asyncHandler(async (req, res) =>
   ok(res, await adminService.listIntercityTrips(req.query)),
 );
@@ -444,62 +433,8 @@ export const deleteVehicleType = asyncHandler(async (req, res) => {
   ok(res, { deleted: true });
 });
 
-export const getOwners = asyncHandler(async (req, res) =>
-  ok(res, { results: await adminService.listOwners(req.query, req.auth?.admin) }),
-);
-export const getOwner = asyncHandler(async (req, res) =>
-  ok(res, await adminService.getOwnerById(req.params.id, req.auth?.admin)),
-);
-export const createOwner = asyncHandler(async (req, res) =>
-  ok(res, await adminService.createOwner(req.body)),
-);
-export const updateOwner = asyncHandler(async (req, res) =>
-  ok(res, await adminService.updateOwner(req.params.id, req.body)),
-);
-export const approveOwner = asyncHandler(async (req, res) =>
-  ok(res, await adminService.approveOwner(req.params.id, req.body)),
-);
-export const approveOwnerSignupFromDriver = asyncHandler(async (req, res) =>
-  ok(res, await adminService.approveOwnerSignupFromDriver(req.params.driverId)),
-);
-export const deleteOwner = asyncHandler(async (req, res) => {
-  await adminService.deleteOwner(req.params.id);
-  ok(res, { deleted: true });
-});
-
-export const getFleetVehicles = asyncHandler(async (_req, res) =>
-  ok(res, await adminService.listFleetVehicles()),
-);
-export const createFleetVehicle = asyncHandler(async (req, res) =>
-  ok(res, await adminService.createFleetVehicle(req.body)),
-);
-export const updateFleetVehicle = asyncHandler(async (req, res) =>
-  ok(res, await adminService.updateFleetVehicle(req.params.id, req.body)),
-);
-export const deleteFleetVehicle = asyncHandler(async (req, res) => {
-  await adminService.deleteFleetVehicle(req.params.id);
-  ok(res, { deleted: true });
-});
-
-export const getOwnerBookings = asyncHandler(async (_req, res) =>
-  ok(res, { results: await adminService.listOwnerBookings() }),
-);
-export const createOwnerBooking = asyncHandler(async (req, res) =>
-  ok(res, await adminService.createOwnerBooking(req.body)),
-);
-export const updateOwnerBooking = asyncHandler(async (req, res) =>
-  ok(res, await adminService.updateOwnerBooking(req.params.id, req.body)),
-);
-export const deleteOwnerBooking = asyncHandler(async (req, res) => {
-  await adminService.deleteOwnerBooking(req.params.id);
-  ok(res, { deleted: true });
-});
-
 export const getDashboardData = asyncHandler(async (_req, res) =>
   ok(res, await adminService.getDashboardData()),
-);
-export const getOwnerDashboardData = asyncHandler(async (_req, res) =>
-  ok(res, await adminService.getOwnerDashboardData()),
 );
 export const getOverallEarnings = asyncHandler(async (_req, res) =>
   ok(res, await adminService.getOverallEarnings()),
@@ -588,20 +523,6 @@ export const uploadImage = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: { url: result.secureUrl }, message: 'Image uploaded successfully' });
 });
 
-export const getGoodsTypes = asyncHandler(async (_req, res) =>
-  res.json(await adminService.listGoodsTypes()),
-);
-export const createGoodsType = asyncHandler(async (req, res) =>
-  ok(res, await adminService.createGoodsType(req.body)),
-);
-export const updateGoodsType = asyncHandler(async (req, res) =>
-  ok(res, await adminService.updateGoodsType(req.params.id, req.body)),
-);
-export const deleteGoodsType = asyncHandler(async (req, res) => {
-  await adminService.deleteGoodsType(req.params.id);
-  ok(res, { deleted: true });
-});
-
 export const getRentalPackageTypes = asyncHandler(async (_req, res) =>
   ok(res, { rental_packages: await adminService.listRentalPackageTypes() }),
 );
@@ -616,9 +537,6 @@ export const deleteRentalPackageType = asyncHandler(async (req, res) => {
   ok(res, { deleted: true });
 });
 
-export const getOwnerNeededDocuments = asyncHandler(async (_req, res) =>
-  ok(res, { results: await adminService.listOwnerNeededDocuments() }),
-);
 export const getDriverNeededDocuments = asyncHandler(async (req, res) =>
   ok(res, {
     results: await adminService.listDriverNeededDocuments({
@@ -646,19 +564,6 @@ export const getReferralTranslations = asyncHandler(async (_req, res) =>
 export const updateReferralTranslation = asyncHandler(async (req, res) =>
   ok(res, await adminService.updateReferralTranslation(req.params.languageCode, req.body)),
 );
-export const createOwnerNeededDocument = asyncHandler(async (req, res) =>
-  ok(res, await adminService.createOwnerNeededDocument(req.body)),
-);
-export const updateOwnerNeededDocument = asyncHandler(async (req, res) =>
-  ok(
-    res,
-    await adminService.updateOwnerNeededDocument(req.params.id, req.body),
-  ),
-);
-export const deleteOwnerNeededDocument = asyncHandler(async (req, res) => {
-  await adminService.deleteOwnerNeededDocument(req.params.id);
-  ok(res, { deleted: true });
-});
 
 export const getLanguages = asyncHandler(async (_req, res) => {
   const items = await adminService.listLanguages();
@@ -799,12 +704,6 @@ export const getDriverOnboarding = asyncHandler(async (_req, res) =>
     results: await adminService.listOnboardingScreens("driver"),
   }),
 );
-export const getOwnerOnboarding = asyncHandler(async (_req, res) =>
-  res.json({
-    success: true,
-    results: await adminService.listOnboardingScreens("owner"),
-  }),
-);
 export const createOnboardingScreen = asyncHandler(async (req, res) =>
   ok(res, await adminService.createOnboardingScreen(req.body)),
 );
@@ -833,23 +732,12 @@ export const downloadDriverDutyReport = asyncHandler(async (req, res) => {
   await sendFile(res, "driver-duty-report", data, format);
 });
 
-export const downloadOwnerReport = asyncHandler(async (req, res) => {
-  const format = req.query.file_format || 'csv';
-  const data = await adminService.buildOwnerReport(req.query);
-  await sendFile(res, "owner-report", data, format);
-});
-
 export const downloadFinanceReport = asyncHandler(async (req, res) => {
   const format = req.query.file_format || 'csv';
   const data = await adminService.buildFinanceReport(req.query);
   await sendFile(res, "finance-report", data, format);
 });
 
-export const downloadFleetFinanceReport = asyncHandler(async (req, res) => {
-  const format = req.query.file_format || 'csv';
-  const data = await adminService.buildFleetFinanceReport(req.query);
-  await sendFile(res, "fleet-finance-report", data, format);
-});
 export const getGeneralSettingsCategory = asyncHandler(async (req, res) =>
   ok(res, await adminService.getGeneralSettings(req.params.category)),
 );

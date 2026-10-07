@@ -36,16 +36,14 @@ const OnboardingScreens = () => {
   const fetchAllScreens = async () => {
     try {
       setLoading(true);
-      const [userRes, driverRes, ownerRes] = await Promise.all([
+      const [userRes, driverRes] = await Promise.all([
         adminService.getOnboardingScreens('user'),
         adminService.getOnboardingScreens('driver'),
-        adminService.getOnboardingScreens('owner'),
       ]);
 
       const combined = [
         ...(userRes?.data?.results || userRes?.results || []),
         ...(driverRes?.data?.results || driverRes?.results || []),
-        ...(ownerRes?.data?.results || ownerRes?.results || []),
       ];
 
       combined.sort((a, b) => {
@@ -185,10 +183,10 @@ const OnboardingScreens = () => {
       </div>
 
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {['user', 'driver', 'owner'].map((role) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {['user', 'driver'].map((role) => (
             <div key={role} className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${role === 'user' ? 'bg-indigo-50 text-indigo-600' : role === 'driver' ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${role === 'user' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}`}>
                 <Users size={20} />
               </div>
               <div>
@@ -255,7 +253,7 @@ const OnboardingScreens = () => {
                     return (
                       <tr key={screen._id} className="group hover:bg-gray-50/70 transition-colors">
                         <td className="px-6 py-5">
-                          <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border ${audience === 'driver' ? 'bg-amber-50 text-amber-600 border-amber-100' : audience === 'owner' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}>
+                          <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border ${audience === 'driver' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}>
                             {audience}
                           </span>
                         </td>
@@ -324,7 +322,6 @@ const OnboardingScreens = () => {
                 >
                   <option value="user">User</option>
                   <option value="driver">Driver</option>
-                  <option value="owner">Owner</option>
                 </select>
               </div>
 

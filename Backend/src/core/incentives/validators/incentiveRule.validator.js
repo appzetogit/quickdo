@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 import { ApiError } from '../../../utils/ApiError.js';
 
-const SEGMENTS = ['foodAndQuick', 'taxiAndPorter', 'heavyParcel'];
+// 'heavyParcel' is retired with parcel delivery; existing rules still load.
+const SEGMENTS = ['foodAndQuick', 'taxiAndPorter'];
 const MAX_TIERS = 12;
 
 function validateTier(raw, index) {
@@ -66,7 +67,7 @@ export function validateIncentiveRuleUpsertDto(body = {}) {
         throw new ApiError(400, 'vehicleTypeId must be a vehicle type id, or empty for every vehicle type');
     }
     if (rawVehicleType && segment === 'foodAndQuick') {
-        throw new ApiError(400, 'vehicleTypeId only applies to the taxi and heavy parcel ladders');
+        throw new ApiError(400, 'vehicleTypeId only applies to the taxi ladder');
     }
 
     const windowType = String(body.windowType || 'daily').trim();

@@ -20,12 +20,10 @@ import { DriverLoginSession } from "../models/DriverLoginSession.js";
 import { WalletTransaction } from "../models/WalletTransaction.js";
 import { WithdrawalRequest } from "../../admin/models/WithdrawalRequest.js";
 import { Ride } from "../../user/models/Ride.js";
-import { Owner } from "../../admin/models/Owner.js";
 import { ServiceLocation } from "../../admin/models/ServiceLocation.js";
 import { Vehicle } from "../../admin/models/Vehicle.js";
 import { AdminBusinessSetting } from "../../admin/models/AdminBusinessSetting.js";
 import { Notification } from "../../admin/promotions/models/Notification.js";
-import { FleetVehicle } from "../../admin/models/FleetVehicle.js";
 import {
   comparePassword,
   hashPassword,
@@ -56,7 +54,6 @@ import {
   ensureThirdPartySettings,
   listDriverNeededDocuments,
   listDriverVehicleFieldTemplates,
-  listOwnerNeededDocuments,
   } from "../../admin/services/adminService.js";
 import { resolveConfiguredGatewayCredentials } from "../../services/paymentGatewayService.js";
 import {
@@ -95,72 +92,6 @@ const toIstDayKey = (value = new Date()) =>
   new Date(new Date(value).getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
 
 const toCleanString = (value = "") => String(value || "").trim();
-
-const normalizeFleetVehicleDocumentValue = (value) => {
-  if (!value) {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    const url = String(value || "").trim();
-    if (!url) {
-      return null;
-    }
-
-    return {
-      previewUrl: url,
-      secureUrl: url,
-      uploaded: true,
-    };
-  }
-
-  if (typeof value !== "object") {
-    return null;
-  }
-
-  const previewUrl = String(
-    value.previewUrl ||
-    value.secureUrl ||
-    value.url ||
-    value.imageUrl ||
-    value.image ||
-    value.fileUrl ||
-    value.document ||
-    value.file ||
-    "",
-  ).trim();
-
-  if (!previewUrl) {
-    return null;
-  }
-
-  return {
-    ...value,
-    previewUrl,
-    secureUrl: String(value.secureUrl || previewUrl).trim(),
-    uploaded: value.uploaded ?? true,
-  };
-};
-
-const normalizeFleetVehicleDocuments = (documents = {}, rcFile = "") => {
-  const normalizedDocuments = {};
-
-  if (documents && typeof documents === "object" && !Array.isArray(documents)) {
-    for (const [key, value] of Object.entries(documents)) {
-      const normalizedValue = normalizeFleetVehicleDocumentValue(value);
-      if (normalizedValue) {
-        normalizedDocuments[String(key).trim()] = normalizedValue;
-      }
-    }
-  }
-
-  const normalizedRcFile = String(rcFile || "").trim();
-  if (normalizedRcFile && !normalizedDocuments.rc) {
-    normalizedDocuments.rc = normalizeFleetVehicleDocumentValue(normalizedRcFile);
-  }
-
-  return normalizedDocuments;
-};
 
 const serializeDriverRouteBooking = (routeBooking = {}) => {
   const coordinates = Array.isArray(routeBooking?.anchorLocation?.coordinates)
@@ -788,106 +719,6 @@ const resolveVehicleMapIcon = async (vehicleTypeId) => {
   return vehicle?.map_icon || vehicle?.icon || vehicle?.image || "";
 };
 
-const normalizePhone = (value) =>
-  String(value || "")
-    .replace(/\D/g, "")
-    .trim();
-
-const isOwnerApproved = (owner) =>
-  Boolean(owner) &&
-  owner.active !== false &&
-  (owner.approve === true ||
-    String(owner.status || "").toLowerCase() === "approved");
-
-const resolveOwnerForFleet = async (requester = {}) => {
-  const onboardingRole = String(
-    requester?.onboarding?.role || "",
-  ).toLowerCase();
-  const convertedOwnerId = requester?.onboarding?.convertedOwnerId || null;
-
-  if (onboardingRole === "owner" && convertedOwnerId) {
-    const owner = await Owner.findById(convertedOwnerId)
-      .select("service_location_id active approve status")
-      .lean();
-    if (isOwnerApproved(owner)) return owner;
-  }
-
-  const mobile = String(requester?.phone || "").trim();
-  const email = String(requester?.email || "")
-    .trim()
-    .toLowerCase();
-
-  if (!mobile && !email) {
-    return null;
-  }
-
-  const owner = await Owner.findOne({
-    $or: [...(mobile ? [{ mobile }] : []), ...(email ? [{ email }] : [])],
-  })
-    .select("service_location_id active approve status")
-    .lean();
-
-  return isOwnerApproved(owner) ? owner : null;
-};
-
-const resolveAuthenticatedOwner = async (req) => {
-  if (String(req.auth?.role || "").toLowerCase() === "owner") {
-    const owner = await Owner.findById(req.auth?.sub)
-      .select("name company_name owner_name mobile phone email city transport_type service_location_id active approve status wallet")
-      .lean();
-    return isOwnerApproved(owner) ? owner : null;
-  }
-
-  const requester = await Driver.findById(req.auth?.sub)
-    .select("onboarding phone email service_location_id")
-    .lean();
-
-  if (!requester) {
-    return null;
-  }
-
-  return resolveOwnerForFleet(requester);
-};
-
-const serializeOwnerProfile = (owner = {}) => ({
-  id: owner._id,
-  name: owner.owner_name || owner.name || owner.company_name || "Owner",
-  phone: owner.mobile || owner.phone || "",
-  email: owner.email || "",
-  profileImage: "",
-  gender: "",
-  vehicleType: owner.transport_type || "taxi",
-  vehicleTypeId: null,
-  vehicleIconType: owner.transport_type || "taxi",
-  vehicleIconUrl: "",
-  vehicleMake: owner.company_name || "",
-  vehicleModel: "",
-  registerFor: owner.transport_type || "taxi",
-  vehicleNumber: "",
-  vehicleColor: "",
-  vehicleImage: "",
-  city: owner.city || "",
-  approve: owner.approve,
-  status: owner.status || "approved",
-  rating: 0,
-  wallet: {
-    balance: Number(owner.wallet?.balance || 0),
-    currency: "INR",
-  },
-  referralCode: "",
-  deletionRequest: { status: "none" },
-  isOnline: false,
-  isOnRide: false,
-  location: null,
-  zoneId: null,
-  documents: {},
-  emergencyContacts: [],
-  onboarding: {
-    role: "owner",
-    convertedOwnerId: String(owner._id || ""),
-  },
-});
-
 const serializeDriverNotification = (item = {}) => ({
   id: String(item._id || ""),
   title: String(item.push_title || "").trim(),
@@ -916,7 +747,6 @@ const serializeDriverScheduledRide = (ride = {}, currentDriverId = "") => ({
   dropLocation: ride.dropLocation || null,
   dropAddress: ride.dropAddress || "",
   scheduledAt: ride.scheduledAt || null,
-  parcel: ride.parcel || null,
   intercity: ride.intercity || null,
   driverId: ride.driverId ? String(ride.driverId) : null,
   isAssignedToCurrentDriver:
@@ -1071,16 +901,8 @@ export const setWorkMode = async (req, res) => {
   // Delivery is satisfied by EITHER delivery capability, since the one toggle
   // covers both verticals -- a driver set up for grocery but not food can still
   // turn deliveries on and will simply only be offered grocery.
-  //
-  // 'taxi' is also satisfied by a bare 'parcel' capability: a parcel-vehicle
-  // driver (normal or heavy) is never granted 'taxi' itself, only 'parcel',
-  // per driverClasses.js's DRIVER_INTENTS -- yet the ride dispatcher is what
-  // has to receive them for a parcel job to ever reach them (see
-  // coerceWorkMode's canTaxi, which treats the two the same way). Requiring
-  // literal 'taxi' here rejected every heavy-parcel driver's own duty toggle
-  // with "not registered for taxi rides", even once fully approved.
-  if (requested === 'taxi' && !caps.includes('taxi') && !caps.includes('parcel')) {
-    throw new ApiError(400, 'You are not registered for taxi rides or parcel delivery');
+  if (requested === 'taxi' && !caps.includes('taxi')) {
+    throw new ApiError(400, 'You are not registered for taxi rides');
   }
   if (requested === 'delivery' && !DELIVERY_CAPABILITIES.some((c) => caps.includes(c))) {
     throw new ApiError(400, 'You are not registered for deliveries');
@@ -1089,12 +911,7 @@ export const setWorkMode = async (req, res) => {
     throw new ApiError(400, "You need more than one capability for 'all' mode");
   }
 
-  // Delivery + bike parcel (parcel, no taxi) is stored as 'all', as
-  // coerceWorkMode does: parcel jobs come through the ride dispatcher, which
-  // the app only listens to in 'all'. No passengers without `taxi`.
-  driver.workMode = requested === 'delivery' && caps.includes('parcel') && !caps.includes('taxi')
-    ? 'all'
-    : requested;
+  driver.workMode = requested;
   await driver.save();
 
   res.json({
@@ -1182,32 +999,6 @@ export const goOnline = async (req, res) => {
 };
 
 export const getCurrentDriver = async (req, res) => {
-  if (String(req.auth?.role || "").toLowerCase() === "owner") {
-    const owner = await Owner.findById(req.auth.sub);
-
-    if (!owner) {
-      throw new ApiError(404, "Owner not found");
-    }
-
-    let ownerNeedsSave = false;
-    if (owner.approve === false || owner.approve === 0 || !owner.approve || String(owner.status || "").toLowerCase() === "pending" || !owner.status || owner.active === false) {
-      owner.approve = true;
-      owner.status = "approved";
-      owner.active = true;
-      ownerNeedsSave = true;
-    }
-
-    if (ownerNeedsSave) {
-      await owner.save();
-    }
-
-    res.json({
-      success: true,
-      data: serializeOwnerProfile(owner.toObject()),
-    });
-    return;
-  }
-
   const driver = await Driver.findById(req.auth.sub);
 
   if (!driver) {
@@ -1241,7 +1032,6 @@ export const getCurrentDriver = async (req, res) => {
       name: driver.name,
       phone: driver.phone,
       email: driver.email,
-      owner_id: driver.owner_id || null,
       salary: Number(driver.salary || 0),
       profileImage: driver.profileImage || "",
       gender: driver.gender,
@@ -1270,9 +1060,8 @@ export const getCurrentDriver = async (req, res) => {
         ? driver.serviceCapabilities
         : ['taxi'],
       // What the rider actually ticked at registration (e.g. 'bike_taxi_parcel',
-      // 'heavy_parcel_delivery') — finer-grained than serviceCapabilities, which
-      // collapses bike-taxi and passenger-taxi into one 'taxi' flag and normal
-      // vs. heavy parcel into one 'parcel' flag. The app's per-duty toggle row
+      // 'four_wheeler') — finer-grained than serviceCapabilities, which
+      // collapses bike-taxi and passenger-taxi into one 'taxi' flag. The app's per-duty toggle row
       // (WorkModeSwitcher) needs this finer list; serviceCapabilities alone
       // can't tell "I have a bike" from "I have a car" apart. See
       // driverClasses.js for the full DRIVER_INTENTS catalogue.
@@ -1413,7 +1202,6 @@ export const getDriverScheduledRides = async (req, res) => {
         "dropAddress",
         "scheduledAt",
         "driverId",
-        "parcel",
         "intercity",
         "vehicleTypeId",
         "dispatchVehicleTypeIds",
@@ -1501,7 +1289,7 @@ export const cancelDriverActiveRide = async (req, res) => {
 };
 
 /**
- * Declines a ride/parcel offer this driver was dispatched, over plain REST.
+ * Declines a ride offer this driver was dispatched, over plain REST.
  *
  * Mirrors the socket `rejectRide` handler exactly (same ownership check, same
  * `markDriverRejectedFromDispatch` call, same `driverRejectedRide` room
@@ -1629,10 +1417,6 @@ export const deleteDriverEmergencyContact = async (req, res) => {
 };
 
 export const updateCurrentDriver = async (req, res) => {
-  if (String(req.auth?.role || "").toLowerCase() === "owner") {
-    throw new ApiError(403, "Owner profile editing is not available from this screen");
-  }
-
   const driver = await Driver.findById(req.auth.sub);
 
   if (!driver) {
@@ -1868,28 +1652,6 @@ export const deleteCurrentDriverAccount = async (req, res) => {
 };
 
 export const getMyWallet = async (req, res) => {
-  if (String(req.auth?.role || "").toLowerCase() === "owner") {
-    const owner = await Owner.findById(req.auth.sub).lean();
-
-    if (!owner) {
-      throw new ApiError(404, "Owner not found");
-    }
-
-    res.json({
-      success: true,
-      data: {
-        wallet: {
-          balance: Number(owner.wallet?.balance || 0),
-          currency: "INR",
-        },
-        transactions: [],
-        withdrawalRequests: [],
-        settings: await getWalletSettings(),
-      },
-    });
-    return;
-  }
-
   const driver = await Driver.findById(req.auth.sub);
 
   if (!driver) {
@@ -2838,39 +2600,8 @@ export const getDriverApprovalStatus = async (req, res) => {
 
   const payload = verifyAccessToken(token);
 
-  if (!["driver", "owner"].includes(String(payload.role || "").toLowerCase())) {
+  if (String(payload.role || "").toLowerCase() !== "driver") {
     throw new ApiError(403, "Insufficient permissions for this resource");
-  }
-
-  if (String(payload.role || "").toLowerCase() === "owner") {
-    const owner = await Owner.findById(payload.sub);
-
-    if (!owner) {
-      throw new ApiError(404, "Owner not found");
-    }
-
-    res.setHeader(
-      "Cache-Control",
-      "no-store, no-cache, must-revalidate, proxy-revalidate",
-    );
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-
-    res.json({
-      success: true,
-      data: {
-        id: owner._id,
-        name: owner.owner_name || owner.name || owner.company_name || "",
-        phone: owner.mobile || owner.phone || "",
-        approve: owner.approve,
-        status: owner.status,
-        documents: owner.documents || {},
-        onboarding: owner.onboarding || {},
-        isOnline: false,
-        isOnRide: false,
-      },
-    });
-    return;
   }
 
   const driver = await Driver.findById(payload.sub);
@@ -2912,78 +2643,26 @@ export const getServiceLocations = async (_req, res) => {
 };
 
 export const getDriverDocumentTemplates = async (_req, res) => {
-  const requestedRole = String(_req.query?.role || "driver").trim().toLowerCase();
-  const isOwnerRequest = requestedRole === "owner";
-  const isFleetRequest =
-    requestedRole === "fleet" ||
-    requestedRole === "owner_vehicle" ||
-    requestedRole === "owner-vehicle";
-  const results = isFleetRequest
-    ? await listDriverNeededDocuments({
-      activeOnly: true,
-      includeFields: true,
-    })
-    : isOwnerRequest
-      ? await listOwnerNeededDocuments()
-      : await listDriverNeededDocuments({
-        activeOnly: true,
-        includeFields: true,
-      });
+  const results = await listDriverNeededDocuments({
+    activeOnly: true,
+    includeFields: true,
+  });
 
   res.json({
     success: true,
     data: {
-      results: isOwnerRequest ? results.filter((item) => item.active !== false).map((item) => ({
-        ...item,
-        fields:
-          item.image_type === "front_back"
-            ? [
-              {
-                key: `${String(item.name || "owner_document").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "owner_document"}_${String(item._id || "").replace(/[^a-zA-Z0-9]/g, "")}_front`,
-                label: `${item.name} Front`,
-                side: "front",
-                required: item.is_required !== false,
-              },
-              {
-                key: `${String(item.name || "owner_document").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "owner_document"}_${String(item._id || "").replace(/[^a-zA-Z0-9]/g, "")}_back`,
-                label: `${item.name} Back`,
-                side: "back",
-                required: item.is_required !== false,
-              },
-            ]
-            : [
-              {
-                key: `${String(item.name || "owner_document").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "owner_document"}_${String(item._id || "").replace(/[^a-zA-Z0-9]/g, "")}`,
-                label:
-                  item.image_type === "front"
-                    ? `${item.name} Front`
-                    : item.image_type === "back"
-                      ? `${item.name} Back`
-                      : item.name,
-                side: item.image_type === "front" ? "front" : item.image_type === "back" ? "back" : "single",
-                required: item.is_required !== false,
-              },
-            ],
-      }))
-        : isFleetRequest
-          ? results
-          : results,
+      results,
     },
   });
 };
 
 export const getDriverVehicleFieldTemplates = async (req, res) => {
-  const requestedRole = String(req.query?.role || "driver").trim().toLowerCase();
   const results = await listDriverVehicleFieldTemplates({ activeOnly: true });
   const matchesAccountType = (accountType) => {
     const normalizedAccountType = String(accountType || "individual").trim().toLowerCase();
 
     if (normalizedAccountType === "both") {
       return true;
-    }
-
-    if (requestedRole === "owner") {
-      return normalizedAccountType === "fleet_drivers" || normalizedAccountType === "fleet drivers";
     }
 
     return normalizedAccountType === "individual";
@@ -2993,926 +2672,6 @@ export const getDriverVehicleFieldTemplates = async (req, res) => {
     success: true,
     data: {
       results: results.filter((item) => matchesAccountType(item.account_type)),
-    },
-  });
-};
-
-export const addOwnerVehicle = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Vehicle addition is only available for owner accounts",
-    );
-  }
-
-  const { vehicleTypeId, make, model, number, color, rcFile, documents } = req.body;
-
-  if (!make?.trim()) {
-    throw new ApiError(400, "Car brand/make is required");
-  }
-
-  if (!model?.trim()) {
-    throw new ApiError(400, "Car model is required");
-  }
-
-  if (!number?.trim()) {
-    throw new ApiError(400, "License plate number is required");
-  }
-
-  if (!color?.trim()) {
-    throw new ApiError(400, "Car color is required");
-  }
-
-  const normalizedPlate = String(number).trim().toUpperCase();
-
-  const normalizedDocuments = normalizeFleetVehicleDocuments(documents, rcFile);
-  const configuredFleetDocuments = await listDriverNeededDocuments({
-    activeOnly: true,
-    includeFields: true,
-  });
-  const requiredFleetDocumentKeys = configuredFleetDocuments.flatMap((template) =>
-    (Array.isArray(template.fields) ? template.fields : [])
-      .filter((field) => (field.required ?? template.is_required ?? false))
-      .map((field) => String(field.key || "").trim())
-      .filter(Boolean),
-  );
-  const missingFleetDocuments = requiredFleetDocumentKeys.filter(
-    (key) => !normalizedDocuments[key],
-  );
-
-  if (missingFleetDocuments.length > 0) {
-    throw new ApiError(
-      400,
-      `Missing required fleet documents: ${missingFleetDocuments.join(", ")}`,
-    );
-  }
-
-  // Check for duplicate license plate for this owner
-  const existing = await FleetVehicle.findOne({
-    owner_id: owner._id,
-    license_plate_number: normalizedPlate,
-  }).lean();
-
-  if (existing) {
-    throw new ApiError(
-      409,
-      "Fleet vehicle with this license plate already exists for this owner",
-    );
-  }
-
-  // Get service location from owner or use first available
-  let serviceLocationId = owner.service_location_id;
-  if (!serviceLocationId) {
-    const defaultLocation = await ServiceLocation.findOne({ active: true })
-      .select("_id")
-      .lean();
-    if (!defaultLocation) {
-      throw new ApiError(400, "No service location available");
-    }
-    serviceLocationId = defaultLocation._id;
-  }
-
-  const vehicle = await FleetVehicle.create({
-    owner_id: owner._id,
-    service_location_id: serviceLocationId,
-    transport_type: "taxi",
-    vehicle_type_id:
-      vehicleTypeId && String(vehicleTypeId).trim() ? vehicleTypeId : null,
-    car_brand: String(make).trim(),
-    car_model: String(model).trim(),
-    license_plate_number: normalizedPlate,
-    car_color: String(color).trim(),
-    status: "pending",
-    active: true,
-    documents: normalizedDocuments,
-  });
-
-  const populated = await FleetVehicle.findById(vehicle._id)
-    .populate("owner_id", "company_name owner_name name email mobile")
-    .populate("service_location_id", "service_location_name name country")
-    .populate("vehicle_type_id", "name type_name transport_type icon_types")
-    .lean();
-
-  res.status(201).json({
-    success: true,
-    message: "Vehicle added successfully and is pending approval",
-    data: {
-      id: String(populated._id),
-      owner_id: String(populated.owner_id?._id || ""),
-      owner_name:
-        populated.owner_id?.company_name ||
-        populated.owner_id?.owner_name ||
-        populated.owner_id?.name ||
-        "",
-      service_location_id: String(populated.service_location_id?._id || ""),
-      service_location_name:
-        populated.service_location_id?.service_location_name ||
-        populated.service_location_id?.name ||
-        "",
-      transport_type: populated.transport_type,
-      vehicle_type_id: String(populated.vehicle_type_id?._id || ""),
-      vehicle_type_name:
-        populated.vehicle_type_id?.name ||
-        populated.vehicle_type_id?.type_name ||
-        "",
-      car_brand: populated.car_brand,
-      car_model: populated.car_model,
-      license_plate_number: populated.license_plate_number,
-      car_color: populated.car_color,
-      status: populated.status,
-      active: populated.active,
-      createdAt: populated.createdAt,
-    },
-  });
-};
-
-export const getOwnerFleetVehicles = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Fleet vehicle access is only available for owner accounts",
-    );
-  }
-
-  const vehicles = await FleetVehicle.find({
-    owner_id: owner._id,
-    active: true,
-  })
-    .populate("vehicle_type_id", "name type_name transport_type icon_types")
-    .sort({ createdAt: -1 })
-    .lean();
-
-  res.json({
-    success: true,
-    data: {
-      results: vehicles.map((vehicle) => ({
-        _id: String(vehicle._id),
-        id: String(vehicle._id),
-        vehicle_type_id: vehicle.vehicle_type_id?._id || null,
-        vehicle_type_name:
-          vehicle.vehicle_type_id?.name ||
-          vehicle.vehicle_type_id?.type_name ||
-          "",
-        car_brand: vehicle.car_brand || "",
-        car_model: vehicle.car_model || "",
-        license_plate_number: vehicle.license_plate_number || "",
-        car_color: vehicle.car_color || "",
-        status: vehicle.status || "pending",
-        reason: vehicle.reason || "",
-        documents: vehicle.documents || {},
-        rc_document:
-          vehicle.documents?.rc ||
-          vehicle.documents?.document ||
-          vehicle.documents?.file ||
-          "",
-        transport_type: vehicle.transport_type || "taxi",
-        active: vehicle.active,
-        createdAt: vehicle.createdAt,
-        updatedAt: vehicle.updatedAt,
-      })),
-    },
-  });
-};
-
-export const updateOwnerFleetVehicle = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Fleet vehicle access is only available for owner accounts",
-    );
-  }
-
-  const vehicleId = String(req.params?.vehicleId || "").trim();
-  if (!vehicleId || !mongoose.isValidObjectId(vehicleId)) {
-    throw new ApiError(400, "A valid vehicle id is required");
-  }
-
-  const vehicle = await FleetVehicle.findOne({
-    _id: vehicleId,
-    owner_id: owner._id,
-    active: true,
-  });
-
-  if (!vehicle) {
-    throw new ApiError(404, "Fleet vehicle not found");
-  }
-
-  const vehicleTypeId =
-    req.body?.vehicleTypeId || req.body?.vehicle_type_id || null;
-  const make = String(
-    req.body?.vehicleMake || req.body?.make || req.body?.car_brand || "",
-  ).trim();
-  const model = String(
-    req.body?.vehicleModel || req.body?.model || req.body?.car_model || "",
-  ).trim();
-  const number = String(
-    req.body?.vehicleNumber ||
-    req.body?.number ||
-    req.body?.license_plate_number ||
-    "",
-  )
-    .trim()
-    .toUpperCase();
-  const color = String(
-    req.body?.vehicleColor || req.body?.color || req.body?.car_color || "",
-  ).trim();
-  const rcFile = String(req.body?.rcFile || "").trim();
-  const nextDocuments = normalizeFleetVehicleDocuments(
-    req.body?.documents || {},
-    rcFile ||
-    req.body?.documents?.rc ||
-    req.body?.document ||
-    req.body?.file ||
-    "",
-  );
-
-  if (!vehicleTypeId || !mongoose.isValidObjectId(vehicleTypeId)) {
-    throw new ApiError(400, "A valid vehicle type is required");
-  }
-
-  if (!make) {
-    throw new ApiError(400, "Car brand/make is required");
-  }
-
-  if (!model) {
-    throw new ApiError(400, "Car model is required");
-  }
-
-  if (!number) {
-    throw new ApiError(400, "License plate number is required");
-  }
-
-  if (!color) {
-    throw new ApiError(400, "Car color is required");
-  }
-
-  const duplicate = await FleetVehicle.findOne({
-    owner_id: owner._id,
-    license_plate_number: number,
-    _id: { $ne: vehicle._id },
-  }).lean();
-
-  if (duplicate) {
-    throw new ApiError(
-      409,
-      "Fleet vehicle with this license plate already exists for this owner",
-    );
-  }
-
-  vehicle.vehicle_type_id = vehicleTypeId;
-  vehicle.car_brand = make;
-  vehicle.car_model = model;
-  vehicle.license_plate_number = number;
-  vehicle.car_color = color;
-  if (Object.keys(nextDocuments).length > 0) {
-    vehicle.documents = {
-      ...(vehicle.documents || {}),
-      ...nextDocuments,
-    };
-    vehicle.markModified("documents");
-  }
-  if (String(vehicle.status || "").toLowerCase() === "rejected") {
-    vehicle.status = "pending";
-    vehicle.reason = "";
-  }
-
-  await vehicle.save();
-
-  const populated = await FleetVehicle.findById(vehicle._id)
-    .populate("vehicle_type_id", "name type_name transport_type icon_types")
-    .lean();
-
-  res.json({
-    success: true,
-    message:
-      String(populated.status || "").toLowerCase() === "pending"
-        ? "Vehicle updated and resubmitted for verification"
-        : "Vehicle updated successfully",
-    data: {
-      _id: String(populated._id),
-      id: String(populated._id),
-      vehicle_type_id: populated.vehicle_type_id?._id || null,
-      vehicle_type_name:
-        populated.vehicle_type_id?.name ||
-        populated.vehicle_type_id?.type_name ||
-        "",
-      car_brand: populated.car_brand || "",
-      car_model: populated.car_model || "",
-      license_plate_number: populated.license_plate_number || "",
-      car_color: populated.car_color || "",
-      status: populated.status || "pending",
-      reason: populated.reason || "",
-      documents: populated.documents || {},
-      rc_document:
-        populated.documents?.rc ||
-        populated.documents?.document ||
-        populated.documents?.file ||
-        "",
-      transport_type: populated.transport_type || "taxi",
-      active: populated.active,
-      createdAt: populated.createdAt,
-      updatedAt: populated.updatedAt,
-    },
-  });
-};
-
-export const deleteOwnerFleetVehicle = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Fleet vehicle access is only available for owner accounts",
-    );
-  }
-
-  const vehicle = await FleetVehicle.findOne({
-    _id: req.params.vehicleId,
-    owner_id: owner._id,
-  });
-
-  if (!vehicle) {
-    throw new ApiError(404, "Fleet vehicle not found");
-  }
-
-  await FleetVehicle.deleteOne({ _id: vehicle._id });
-
-  res.json({
-    success: true,
-    message: "Vehicle deleted successfully",
-    data: { deleted: true },
-  });
-};
-
-export const getOwnerFleetDrivers = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Fleet driver access is only available for owner accounts",
-    );
-  }
-
-  const drivers = await Driver.find({ owner_id: owner._id, deletedAt: null })
-    .sort({ createdAt: -1 })
-    .select("name phone email city salary approve status isOnline isOnRide createdAt")
-    .lean();
-
-  res.json({
-    success: true,
-    data: {
-      results: drivers.map((driver) => ({
-        id: String(driver._id),
-        name: driver.name || "",
-        phone: driver.phone || "",
-        email: driver.email || "",
-        city: driver.city || "",
-        salary: Number(driver.salary || 0),
-        approve: driver.approve,
-        status: driver.status,
-        isOnline: Boolean(driver.isOnline),
-        isOnRide: Boolean(driver.isOnRide),
-        createdAt: driver.createdAt,
-      })),
-    },
-  });
-};
-
-export const createOwnerFleetDriver = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Fleet driver access is only available for owner accounts",
-    );
-  }
-
-  const name = String(req.body?.name || "").trim();
-  const phone = normalizePhone(req.body?.phone || req.body?.mobile);
-  const email = String(req.body?.email || "")
-    .trim()
-    .toLowerCase();
-
-  if (!name) {
-    throw new ApiError(400, "name is required");
-  }
-
-  if (!/^\d{10}$/.test(phone)) {
-    throw new ApiError(400, "A valid 10-digit mobile number is required");
-  }
-
-  const existing = await Driver.findOne({ phone }).lean();
-  if (existing) {
-    throw new ApiError(409, "Phone number is already registered");
-  }
-
-  const serviceLocation = owner.service_location_id
-    ? await ServiceLocation.findById(owner.service_location_id).lean()
-    : null;
-  const coordinates =
-    Array.isArray(serviceLocation?.location?.coordinates) &&
-      serviceLocation.location.coordinates.length === 2
-      ? serviceLocation.location.coordinates
-      : typeof serviceLocation?.longitude === "number" &&
-        typeof serviceLocation?.latitude === "number"
-        ? [serviceLocation.longitude, serviceLocation.latitude]
-        : [75.8577, 22.7196];
-
-  const city =
-    String(req.body?.city || "").trim() ||
-    String(
-      serviceLocation?.service_location_name || serviceLocation?.name || "",
-    ).trim() ||
-    "";
-
-  const tempPassword = crypto.randomUUID().slice(0, 12);
-
-  const driver = await Driver.create({
-    owner_id: owner._id,
-    service_location_id: owner.service_location_id || null,
-    name,
-    phone,
-    email,
-    salary: salaryValue,
-    gender: "",
-    password: await hashPassword(tempPassword),
-    vehicleType: "car",
-    vehicleIconType: "car",
-    registerFor: "taxi",
-    vehicleNumber: "",
-    vehicleColor: "",
-    city,
-    approve: false,
-    status: "pending",
-    location: toPoint(coordinates, "location"),
-  });
-
-  // A fleet driver takes the same jobs as any other, so they get the same
-  // capabilities. Their partner record mirrors the pending approval state.
-  await ensureAllDriverCapabilities(driver);
-
-  res.status(201).json({
-    success: true,
-    data: {
-      id: String(driver._id),
-      message: "Fleet driver request created",
-    },
-  });
-};
-
-export const getOwnerFleetDashboard = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Owner dashboard is only available for owner accounts",
-    );
-  }
-
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-
-  const [serviceLocation, drivers, vehicles] = await Promise.all([
-    owner.service_location_id
-      ? ServiceLocation.findById(owner.service_location_id)
-        .select(
-          "name service_location_name address city status active latitude longitude location currency_symbol currency_code timezone",
-        )
-        .lean()
-      : null,
-    Driver.find({ owner_id: owner._id, deletedAt: null })
-      .select("name phone email city approve status isOnline isOnRide createdAt")
-      .sort({ createdAt: -1 })
-      .lean(),
-    FleetVehicle.find({ owner_id: owner._id, active: true })
-      .populate("vehicle_type_id", "name type_name transport_type")
-      .sort({ createdAt: -1 })
-      .lean(),
-  ]);
-
-  const driverIds = drivers.map((driver) => driver._id);
-
-  const emptyMetrics = {
-    totalBookings: 0,
-    completedBookings: 0,
-    cancelledBookings: 0,
-    activeBookings: 0,
-    grossRevenue: 0,
-    ownerEarnings: 0,
-    cashTrips: 0,
-    onlineTrips: 0,
-  };
-
-  let rideMetrics = emptyMetrics;
-  let todayMetrics = emptyMetrics;
-  let transportBreakdown = [];
-  let recentRides = [];
-  if (driverIds.length > 0) {
-    const [rideMetricsResult, todayMetricsResult, transportBreakdownResult, recentRideDocs] =
-      await Promise.all([
-        Ride.aggregate([
-          { $match: { driverId: { $in: driverIds } } },
-          {
-            $group: {
-              _id: null,
-              totalBookings: { $sum: 1 },
-              completedBookings: {
-                $sum: {
-                  $cond: [{ $eq: ["$status", RIDE_STATUS.COMPLETED] }, 1, 0],
-                },
-              },
-              cancelledBookings: {
-                $sum: {
-                  $cond: [{ $eq: ["$status", RIDE_STATUS.CANCELLED] }, 1, 0],
-                },
-              },
-              activeBookings: {
-                $sum: {
-                  $cond: [
-                    {
-                      $in: [
-                        "$status",
-                        [RIDE_STATUS.ACCEPTED, RIDE_STATUS.ONGOING],
-                      ],
-                    },
-                    1,
-                    0,
-                  ],
-                },
-              },
-              grossRevenue: {
-                $sum: {
-                  $cond: [
-                    { $eq: ["$status", RIDE_STATUS.COMPLETED] },
-                    { $ifNull: ["$fare", 0] },
-                    0,
-                  ],
-                },
-              },
-              ownerEarnings: {
-                $sum: {
-                  $cond: [
-                    { $eq: ["$status", RIDE_STATUS.COMPLETED] },
-                    { $ifNull: ["$driverEarnings", 0] },
-                    0,
-                  ],
-                },
-              },
-              cashTrips: {
-                $sum: {
-                  $cond: [{ $eq: ["$paymentMethod", "cash"] }, 1, 0],
-                },
-              },
-              onlineTrips: {
-                $sum: {
-                  $cond: [{ $eq: ["$paymentMethod", "online"] }, 1, 0],
-                },
-              },
-            },
-          },
-        ]),
-        Ride.aggregate([
-          {
-            $match: {
-              driverId: { $in: driverIds },
-              createdAt: { $gte: startOfToday },
-            },
-          },
-          {
-            $group: {
-              _id: null,
-              totalBookings: { $sum: 1 },
-              completedBookings: {
-                $sum: {
-                  $cond: [{ $eq: ["$status", RIDE_STATUS.COMPLETED] }, 1, 0],
-                },
-              },
-              cancelledBookings: {
-                $sum: {
-                  $cond: [{ $eq: ["$status", RIDE_STATUS.CANCELLED] }, 1, 0],
-                },
-              },
-              activeBookings: {
-                $sum: {
-                  $cond: [
-                    {
-                      $in: [
-                        "$status",
-                        [RIDE_STATUS.ACCEPTED, RIDE_STATUS.ONGOING],
-                      ],
-                    },
-                    1,
-                    0,
-                  ],
-                },
-              },
-              grossRevenue: {
-                $sum: {
-                  $cond: [
-                    { $eq: ["$status", RIDE_STATUS.COMPLETED] },
-                    { $ifNull: ["$fare", 0] },
-                    0,
-                  ],
-                },
-              },
-              ownerEarnings: {
-                $sum: {
-                  $cond: [
-                    { $eq: ["$status", RIDE_STATUS.COMPLETED] },
-                    { $ifNull: ["$driverEarnings", 0] },
-                    0,
-                  ],
-                },
-              },
-              cashTrips: {
-                $sum: {
-                  $cond: [{ $eq: ["$paymentMethod", "cash"] }, 1, 0],
-                },
-              },
-              onlineTrips: {
-                $sum: {
-                  $cond: [{ $eq: ["$paymentMethod", "online"] }, 1, 0],
-                },
-              },
-            },
-          },
-        ]),
-        Ride.aggregate([
-          { $match: { driverId: { $in: driverIds } } },
-          {
-            $group: {
-              _id: { $ifNull: ["$transport_type", "taxi"] },
-              trips: { $sum: 1 },
-              completedTrips: {
-                $sum: {
-                  $cond: [{ $eq: ["$status", RIDE_STATUS.COMPLETED] }, 1, 0],
-                },
-              },
-              earnings: {
-                $sum: {
-                  $cond: [
-                    { $eq: ["$status", RIDE_STATUS.COMPLETED] },
-                    { $ifNull: ["$driverEarnings", 0] },
-                    0,
-                  ],
-                },
-              },
-            },
-          },
-          { $sort: { trips: -1, _id: 1 } },
-        ]),
-        Ride.find({ driverId: { $in: driverIds } })
-          .select(
-            "pickupAddress dropAddress status fare driverEarnings paymentMethod transport_type createdAt driverId",
-          )
-          .populate("driverId", "name phone")
-          .sort({ createdAt: -1 })
-          .limit(6)
-          .lean(),
-      ]);
-
-    const normalizeMetrics = (value = {}) => ({
-      totalBookings: Number(value.totalBookings || 0),
-      completedBookings: Number(value.completedBookings || 0),
-      cancelledBookings: Number(value.cancelledBookings || 0),
-      activeBookings: Number(value.activeBookings || 0),
-      grossRevenue: Number(value.grossRevenue || 0),
-      ownerEarnings: Number(value.ownerEarnings || 0),
-      cashTrips: Number(value.cashTrips || 0),
-      onlineTrips: Number(value.onlineTrips || 0),
-    });
-
-    rideMetrics = normalizeMetrics(rideMetricsResult[0] || emptyMetrics);
-    todayMetrics = normalizeMetrics(todayMetricsResult[0] || emptyMetrics);
-    transportBreakdown = transportBreakdownResult.map((item) => ({
-      transportType: String(item._id || "taxi"),
-      trips: Number(item.trips || 0),
-      completedTrips: Number(item.completedTrips || 0),
-      earnings: Number(item.earnings || 0),
-    }));
-    recentRides = recentRideDocs.map((ride) => ({
-      id: String(ride._id),
-      pickupAddress: ride.pickupAddress || "",
-      dropAddress: ride.dropAddress || "",
-      status: ride.status || "",
-      fare: Number(ride.fare || 0),
-      earnings: Number(ride.driverEarnings || 0),
-      paymentMethod: ride.paymentMethod || "cash",
-      transportType: ride.transport_type || "taxi",
-      createdAt: ride.createdAt,
-      driver: {
-        id: String(ride.driverId?._id || ""),
-        name: ride.driverId?.name || "",
-        phone: ride.driverId?.phone || "",
-      },
-    }));
-  }
-
-  const approvedDrivers = drivers.filter(
-    (driver) =>
-      driver.approve === true ||
-      String(driver.status || "").toLowerCase() === "approved",
-  );
-  const onlineDrivers = approvedDrivers.filter((driver) => driver.isOnline);
-  const busyDrivers = approvedDrivers.filter((driver) => driver.isOnRide);
-  const availableDrivers = approvedDrivers.filter(
-    (driver) => driver.isOnline && !driver.isOnRide,
-  );
-
-  const approvedVehicles = vehicles.filter(
-    (vehicle) => String(vehicle.status || "").toLowerCase() === "approved",
-  );
-  const pendingVehicles = vehicles.filter(
-    (vehicle) => String(vehicle.status || "").toLowerCase() === "pending",
-  );
-  const rejectedVehicles = vehicles.filter(
-    (vehicle) => String(vehicle.status || "").toLowerCase() === "rejected",
-  );
-
-  res.json({
-    success: true,
-    data: {
-      profile: {
-        id: String(owner._id),
-        companyName: owner.company_name || owner.name || "",
-        ownerName: owner.owner_name || owner.name || "",
-        phone: owner.mobile || owner.phone || "",
-        email: owner.email || "",
-        city: owner.city || "",
-        address: owner.address || "",
-        transportType: owner.transport_type || "taxi",
-        status: owner.status || "approved",
-        walletBalance: Number(owner.wallet?.balance || 0),
-        noOfVehicles: Number(owner.no_of_vehicles || 0),
-      },
-      serviceLocation: serviceLocation
-        ? {
-          id: String(serviceLocation._id),
-          name:
-            serviceLocation.service_location_name ||
-            serviceLocation.name ||
-            "",
-          address: serviceLocation.address || "",
-          status: serviceLocation.status || "active",
-          active: serviceLocation.active !== false,
-          latitude: Number(serviceLocation.latitude || 0),
-          longitude: Number(serviceLocation.longitude || 0),
-          currencySymbol:
-            serviceLocation.currency_symbol &&
-              serviceLocation.currency_symbol !== "â‚¹"
-              ? serviceLocation.currency_symbol
-              : "₹",
-          currencyCode: serviceLocation.currency_code || "INR",
-          timezone: serviceLocation.timezone || "Asia/Kolkata",
-        }
-        : null,
-      fleet: {
-        totalDrivers: drivers.length,
-        approvedDrivers: approvedDrivers.length,
-        onlineDrivers: onlineDrivers.length,
-        busyDrivers: busyDrivers.length,
-        availableDrivers: availableDrivers.length,
-        pendingDrivers: Math.max(0, drivers.length - approvedDrivers.length),
-        totalVehicles: vehicles.length,
-        approvedVehicles: approvedVehicles.length,
-        pendingVehicles: pendingVehicles.length,
-        rejectedVehicles: rejectedVehicles.length,
-      },
-      bookings: {
-        total: rideMetrics.totalBookings,
-        active: rideMetrics.activeBookings,
-        completed: rideMetrics.completedBookings,
-        cancelled: rideMetrics.cancelledBookings,
-        todayTotal: todayMetrics.totalBookings,
-        todayCompleted: todayMetrics.completedBookings,
-        todayCancelled: todayMetrics.cancelledBookings,
-      },
-      earnings: {
-        walletBalance: Number(owner.wallet?.balance || 0),
-        grossRevenue: rideMetrics.grossRevenue,
-        ownerEarnings: rideMetrics.ownerEarnings,
-        todayGrossRevenue: todayMetrics.grossRevenue,
-        todayOwnerEarnings: todayMetrics.ownerEarnings,
-        onlineTrips: rideMetrics.onlineTrips,
-        cashTrips: rideMetrics.cashTrips,
-      },
-      transportBreakdown,
-      recentDrivers: drivers.slice(0, 5).map((driver) => ({
-        id: String(driver._id),
-        name: driver.name || "",
-        phone: driver.phone || "",
-        city: driver.city || "",
-        status: driver.status || "pending",
-        isOnline: Boolean(driver.isOnline),
-        isOnRide: Boolean(driver.isOnRide),
-        createdAt: driver.createdAt,
-      })),
-      recentVehicles: vehicles.slice(0, 5).map((vehicle) => ({
-        id: String(vehicle._id),
-        brand: vehicle.car_brand || "",
-        model: vehicle.car_model || "",
-        color: vehicle.car_color || "",
-        number: vehicle.license_plate_number || "",
-        status: vehicle.status || "pending",
-        transportType: vehicle.transport_type || "taxi",
-        vehicleTypeName:
-          vehicle.vehicle_type_id?.name ||
-          vehicle.vehicle_type_id?.type_name ||
-          "",
-        createdAt: vehicle.createdAt,
-      })),
-      recentRides,
-    },
-  });
-};
-
-export const updateOwnerFleetDriver = async (req, res) => {
-  const owner = await resolveAuthenticatedOwner(req);
-
-  if (!owner?._id) {
-    throw new ApiError(
-      403,
-      "Fleet driver access is only available for owner accounts",
-    );
-  }
-
-  const driverId = String(req.params?.driverId || "").trim();
-  if (!driverId || !mongoose.isValidObjectId(driverId)) {
-    throw new ApiError(400, "A valid driver id is required");
-  }
-
-  const driver = await Driver.findOne({
-    _id: driverId,
-    owner_id: owner._id,
-    deletedAt: null,
-  });
-
-  if (!driver) {
-    throw new ApiError(404, "Fleet driver not found");
-  }
-
-  const name = String(req.body?.name || "").trim();
-  const phone = normalizePhone(req.body?.phone || req.body?.mobile);
-  const email = String(req.body?.email || "")
-    .trim()
-    .toLowerCase();
-  const salaryValue = Number(
-    req.body?.salary ?? req.body?.monthly_salary ?? req.body?.monthlySalary ?? 0,
-  );
-  const city = String(req.body?.city || req.body?.address || "").trim();
-
-  if (!name) {
-    throw new ApiError(400, "name is required");
-  }
-
-  if (!/^\d{10}$/.test(phone)) {
-    throw new ApiError(400, "A valid 10-digit mobile number is required");
-  }
-
-  if (!Number.isFinite(salaryValue) || salaryValue < 0) {
-    throw new ApiError(400, "A valid non-negative salary is required");
-  }
-
-  const existing = await Driver.findOne({
-    phone,
-    _id: { $ne: driver._id },
-  }).lean();
-  if (existing) {
-    throw new ApiError(409, "Phone number is already registered");
-  }
-
-  driver.name = name;
-  driver.phone = phone;
-  driver.email = email;
-  driver.city = city || driver.city || "";
-  driver.salary = salaryValue;
-
-  await driver.save();
-
-  res.json({
-    success: true,
-    message: "Fleet driver updated successfully",
-    data: {
-      id: String(driver._id),
-      name: driver.name || "",
-      phone: driver.phone || "",
-      email: driver.email || "",
-      city: driver.city || "",
-      salary: Number(driver.salary || 0),
-      approve: driver.approve,
-      status: driver.status,
-      isOnline: Boolean(driver.isOnline),
-      isOnRide: Boolean(driver.isOnRide),
-      createdAt: driver.createdAt,
     },
   });
 };

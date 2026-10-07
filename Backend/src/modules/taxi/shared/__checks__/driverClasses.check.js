@@ -42,24 +42,20 @@ assert.deepEqual(normalizeDriverIntents(undefined), []);
     const caps = capabilitiesForIntents(['food_daily_medical_parcel']);
     assert.ok(caps.includes(SERVICE_CAPABILITIES.DELIVERY));
     assert.ok(caps.includes(SERVICE_CAPABILITIES.QUICK_COMMERCE));
-    // Bike parcel goes with the delivery rider (client, 2026-10-01).
-    assert.ok(caps.includes(SERVICE_CAPABILITIES.PARCEL));
     // The whole point: a food rider is NOT granted passenger rides.
     assert.ok(!caps.includes(SERVICE_CAPABILITIES.TAXI));
 }
 {
     const caps = capabilitiesForIntents(['bike_taxi_parcel']);
     assert.ok(caps.includes(SERVICE_CAPABILITIES.TAXI));
-    // Bike Taxi is passengers only.
-    assert.ok(!caps.includes(SERVICE_CAPABILITIES.PARCEL));
-    // ...and a bike-taxi rider is not granted food.
+    // A bike-taxi rider is not granted food.
     assert.ok(!caps.includes(SERVICE_CAPABILITIES.DELIVERY));
 }
-{
-    // A parcel-only driver must not be offered passengers.
-    const caps = capabilitiesForIntents(['parcel_delivery', 'heavy_parcel_delivery']);
-    assert.deepEqual(caps, [SERVICE_CAPABILITIES.PARCEL]);
-}
+// Parcel delivery was removed: its old intents grant nothing and the
+// parcel-vehicle class is no longer recognised.
+assert.deepEqual(capabilitiesForIntents(['parcel_delivery', 'heavy_parcel_delivery']), []);
+assert.equal(normalizeDriverClass('parcel_vehicle'), null);
+assert.equal(SERVICE_CAPABILITIES.PARCEL, undefined);
 // Both two-wheeler options together grant everything a bike can do.
 {
     const caps = capabilitiesForIntents(['food_daily_medical_parcel', 'bike_taxi_parcel']);
@@ -69,7 +65,7 @@ assert.deepEqual(normalizeDriverIntents(undefined), []);
 
 // --- class inferred from intents -----------------------------------------
 assert.equal(classForIntents(['three_wheeler', 'four_wheeler']), DRIVER_CLASSES.PASSENGER_TAXI);
-assert.equal(classForIntents(['three_wheeler', 'parcel_delivery']), null);
+assert.equal(classForIntents(['three_wheeler', 'bike_taxi_parcel']), null);
 assert.equal(classForIntents([]), null);
 
 // --- which vehicles each driver is offered -------------------------------
@@ -110,7 +106,7 @@ assert.equal(documentAppliesTo({ applies_to: [] }, 'two_wheeler'), true);
 assert.equal(documentAppliesTo({ applies_to: ['two_wheeler'] }, 'two_wheeler'), true);
 assert.equal(documentAppliesTo({ applies_to: ['two_wheeler'] }, 'passenger_taxi'), false);
 assert.equal(
-    documentAppliesTo({ applies_to: ['passenger_taxi', 'parcel_vehicle'] }, 'parcel_vehicle'),
+    documentAppliesTo({ applies_to: ['two_wheeler', 'passenger_taxi'] }, 'passenger_taxi'),
     true,
 );
 // A driver with no class yet sees everything, rather than an empty list.

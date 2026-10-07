@@ -28,12 +28,6 @@ const AMOUNT_FIELDS = [
     help: 'Shown to drivers as the minimum amount for wallet transfers.',
     placeholder: '100',
   },
-  {
-    name: 'owner_wallet_minimum_amount_to_get_an_order',
-    label: 'Owner minimum balance to get orders',
-    help: 'Kept here for owner wallet rules.',
-    placeholder: '-500',
-  },
 ];
 
 const SWITCH_FIELDS = [
@@ -46,16 +40,6 @@ const SWITCH_FIELDS = [
     name: 'enable_wallet_transfer_driver',
     label: 'Driver wallet transfer enabled',
     help: 'Controls the transfer status shown in driver wallet.',
-  },
-  {
-    name: 'show_wallet_feature_for_owner',
-    label: 'Owner wallet enabled',
-    help: 'Keeps owner wallet visibility controlled from here too.',
-  },
-  {
-    name: 'enable_wallet_transfer_owner',
-    label: 'Owner wallet transfer enabled',
-    help: 'Controls owner wallet transfer availability.',
   },
   {
     name: 'show_wallet_feature_on_mobile_app',

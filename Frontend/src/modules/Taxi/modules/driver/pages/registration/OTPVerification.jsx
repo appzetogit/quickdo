@@ -14,12 +14,6 @@ import {
 } from '../../services/registrationService';
 
 const unwrap = (response) => response?.data?.data || response?.data || response;
-const normalizeDriverRole = (role) => {
-    const normalized = String(role || 'driver').toLowerCase();
-    if (normalized === 'owner') return 'owner';
-    return 'driver';
-};
-
 const isDriverApproved = (driver) => {
     if (!driver) {
         return false;
@@ -36,19 +30,9 @@ const isDriverApproved = (driver) => {
     );
 };
 
-const getPostLoginRoute = (role, driver, routePrefix) => {
-    const normalizedRole = normalizeDriverRole(role);
-
-    if (normalizedRole === 'owner' || normalizedRole === 'driver') {
-        return isDriverApproved(driver)
-            ? normalizedRole === 'owner'
-                ? '/taxi/owner/home'
-                : '/taxi/driver/home'
-            : `${routePrefix}/registration-status`;
-    }
-
-    return '/taxi/driver/home';
-};
+const getPostLoginRoute = (driver) => (
+    isDriverApproved(driver) ? '/taxi/driver/home' : '/taxi/driver/registration-status'
+);
 
 const syncPushTokens = () => {
     window.__flushNativeFcmToken?.().catch?.(() => {});
@@ -69,7 +53,7 @@ const OTPVerification = () => {
         ...getStoredDriverRegistrationSession(),
         ...(location.state || {}),
     };
-    const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+    const routePrefix = '/taxi/driver';
 
     const phone = String(session.phone || '').replace(/\D/g, '').slice(-10);
     const role = session.role || 'driver';
@@ -145,18 +129,16 @@ const OTPVerification = () => {
 
                 const token = payload?.token;
                 if (token) {
-                    const normalizedRole = normalizeDriverRole(role);
-                    persistDriverAuthSession({ token, role: normalizedRole });
+                    persistDriverAuthSession({ token, role: 'driver' });
                     syncPushTokens();
                 }
 
                 clearDriverRegistrationSession();
-                const normalizedRole = normalizeDriverRole(role);
-                const nextPath = getPostLoginRoute(normalizedRole, payload?.driver, routePrefix);
+                const nextPath = getPostLoginRoute(payload?.driver);
                 navigate(nextPath, { 
                     replace: true, 
                     state: { 
-                        role: normalizedRole,
+                        role: 'driver',
                         token: payload?.token,
                         driver: payload?.driver
                     } 

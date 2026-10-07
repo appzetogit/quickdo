@@ -14,14 +14,16 @@ import { exportJoinRequestsToExcel, exportJoinRequestsToPDF } from "@food/compon
 const CLASS_LABELS = {
   two_wheeler: 'Has a 2 wheeler',
   passenger_taxi: 'Has a taxi for passengers',
+  // Retired with parcel delivery; kept so old applications still read.
   parcel_vehicle: 'Has a vehicle for parcels',
 }
 
 const INTENT_LABELS = {
-  food_daily_medical_parcel: 'Food + Daily needs + Medical + Bike parcel',
+  food_daily_medical_parcel: 'Food + Daily needs',
   bike_taxi_parcel: 'Bike Taxi',
   three_wheeler: '3 wheeler',
   four_wheeler: '4 wheeler',
+  // Retired with parcel delivery; kept so old applications still read.
   parcel_delivery: 'Parcel delivery',
   heavy_parcel_delivery: 'Heavy delivery',
 }
@@ -29,16 +31,15 @@ const INTENT_LABELS = {
 /**
  * Which capabilities each answer asks for. Fallback only: the server sends
  * `requestedCapabilities` worked out by the rule dispatch uses
- * (driverClasses.js). Kept in step with it: bike parcel goes with the
- * Food + Daily needs + Medical rider, Bike Taxi is passengers only.
+ * (driverClasses.js). Kept in step with it: the Food + Daily needs rider
+ * (stored key food_daily_medical_parcel) gets deliveries, Bike Taxi is passengers only.
+ * Parcel delivery was removed, so the old parcel answers ask for nothing.
  */
 const INTENT_CAPABILITIES = {
-  food_daily_medical_parcel: ['delivery', 'quickCommerce', 'parcel'],
+  food_daily_medical_parcel: ['delivery', 'quickCommerce'],
   bike_taxi_parcel: ['taxi'],
   three_wheeler: ['taxi'],
   four_wheeler: ['taxi'],
-  parcel_delivery: ['parcel'],
-  heavy_parcel_delivery: ['parcel'],
 }
 
 const capabilitiesRequestedBy = (intents) => {
@@ -596,11 +597,6 @@ export default function JoinRequest() {
                   ["delivery", "Food delivery"],
                   ["quickCommerce", "Quick Commerce"],
                   ["taxi", "Taxi rides"],
-                  // Parcel and porter jobs. Separate from taxi because they
-                  // are dispatched to the same drivers by the same service:
-                  // without its own box there is no way to approve someone
-                  // for boxes but not for passengers.
-                  ["parcel", "Parcel & Porter"],
                 ].map(([key, label]) => (
                   <label key={key} className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white cursor-pointer">
                     <input

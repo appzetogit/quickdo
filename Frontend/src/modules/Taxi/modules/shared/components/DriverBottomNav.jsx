@@ -1,69 +1,41 @@
 import React from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Briefcase,
-  Car,
   Home,
   IndianRupee,
   Trophy,
   User,
   History,
-  Users,
 } from "lucide-react";
 
 const DriverBottomNav = () => {
   const location = useLocation();
-  const role = String(localStorage.getItem("role") || "driver").toLowerCase();
-  const isOwner = role === "owner";
-  const routePrefix = isOwner ? "/taxi/owner" : "/taxi/driver";
+  const routePrefix = "/taxi/driver";
 
   // Matching user's latest screenshot labels: Home, History, Earnings, Accounts
-  const navItems = isOwner
-    ? [
-        {
-          icon: <Home size={22} />,
-          label: "Dashboard",
-          path: `${routePrefix}/dashboard`,
-        },
-        {
-          icon: <Users size={22} />,
-          label: "Drivers",
-          path: `${routePrefix}/manage-drivers`,
-        },
-        {
-          icon: <Car size={22} />,
-          label: "Vehicle",
-          path: `${routePrefix}/vehicle-fleet`,
-        },
-        {
-          icon: <User size={22} />,
-          label: "Account",
-          path: `${routePrefix}/profile`,
-        },
-      ]
-    : [
-        { icon: <Home size={22} />, label: "Home", path: `${routePrefix}/home` },
-        {
-          icon: <History size={22} />,
-          label: "History",
-          path: `${routePrefix}/history`,
-        },
-        {
-          icon: <IndianRupee size={22} />,
-          label: "Wallet",
-          path: `${routePrefix}/wallet`,
-        },
-        {
-          icon: <Trophy size={22} />,
-          label: "Milestone",
-          path: `${routePrefix}/incentives`,
-        },
-        {
-          icon: <User size={22} />,
-          label: "Accounts",
-          path: `${routePrefix}/profile`,
-        },
-      ];
+  const navItems = [
+    { icon: <Home size={22} />, label: "Home", path: `${routePrefix}/home` },
+    {
+      icon: <History size={22} />,
+      label: "History",
+      path: `${routePrefix}/history`,
+    },
+    {
+      icon: <IndianRupee size={22} />,
+      label: "Wallet",
+      path: `${routePrefix}/wallet`,
+    },
+    {
+      icon: <Trophy size={22} />,
+      label: "Milestone",
+      path: `${routePrefix}/incentives`,
+    },
+    {
+      icon: <User size={22} />,
+      label: "Accounts",
+      path: `${routePrefix}/profile`,
+    },
+  ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-100 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-md shadow-[0_-10px_30px_rgba(0,0,0,0.03)]">

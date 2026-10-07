@@ -11,7 +11,7 @@ import { addRealtimeNotification } from './modules/user/utils/realtimeNotificati
 import { clearLocalUserSession, getLocalUserToken } from './modules/user/services/authService';
 import { clearCurrentRide } from './modules/user/services/currentRideService';
 import { syncUpcomingRideReminders } from './modules/user/utils/upcomingRideReminderService';
-import { getAuthenticatedDriverRole, getLocalDriverToken } from './modules/driver/services/registrationService';
+import { getLocalDriverToken } from './modules/driver/services/registrationService';
 import { installBrowserFcmRegistration } from './shared/push/browserFcmRegistration';
 import { installNativeFcmBridge } from './shared/push/nativeFcmBridge';
 import './App.css';
@@ -33,9 +33,6 @@ const Chat = lazy(() => import('./modules/user/pages/ride/Chat'));
 const Support = lazy(() => import('./modules/user/pages/ride/Support'));
 const RideDetail = lazy(() => import('./modules/user/pages/ride/RideDetail'));
 
-// Parcel Module Pages
-const ParcelType = lazy(() => import('./modules/user/pages/parcel/ParcelType'));
-const SenderReceiverDetails = lazy(() => import('./modules/user/pages/parcel/SenderReceiverDetails'));
 
 // Profile & History
 const Activity = lazy(() => import('./modules/user/pages/Activity'));
@@ -55,9 +52,6 @@ const ServicesPage = lazy(() => import('./modules/shared/pages/ServicesPage'));
 const BlogPage = lazy(() => import('./modules/shared/pages/BlogPage'));
 const LinksPage = lazy(() => import('./modules/shared/pages/LinksPage'));
 
-// Phase 1 — Parcel flow completions
-const ParcelSearchingDriver = lazy(() => import('./modules/user/pages/parcel/ParcelSearchingDriver'));
-const ParcelTracking = lazy(() => import('./modules/user/pages/parcel/ParcelTracking'));
 
 // Phase 2 — Core utility pages
 const UserNotifications = lazy(() => import('./modules/user/pages/Notifications'));
@@ -118,7 +112,6 @@ const ApplicationStatus = lazy(() => import('./modules/driver/pages/registration
 
 // Driver Module - Core
 const DriverHome = lazy(() => import('./modules/driver/pages/DriverHome'));
-const OwnerDashboard = lazy(() => import('./modules/driver/pages/OwnerDashboard'));
 const ActiveTrip = lazy(() => import('./modules/driver/pages/ActiveTrip'));
 const DriverWallet = lazy(() => import('./modules/driver/pages/DriverWallet'));
 const DriverProfile = lazy(() => import('./modules/driver/pages/DriverProfile'));
@@ -137,10 +130,6 @@ const DriverSupport = lazy(() => import('./modules/driver/pages/settings/Support
 const DriverHelpSupportOptions = lazy(() => import('./modules/driver/pages/settings/HelpSupportOptions'));
 const DriverSupportChat = lazy(() => import('./modules/driver/pages/settings/SupportChat'));
 const VehicleFleet = lazy(() => import('./modules/driver/pages/settings/VehicleFleet'));
-const OwnerVehicleFleet = lazy(() => import('./modules/driver/pages/settings/OwnerVehicleFleet'));
-const AddVehicle = lazy(() => import('./modules/driver/pages/settings/AddVehicle'));
-const ManageDrivers = lazy(() => import('./modules/driver/pages/settings/ManageDrivers'));
-const AddDriver = lazy(() => import('./modules/driver/pages/settings/AddDriver'));
 
 // Admin Module Pages
 const AdminLayout = lazy(() => import('./modules/admin/components/AdminLayout'));
@@ -149,7 +138,6 @@ const AdminDashboard = lazy(() => import('./modules/admin/pages/dashboard/MainDa
 const AdminEarnings = lazy(() => import('./modules/admin/pages/dashboard/AdminEarnings'));
 const AdminChat = lazy(() => import('./modules/admin/pages/operations/Chat'));
 const AdminTrips = lazy(() => import('./modules/admin/pages/operations/Trips'));
-const AdminDeliveries = lazy(() => import('./modules/admin/pages/operations/Deliveries'));
 const AdminOngoing = lazy(() => import('./modules/admin/pages/operations/Ongoing'));
 const AdminWalletPayment = lazy(() => import('./modules/admin/pages/wallet/WalletPayment'));
 const AdminUserList = lazy(() => import('./modules/admin/pages/users/UserList'));
@@ -201,7 +189,6 @@ const AdminCreatePackagePrice = lazy(() => import('./modules/admin/pages/price-m
 const AdminDriverIncentive = lazy(() => import('./modules/admin/pages/price-management/DriverIncentive'));
 const AdminSurgePricing = lazy(() => import('./modules/admin/pages/price-management/SurgePricing'));
 const AdminVehicleType = lazy(() => import('./modules/admin/pages/price-management/VehicleType'));
-const AdminGoodsTypes = lazy(() => import('./modules/admin/pages/price-management/GoodsTypes'));
 const AdminPricingPlaceholder = ({ title }) => (
   <div className="flex flex-col items-center justify-center min-h-[500px] text-gray-400 bg-white rounded-[32px] border border-gray-100 shadow-sm p-10">
     <MapPin size={60} strokeWidth={1} className="mb-6 opacity-20" />
@@ -210,25 +197,6 @@ const AdminPricingPlaceholder = ({ title }) => (
   </div>
 );
 
-const AdminOwnerDashboard = lazy(() => import('./modules/admin/pages/owners/OwnerDashboard'));
-const AdminManageOwners = lazy(() => import('./modules/admin/pages/owners/ManageOwners'));
-const AdminPendingOwners = lazy(() => import('./modules/admin/pages/owners/PendingOwners'));
-const AdminOwnerDetails = lazy(() => import('./modules/admin/pages/owners/OwnerDetails'));
-const AdminOwnerCreate = lazy(() => import('./modules/admin/pages/owners/OwnerCreate'));
-const AdminOwnerPasswordUpdate = lazy(() => import('./modules/admin/pages/owners/OwnerPasswordUpdate'));
-const AdminOwnerNeededDocuments = lazy(() => import('./modules/admin/pages/owners/OwnerNeededDocuments'));
-const AdminOwnerNeededDocumentsCreate = lazy(() => import('./modules/admin/pages/owners/OwnerNeededDocumentsCreate'));
-const AdminManageFleet = lazy(() => import('./modules/admin/pages/owners/ManageFleet'));
-const AdminManageFleetCreate = lazy(() => import('./modules/admin/pages/owners/ManageFleetCreate'));
-const AdminFleetDrivers = lazy(() => import('./modules/admin/pages/owners/FleetDrivers'));
-const AdminFleetDriverCreate = lazy(() => import('./modules/admin/pages/owners/FleetDriverCreate'));
-const AdminBlockedFleetDrivers = lazy(() => import('./modules/admin/pages/owners/BlockedFleetDrivers'));
-const AdminFleetNeededDocuments = lazy(() => import('./modules/admin/pages/owners/FleetNeededDocuments'));
-const AdminFleetNeededDocumentsCreate = lazy(() => import('./modules/admin/pages/owners/FleetNeededDocumentsCreate'));
-const AdminWithdrawalRequestOwners = lazy(() => import('./modules/admin/pages/owners/WithdrawalRequestOwners'));
-const AdminWithdrawalRequestOwnerDetail = lazy(() => import('./modules/admin/pages/owners/WithdrawalRequestOwnerDetail'));
-const AdminDeletedOwners = lazy(() => import('./modules/admin/pages/owners/DeletedOwners'));
-const AdminOwnerBookings = lazy(() => import('./modules/admin/pages/owners/OwnerBookings'));
 
 const AdminGeoFencing = lazy(() => import('./modules/admin/pages/geo/GeoFencing'));
 const AdminHeatMap = lazy(() => import('./modules/admin/pages/geo/HeatMap'));
@@ -266,9 +234,7 @@ const AdminSupportTickets = lazy(() => import('./modules/admin/pages/support/Sup
 const AdminUserReport = lazy(() => import('./modules/admin/pages/reports/UserReport'));
 const AdminDriverReport = lazy(() => import('./modules/admin/pages/reports/DriverReport'));
 const AdminDriverDutyReport = lazy(() => import('./modules/admin/pages/reports/DriverDutyReport'));
-const AdminOwnerReport = lazy(() => import('./modules/admin/pages/reports/OwnerReport'));
 const AdminFinanceReport = lazy(() => import('./modules/admin/pages/reports/FinanceReport'));
-const AdminFleetFinanceReport = lazy(() => import('./modules/admin/pages/reports/FleetFinanceReport'));
 
 // Masters Management
 const AdminLanguages = lazy(() => import('./modules/admin/pages/masters/Languages'));
@@ -392,7 +358,6 @@ const UserAccountInvalidationListener = () => {
       !location.pathname.startsWith('/admin') &&
       !location.pathname.startsWith('/user-import') &&
       !location.pathname.startsWith('/driver-import') &&
-      !location.pathname.startsWith('/owner') &&
       !location.pathname.startsWith('/taxi/driver');
 
     if (!isUserRoute) {
@@ -546,22 +511,12 @@ const UserUpcomingRideReminderBootstrap = () => {
 
 const DriverEntryRedirect = () => {
   const token = getLocalDriverToken();
-  const role = String(getAuthenticatedDriverRole() || 'driver').toLowerCase();
 
   if (!token) {
     return <Navigate to="/taxi/driver/login" replace />;
   }
 
-  return (
-    <Navigate
-      to={
-        role === 'owner'
-          ? '/taxi/owner/dashboard'
-          : '/taxi/driver/home'
-      }
-      replace
-    />
-  );
+  return <Navigate to="/taxi/driver/home" replace />;
 };
 
 function TaxiApp() {
@@ -618,19 +573,6 @@ function TaxiApp() {
               <Route path="ride/chat" element={<Chat />} />
               <Route path="support" element={<Support />} />
               <Route path="ride/detail/:id" element={<RideDetail />} />
-
-              <Route path="parcel/type" element={<ParcelType />} />
-              <Route path="parcel/details" element={<SenderReceiverDetails />} />
-              <Route
-                path="parcel/contacts"
-                element={<SenderReceiverDetails />}
-              />
-              <Route
-                path="parcel/searching"
-                element={<ParcelSearchingDriver />}
-              />
-              <Route path="parcel/tracking" element={<ParcelTracking />} />
-              <Route path="parcel/detail/:id" element={<RideDetail />} />
 
               {/* New Service Routes — Real pages replacing ComingSoon */}
               <Route path="intercity" element={<IntercityHome />} />
@@ -726,28 +668,6 @@ function TaxiApp() {
               <Route path="user/safety/report-driver" element={<UserReportDriver />} />
               <Route path="user/safety/trip-sharing" element={<UserTripSharing />} />
               <Route path="user/safety/tips" element={<UserSafetyTips />} />
-
-              <Route path="user/parcel/type" element={<ParcelType />} />
-              <Route
-                path="user/parcel/details"
-                element={<SenderReceiverDetails />}
-              />
-              <Route
-                path="user/parcel/contacts"
-                element={<SenderReceiverDetails />}
-              />
-              <Route
-                path="user/parcel/searching"
-                element={<ParcelSearchingDriver />}
-              />
-              <Route
-                path="user/parcel/tracking"
-                element={<ParcelTracking />}
-              />
-              <Route
-                path="user/parcel/detail/:id"
-                element={<RideDetail />}
-              />
 
               <Route path="user/intercity" element={<IntercityHome />} />
               <Route
@@ -884,50 +804,6 @@ function TaxiApp() {
                 path="vehicle-fleet/edit/:vehicleId"
                 element={<VehicleFleet />}
               />
-              <Route path="add-vehicle" element={<AddVehicle />} />
-              <Route path="manage-drivers" element={<ManageDrivers />} />
-              <Route path="add-driver" element={<AddDriver />} />
-              <Route path="edit-driver/:driverId" element={<AddDriver />} />
-            </Route>
-
-            <Route path="owner" element={<DriverLayout />}>
-              <Route index element={<DriverEntryRedirect />} />
-              <Route path="login" element={<PhoneRegistration />} />
-              <Route path="reg-phone" element={<PhoneRegistration />} />
-              <Route path="otp-verify" element={<OTPVerification />} />
-              <Route path="lang-select" element={<LanguageSelect />} />
-              <Route path="step-personal" element={<StepPersonal />} />
-              <Route path="step-referral" element={<StepReferral />} />
-              <Route path="step-vehicle" element={<StepVehicle />} />
-              <Route path="step-documents" element={<StepDocuments />} />
-              <Route path="registration-status" element={<RegistrationStatus />} />
-              <Route path="status" element={<ApplicationStatus />} />
-              <Route path="home" element={<OwnerDashboard />} />
-              <Route path="dashboard" element={<OwnerDashboard />} />
-              <Route path="profile" element={<DriverProfile />} />
-              <Route path="wallet" element={<DriverWallet />} />
-              <Route path="history" element={<RideRequests />} />
-              <Route path="edit-profile" element={<EditProfile />} />
-              <Route path="documents" element={<DriverDocuments />} />
-              <Route path="notifications" element={<Notifications />} />
-              <Route path="payout-methods" element={<PayoutMethods />} />
-              <Route path="referral" element={<Referral />} />
-              <Route path="delete-account" element={<DriverDeleteAccount />} />
-              <Route path="security" element={<SecuritySOS />} />
-              <Route path="support" element={<DriverSupport />} />
-              <Route path="help-support" element={<DriverHelpSupportOptions />} />
-              <Route path="support/chat" element={<DriverSupportChat />} />
-              <Route path="support/tickets" element={<SupportTickets />} />
-              <Route path="support/ticket/:id" element={<SupportTicketDetail />} />
-              <Route path="vehicle-fleet" element={<OwnerVehicleFleet />} />
-              <Route
-                path="vehicle-fleet/edit/:vehicleId"
-                element={<OwnerVehicleFleet />}
-              />
-              <Route path="add-vehicle" element={<AddVehicle />} />
-              <Route path="manage-drivers" element={<ManageDrivers />} />
-              <Route path="add-driver" element={<AddDriver />} />
-              <Route path="edit-driver/:driverId" element={<AddDriver />} />
             </Route>
 
             {/* Admin Module Routes */}
@@ -938,16 +814,12 @@ function TaxiApp() {
             <Route path="driver-import/create" element={<AdminLayout />}>
               <Route index element={<AdminDriverImportCreate />} />
             </Route>
-            <Route path="owner/create" element={<AdminLayout />}>
-              <Route index element={<AdminOwnerCreate />} />
-            </Route>
             <Route path="admin" element={<AdminLayout />}>
               <Route index element={<Navigate to="/taxi/admin/dashboard" />} />
               <Route path="dashboard" element={<AdminDashboard />} />
               <Route path="earnings" element={<AdminEarnings />} />
               <Route path="chat" element={<AdminChat />} />
               <Route path="trips" element={<AdminTrips />} />
-              <Route path="deliveries" element={<AdminDeliveries />} />
               <Route path="ongoing" element={<AdminOngoing />} />
               <Route path="wallet/payment" element={<AdminWalletPayment />} />
               <Route path="users" element={<AdminUserList />} />
@@ -1088,62 +960,6 @@ function TaxiApp() {
               {/* One admin-accounts screen for every panel, under Master. */}
               <Route path="management/admins/*" element={<Navigate to="/admin/master/admins" replace />} />
 
-              {/* Owner Management */}
-              <Route
-                path="owners/dashboard"
-                element={<AdminOwnerDashboard />}
-              />
-              <Route path="owners/pending" element={<AdminPendingOwners />} />
-              <Route path="owners" element={<AdminManageOwners />} />
-              <Route path="owners/create" element={<AdminOwnerCreate />} />
-              <Route
-                path="owners/:id/password"
-                element={<AdminOwnerPasswordUpdate />}
-              />
-              <Route path="owners/:id" element={<AdminOwnerDetails />} />
-              <Route
-                path="owners/wallet/withdrawals"
-                element={<AdminWithdrawalRequestOwners />}
-              />
-              <Route
-                path="owners/wallet/withdrawals/:id"
-                element={<AdminWithdrawalRequestOwnerDetail />}
-              />
-              <Route path="fleet/drivers" element={<AdminFleetDrivers />} />
-              <Route
-                path="fleet/drivers/create"
-                element={<AdminFleetDriverCreate />}
-              />
-              <Route
-                path="fleet/blocked"
-                element={<AdminBlockedFleetDrivers />}
-              />
-              <Route
-                path="fleet/documents"
-                element={<AdminFleetNeededDocuments />}
-              />
-              <Route
-                path="fleet/documents/create"
-                element={<AdminFleetNeededDocumentsCreate />}
-              />
-              <Route path="fleet/manage" element={<AdminManageFleet />} />
-              <Route
-                path="fleet/manage/create"
-                element={<AdminManageFleetCreate />}
-              />
-              <Route
-                path="owners/documents"
-                element={<AdminOwnerNeededDocuments />}
-              />
-              <Route
-                path="owners/documents/create"
-                element={<AdminOwnerNeededDocumentsCreate />}
-              />
-              <Route path="owners/deleted" element={<AdminDeletedOwners />} />
-              <Route
-                path="owners/bookings"
-                element={<AdminOwnerBookings />}
-              />
               <Route
                 path="referrals/config"
                 element={
@@ -1258,15 +1074,6 @@ function TaxiApp() {
                   element={<AdminSurgePricing />}
                 />
                 <Route path="surge" element={<AdminSurgePricing />} />
-                <Route path="goods-types" element={<AdminGoodsTypes />} />
-                <Route
-                  path="goods-types/create"
-                  element={<AdminGoodsTypes mode="create" />}
-                />
-                <Route
-                  path="goods-types/edit/:id"
-                  element={<AdminGoodsTypes mode="edit" />}
-                />
               </Route>
               {/* Safety */}
               <Route path="safety/sos" element={<AdminSafetyCenter />} />
@@ -1297,14 +1104,9 @@ function TaxiApp() {
                 path="reports/driver-duty"
                 element={<AdminDriverDutyReport />}
               />
-              <Route path="reports/owner" element={<AdminOwnerReport />} />
               <Route
                 path="reports/finance"
                 element={<AdminFinanceReport />}
-              />
-              <Route
-                path="reports/fleet-finance"
-                element={<AdminFleetFinanceReport />}
               />
 
               {/* Masters Management */}

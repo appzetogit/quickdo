@@ -20,12 +20,6 @@ const FeaturesHighlight = () => {
       title: 'Outstation',
       description: 'Comfortable trips for intercity travel.',
       image: 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=400&q=80',
-    },
-    {
-      id: 4,
-      title: 'Fast Delivery',
-      description: 'Instant parcel drop-offs across the city.',
-      image: 'https://images.unsplash.com/photo-1586528116311-ad8ed7c50a30?auto=format&fit=crop&w=400&q=80',
     }
   ];
 

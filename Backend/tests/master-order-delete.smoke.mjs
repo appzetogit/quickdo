@@ -28,10 +28,10 @@ const paidQc = await ins(QcOrder, { order_id: 'QC-D', orderStatus: 'delivered', 
 const doneRide = await ins(Ride, { serviceType: 'parcel', status: 'cancelled', liveStatus: 'cancelled', fare: 50 });
 const liveRide = await ins(Ride, { serviceType: 'ride', status: 'accepted', liveStatus: 'accepted', fare: 90 });
 
-await check('a cancelled Food order and an unpaid Medical order are deleted', async () => {
+await check('a cancelled Food order and an unpaid legacy MED- order are deleted', async () => {
   assert.equal((await deleteMasterOrder({ source: 'food', id: String(cancelledFood) })).deleted, true);
   assert.equal(await FoodOrder.collection.findOne({ _id: cancelledFood }), null);
-  assert.equal((await deleteMasterOrder({ source: 'medical', id: String(unpaidMed) })).deleted, true);
+  assert.equal((await deleteMasterOrder({ source: 'quick', id: String(unpaidMed) })).deleted, true);
   assert.equal(await QcOrder.collection.findOne({ _id: unpaidMed }), null);
 });
 
@@ -46,7 +46,8 @@ await check('a delivered, paid Quick order is refused (payment and payouts stay)
 });
 
 await check('a finished trip is removed from the lists; a live one is refused', async () => {
-  await deleteMasterOrder({ source: 'parcel', id: String(doneRide) });
+  // An old parcel trip is deleted as a ride (parcel delivery was removed).
+  await deleteMasterOrder({ source: 'taxi', id: String(doneRide) });
   const { orders } = await listMasterOrders({ tab: 'all' });
   assert.ok(!orders.some((o) => o._id === String(doneRide)));
   await assert.rejects(deleteMasterOrder({ source: 'taxi', id: String(liveRide) }), /in progress/);

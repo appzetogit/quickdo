@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
@@ -102,7 +102,6 @@ const createScheduledRidePreview = (ride) => ({
     fare: ride.fare,
     baseFare: ride.baseFare,
     bookingMode: ride.bookingMode || 'normal',
-    parcel: ride.parcel || null,
     intercity: ride.intercity || null,
     user: ride.user || null,
     pickupAddress: ride.pickupAddress || '',
@@ -125,8 +124,7 @@ const SkeletonCard = () => (
 
 const DriverNotifications = () => {
   const navigate = useNavigate();
-  const location = useLocation();
-  const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+  const routePrefix = '/taxi/driver';
   const [activeTab, setActiveTab] = useState('alerts');
   const [alertItems, setAlertItems] = useState([]);
   const [scheduledRides, setScheduledRides] = useState([]);
@@ -280,7 +278,7 @@ const DriverNotifications = () => {
 
       <header className="bg-white/90 backdrop-blur-md px-5 pt-10 pb-4 sticky top-0 z-20 border-b border-white/80 shadow-[0_4px_20px_rgba(15,23,42,0.05)]">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(`${routePrefix}/${routePrefix === '/taxi/owner' ? 'dashboard' : 'home'}`)} className="w-9 h-9 rounded-[12px] border border-white/80 bg-white/90 flex items-center justify-center shadow-sm active:scale-95 transition-all">
+          <button onClick={() => navigate(`${routePrefix}/home`)} className="w-9 h-9 rounded-[12px] border border-white/80 bg-white/90 flex items-center justify-center shadow-sm active:scale-95 transition-all">
             <ArrowLeft size={18} className="text-slate-900" strokeWidth={2.5} />
           </button>
           <div className="flex-1 min-w-0">
@@ -478,7 +476,7 @@ const DriverNotifications = () => {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[13px] leading-tight font-black text-slate-900">
-                        {ride.type === 'parcel' ? 'Scheduled delivery' : ride.type === 'intercity' ? 'Scheduled intercity ride' : 'Scheduled ride'}
+                        {ride.type === 'intercity' ? 'Scheduled intercity ride' : 'Scheduled ride'}
                       </p>
                       <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-blue-500">
                         {formatScheduledDateTime(ride.scheduledAt)}

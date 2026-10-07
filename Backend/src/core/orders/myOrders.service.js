@@ -20,9 +20,7 @@ import mongoose from 'mongoose';
 const SERVICE_LABEL = {
   food: 'Food',
   quick: 'Quick',
-  medical: 'Medical',
   taxi: 'Rides',
-  parcel: 'Parcel',
   services: 'Services',
 };
 
@@ -87,7 +85,7 @@ const itemsSummary = (items = []) => {
 async function sellerNames(collection, ids) {
   const list = [...new Set(ids.map(String).filter(isId))];
   if (!list.length) return new Map();
-  const rows = await coll(collection).find({ _id: { $in: list.map(oid) } }).project({ restaurantName: 1, storeType: 1 }).toArray();
+  const rows = await coll(collection).find({ _id: { $in: list.map(oid) } }).project({ restaurantName: 1 }).toArray();
   return new Map(rows.map((r) => [String(r._id), r]));
 }
 
@@ -102,12 +100,11 @@ async function storeOrders({ collection, sellers, userIds, before, limit, key, r
   const names = await sellerNames(sellers, docs.map((d) => d.restaurantId));
   return docs.map((d) => {
     const seller = names.get(String(d.restaurantId));
-    const service = key === 'quick' && String(seller?.storeType || '').toLowerCase() === 'pharmacy' ? 'medical' : key;
     return {
       key: `${key}:${d._id}`,
       id: String(d._id),
-      service,
-      serviceLabel: SERVICE_LABEL[service],
+      service: key,
+      serviceLabel: SERVICE_LABEL[key],
       number: d.order_id || (typeof d.orderId === 'string' ? d.orderId : '') || String(d._id).slice(-6).toUpperCase(),
       title: seller?.restaurantName || 'Order',
       subtitle: itemsSummary(d.items),
@@ -120,29 +117,23 @@ async function storeOrders({ collection, sellers, userIds, before, limit, key, r
   });
 }
 
-const TAXI_SERVICE = (d) => {
-  const t = String(d.serviceType || '').toLowerCase();
-  if (t.includes('parcel') || t === 'delivery' || d.parcel) return 'parcel';
-  return 'taxi';
-};
-
 async function rides({ userId, before, limit }) {
   const docs = await coll('taxirides')
     .find({ userId: oid(userId), createdAt: { $lt: before } })
     .sort({ createdAt: -1 })
     .limit(limit)
-    .project({ status: 1, serviceType: 1, parcel: 1, pickupAddress: 1, dropAddress: 1, fare: 1, createdAt: 1, completedAt: 1 })
+    .project({ status: 1, pickupAddress: 1, dropAddress: 1, fare: 1, createdAt: 1, completedAt: 1 })
     .toArray();
+  // Old parcel trips (parcel delivery was removed) are listed as rides.
   return docs.map((d) => {
-    const service = TAXI_SERVICE(d);
     const to = String(d.dropAddress || '').split(',')[0].trim();
     return {
       key: `taxi:${d._id}`,
       id: String(d._id),
-      service,
-      serviceLabel: SERVICE_LABEL[service],
+      service: 'taxi',
+      serviceLabel: SERVICE_LABEL.taxi,
       number: String(d._id).slice(-6).toUpperCase(),
-      title: to ? `${service === 'parcel' ? 'Parcel' : 'Ride'} to ${to}` : SERVICE_LABEL[service],
+      title: to ? `Ride to ${to}` : SERVICE_LABEL.taxi,
       subtitle: [d.pickupAddress, d.dropAddress].filter(Boolean).map((a) => String(a).split(',')[0].trim()).join(' → '),
       amount: Number(d.fare) || 0,
       state: rideState(d.status),
@@ -181,7 +172,7 @@ async function bookings({ userIds, before, limit }) {
 
 /* ------------------------------------------------------------------ list */
 
-const SERVICE_FILTERS = ['food', 'quick', 'medical', 'taxi', 'parcel', 'services'];
+const SERVICE_FILTERS = ['food', 'quick', 'taxi', 'services'];
 
 /**
  * @param {string} userId  the signed-in customer's platform id
@@ -205,8 +196,8 @@ export async function listMyOrders(userId, query = {}) {
   const want = (keys) => !service || keys.includes(service);
   const lists = await Promise.all([
     want(['food']) ? storeOrders({ collection: 'food_orders', sellers: 'food_restaurants', userIds: [oid(userId)], before, limit, key: 'food', route: (id) => `/food/orders/${id}` }) : [],
-    want(['quick', 'medical']) ? storeOrders({ collection: 'qc_orders', sellers: 'qc_restaurants', userIds: qcIds, before, limit, key: 'quick', route: (id) => `/qc/order/${id}` }) : [],
-    want(['taxi', 'parcel']) ? rides({ userId, before, limit }) : [],
+    want(['quick']) ? storeOrders({ collection: 'qc_orders', sellers: 'qc_restaurants', userIds: qcIds, before, limit, key: 'quick', route: (id) => `/qc/order/${id}` }) : [],
+    want(['taxi']) ? rides({ userId, before, limit }) : [],
     want(['services']) ? bookings({ userIds: spIds, before, limit }) : [],
   ]);
 

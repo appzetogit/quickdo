@@ -12,7 +12,6 @@ import {
   RIDE_LIVE_STATUS,
   RIDE_STATUS,
 } from '../constants/index.js';
-import { Delivery } from '../user/models/Delivery.js';
 import { getRideRoom, resolveSetPriceForRide } from './rideService.js';
 import { SOCKET_EVENTS } from '../socket/events.js';
 import { resolveTransportDispatchConfig, getTransportRideSettings } from './transportSettingsService.js';
@@ -39,10 +38,6 @@ const ensureUserWallet = async (userId, session = null) => {
 const normalizeRideTransportType = (ride) => {
   const serviceType = String(ride?.serviceType || '').trim().toLowerCase();
   const transportType = String(ride?.transport_type || '').trim().toLowerCase();
-
-  if (serviceType === 'parcel') {
-    return transportType === 'both' ? 'delivery' : (transportType || 'delivery');
-  }
 
   if (serviceType === 'intercity') {
     return 'intercity';
@@ -598,7 +593,6 @@ const emitRideRequestToDrivers = async ({
       fareIncreaseWaitMinutes: Number(ride.fareIncreaseWaitMinutes || 0),
       nextFareIncreaseAt: ride.nextFareIncreaseAt || null,
       paymentMethod: ride.paymentMethod,
-      parcel: ride.parcel || null,
       intercity: ride.intercity || null,
       radius: effectiveRadius,
       attempt: attemptIndex + 1,
@@ -615,7 +609,7 @@ const emitRideRequestToDrivers = async ({
     // Data-only, like food offers: a notification push lands silently in the
     // tray of a locked phone and the delivery app never rings for it.
     dataOnly: true,
-    title: ride.serviceType === 'parcel' ? 'New parcel delivery' : 'New ride request',
+    title: 'New ride request',
     body: ride.pickupAddress
       ? `Pickup: ${ride.pickupAddress}`
       : 'A new booking is waiting for your response.',
@@ -644,11 +638,9 @@ const emitRideRequestToDrivers = async ({
       earningAmount: String(ride.fare || 0),
       // One explicit label the native card's heading switches on, instead of
       // guessing from a mix of `type`/`serviceType`/order-code-prefix the
-      // way the Food/QC path still has to. Porter has no distinct backend
-      // concept today -- it is a `parcel` service-type ride like Bike Parcel,
-      // told apart only by vehicle class, which this payload does not carry
-      // -- so both read as 'parcel' here.
-      jobType: ride.serviceType === 'parcel' ? 'parcel' : 'taxi',
+      // way the Food/QC path still has to. Taxi offers are always 'taxi'
+      // (parcel delivery was removed).
+      jobType: 'taxi',
     },
   }).catch((error) => {
     console.error('Failed to send driver ride-request push notification', error);
@@ -680,13 +672,6 @@ const closeRideAsUnmatched = async (rideId) => {
 
   if (!ride) {
     return;
-  }
-
-  if (ride.deliveryId) {
-    await Delivery.findByIdAndUpdate(ride.deliveryId, {
-      status: ride.status,
-      liveStatus: ride.liveStatus,
-    });
   }
 
   // Free the driver if one was ever assigned (e.g. after a cancel+re-dispatch that went unmatched),
@@ -738,14 +723,6 @@ export const cancelRideByAdmin = async (rideId) => {
     ride.biddingStatus = 'cancelled';
   }
   await ride.save();
-
-  if (ride.deliveryId) {
-    await Delivery.findByIdAndUpdate(ride.deliveryId, {
-      driverId: ride.driverId || null,
-      status: ride.status,
-      liveStatus: ride.liveStatus,
-    });
-  }
 
   await Promise.all([
     User.findByIdAndUpdate(ride.userId, { currentRideId: null }),
@@ -843,14 +820,6 @@ export const cancelRideByUser = async ({ rideId, userId, reason = '' }) => {
       ride.biddingStatus = 'cancelled';
     }
     await ride.save({ session });
-
-    if (ride.deliveryId) {
-      await Delivery.findByIdAndUpdate(ride.deliveryId, {
-        driverId: ride.driverId || null,
-        status: ride.status,
-        liveStatus: ride.liveStatus,
-      }, { session });
-    }
 
     await Promise.all([
       // ponytail: settleUserCancellationFee already $inc'd pending_cancellation_due;
@@ -1025,14 +994,6 @@ export const cancelScheduledRideByDriver = async ({ rideId, driverId }) => {
     }
     await ride.save({ session });
 
-    if (ride.deliveryId) {
-      await Delivery.findByIdAndUpdate(ride.deliveryId, {
-        driverId: ride.driverId || null,
-        status: ride.status,
-        liveStatus: ride.liveStatus,
-      }, { session });
-    }
-
     await Promise.all([
       User.findByIdAndUpdate(ride.userId, { currentRideId: null }, { session }),
       ride.driverId ? Driver.findByIdAndUpdate(ride.driverId, { isOnRide: false }, { session }) : Promise.resolve(),
@@ -1160,14 +1121,6 @@ export const cancelActiveRideByDriver = async ({ rideId, driverId, reason = '' }
     }
     await ride.save({ session });
 
-    if (ride.deliveryId) {
-      await Delivery.findByIdAndUpdate(ride.deliveryId, {
-        driverId: null,
-        status: ride.status,
-        liveStatus: ride.liveStatus,
-      }, { session });
-    }
-
     if (previousDriverId) {
       await Driver.findByIdAndUpdate(previousDriverId, { isOnRide: false }, { session });
       await releaseDriverAssignment(previousDriverId, ride._id, session);
@@ -1268,9 +1221,6 @@ const dispatchAttempt = async (rideId, attemptIndex = 0) => {
       vehicleTypeId: ride.vehicleTypeId,
       vehicleTypeIds: dispatchVehicleTypeIds,
       transportType: normalizeRideTransportType(ride),
-      // 'parcel' sends this to drivers approved to carry parcels rather
-      // than to every taxi driver in range.
-      serviceType: ride.serviceType,
     });
     const effectiveRadius = Number.isFinite(searchRadiusMeters) && searchRadiusMeters > 0
       ? searchRadiusMeters
@@ -1447,9 +1397,6 @@ export const notifyLateAvailableDriver = async (driverId) => {
       vehicleTypeId: ride.vehicleTypeId,
       vehicleTypeIds: dispatchVehicleTypeIds,
       transportType: normalizeRideTransportType(ride),
-      // 'parcel' sends this to drivers approved to carry parcels rather
-      // than to every taxi driver in range.
-      serviceType: ride.serviceType,
     });
 
     const matchedDriver = drivers.find((item) => String(item._id) === driverKey);
@@ -1523,7 +1470,6 @@ export const notifyRideAccepted = async (ride) => {
     vehicleIconType: populatedRide.vehicleIconType || '',
     vehicleIconUrl: populatedRide.vehicleIconUrl || '',
     driver: populatedRide.driverId,
-    parcel: populatedRide.parcel || null,
   });
 
   emitToRoom(getUserRoom(populatedRide.userId), SOCKET_EVENTS.RIDE_STATE, {
@@ -1540,7 +1486,6 @@ export const notifyRideAccepted = async (ride) => {
     otp: populatedRide.otp || '',
     vehicleIconType: populatedRide.vehicleIconType || '',
     vehicleIconUrl: populatedRide.vehicleIconUrl || '',
-    parcel: populatedRide.parcel || null,
     intercity: populatedRide.intercity || null,
     commissionAmount: populatedRide.commissionAmount,
     driverEarnings: populatedRide.driverEarnings,

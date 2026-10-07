@@ -4,7 +4,7 @@
  * Run: node tests/my-orders.smoke.mjs
  *
  * What this guards:
- *   - Food, Quick, Medical, rides, parcel and Services bookings appear in one
+ *   - Food, Quick (old MED- pharmacy orders included), rides (old parcel trips included) and Services bookings appear in one
  *     newest-first list, each with the route of its own detail screen;
  *   - Quick and Services orders are found through the customer's own rows in
  *     those services (platformUserId, else the same phone);
@@ -86,7 +86,7 @@ const all = await listMyOrders(String(asha), {});
 console.log('\nOne list');
 await check('every service, newest first, nobody else\'s, no unpaid checkout', async () => {
   assert.deepEqual(all.items.map((i) => i.number), ['BK-7', all.items[1].number, 'MED-1', 'QC-1', all.items[4].number, 'FOD-3', 'FOD-1']);
-  assert.deepEqual(all.items.map((i) => i.service), ['services', 'parcel', 'medical', 'quick', 'taxi', 'food', 'food']);
+  assert.deepEqual(all.items.map((i) => i.service), ['services', 'taxi', 'quick', 'quick', 'taxi', 'food', 'food']);
   assert.ok(!all.items.some((i) => i.number === 'FOD-2' || i.number === 'FOD-X'));
 });
 await check('each row names what it was and opens its own detail screen', async () => {
@@ -94,12 +94,14 @@ await check('each row names what it was and opens its own detail screen', async 
   assert.equal(by.food.title, 'Joy');
   assert.equal(all.items.find((i) => i.number === 'FOD-1').subtitle, '2 × Paneer Tikka, +1 more');
   assert.equal(all.items.find((i) => i.number === 'FOD-1').route, `/food/orders/${food1}`);
-  assert.equal(by.medical.title, 'Sharma Medical');
-  assert.equal(by.medical.route, `/qc/order/${med}`);
+  const med1 = all.items.find((i) => i.number === 'MED-1');
+  assert.equal(med1.title, 'Sharma Medical');
+  assert.equal(med1.route, `/qc/order/${med}`);
   assert.equal(by.taxi.title, 'Ride to Tea Garden');
   assert.equal(by.taxi.subtitle, 'Bus Stand → Tea Garden');
   assert.equal(by.taxi.route, `/taxi/rides/${ride}`);
-  assert.equal(by.parcel.title, 'Parcel to Office');
+  // An old parcel trip is listed as a ride.
+  assert.equal(all.items[1].title, 'Ride to Office');
   assert.equal(by.services.title, 'AC repair');
   assert.match(by.services.subtitle, /^For .*, 10:00$/);
   assert.equal(by.services.amount, 499);
@@ -116,12 +118,15 @@ await check('states and labels', async () => {
 console.log('\nFilters and paging');
 await check('ongoing only, and past only', async () => {
   const on = await listMyOrders(String(asha), { state: 'ongoing' });
-  assert.deepEqual(on.items.map((i) => i.number).sort(), ['BK-7', 'MED-1', 'QC-1', on.items.find((i) => i.service === 'parcel').number].sort());
+  assert.deepEqual(on.items.map((i) => i.number).sort(), ['BK-7', 'MED-1', 'QC-1', on.items.find((i) => i.service === 'taxi').number].sort());
   const past = await listMyOrders(String(asha), { state: 'past' });
   assert.deepEqual(past.items.map((i) => i.state).sort(), ['cancelled', 'completed', 'completed']);
 });
 await check('one service at a time', async () => {
-  assert.deepEqual((await listMyOrders(String(asha), { service: 'medical' })).items.map((i) => i.number), ['MED-1']);
+  // No Medical or Parcel filter any more: an unknown service means every service.
+  assert.equal((await listMyOrders(String(asha), { service: 'medical' })).items.length, all.items.length);
+  assert.equal((await listMyOrders(String(asha), { service: 'parcel' })).items.length, all.items.length);
+  assert.deepEqual((await listMyOrders(String(asha), { service: 'quick' })).items.map((i) => i.number), ['MED-1', 'QC-1']);
   assert.deepEqual((await listMyOrders(String(asha), { service: 'food' })).items.map((i) => i.number), ['FOD-3', 'FOD-1']);
 });
 await check('paging with nextBefore walks the whole list once', async () => {

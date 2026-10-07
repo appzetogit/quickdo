@@ -157,7 +157,7 @@ export const SettingsProvider = ({ children }) => {
 
   useEffect(() => {
     const pathname = location.pathname;
-    if (pathname.startsWith('/admin') || pathname.startsWith('/taxi/admin') || pathname.startsWith('/taxi/owner') || pathname.startsWith('/food/admin')) {
+    if (pathname.startsWith('/admin') || pathname.startsWith('/taxi/admin') || pathname.startsWith('/food/admin')) {
       setActiveModule('admin');
     } else if (pathname.startsWith('/food/delivery')) {
       setActiveModule('food_delivery_partner');

@@ -3,11 +3,12 @@
  *
  * Run: node tests/approve-rider-from-signup.smoke.mjs
  *
- * Found 2026-10-01: an option-1 rider ("Food + Daily needs + Medical + Bike
- * parcel") was approved with a stale pre-tick, the driver record got neither
- * their sign-up choice nor a usable vehicle type (the vehicle's catalogue id
- * landed in vehicleType), so the app could not pick the right toggle and
- * parcel matching by 'bike' missed them.
+ * Found 2026-10-01: an option-1 rider ("Food + Daily needs + Medical") was
+ * approved with a stale pre-tick, the driver record got neither their sign-up
+ * choice nor a usable vehicle type (the vehicle's catalogue id landed in
+ * vehicleType), so the app could not pick the right toggle and matching by
+ * 'bike' missed them. (Bike parcel was part of option 1 until parcel delivery
+ * was removed.)
  */
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
@@ -42,16 +43,16 @@ const bikeTaxi = await signUp('9811100002', ['bike_taxi_parcel']);
 await check('the join-request list suggests what each option entitles', async () => {
   const { requests } = await admin.getDeliveryJoinRequests({ status: 'pending' });
   const byId = new Map(requests.map((r) => [String(r._id), r]));
-  assert.deepEqual(byId.get(String(option1)).requestedCapabilities.sort(), ['delivery', 'parcel', 'quickCommerce']);
+  assert.deepEqual(byId.get(String(option1)).requestedCapabilities.sort(), ['delivery', 'quickCommerce']);
   assert.deepEqual(byId.get(String(bikeTaxi)).requestedCapabilities, ['taxi']);
 });
 
-await check('approving option 1 (no list sent): food, quick, parcel; mode all; choice and vehicle copied', async () => {
+await check('approving option 1 (no list sent): food and quick; mode delivery; choice and vehicle copied', async () => {
   await admin.approveDeliveryPartner(String(option1));
   const p = await FoodDeliveryPartner.findById(option1).lean();
   const d = await Driver.findById(p.driverId).lean();
-  assert.deepEqual([...d.serviceCapabilities].sort(), ['delivery', 'parcel', 'quickCommerce']);
-  assert.equal(d.workMode, 'all');
+  assert.deepEqual([...d.serviceCapabilities].sort(), ['delivery', 'quickCommerce']);
+  assert.equal(d.workMode, 'delivery');
   assert.deepEqual(d.serviceIntents, ['food_daily_medical_parcel']);
   assert.equal(d.driverClass, 'two_wheeler');
   assert.equal(d.vehicleType, 'bike');

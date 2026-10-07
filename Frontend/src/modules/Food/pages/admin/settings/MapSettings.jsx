@@ -12,7 +12,6 @@ import {
   Globe,
   UtensilsCrossed,
   Car,
-  Truck,
   Wrench,
   ShoppingBag,
   RefreshCw,
@@ -164,12 +163,6 @@ export default function MapSettings() {
       desc: "Live cab tracking, pickup/drop geocoding & peak surge heatmaps",
       icon: Car,
       color: "bg-amber-50 text-amber-600 border-amber-100"
-    },
-    {
-      name: "Parcel Logistics",
-      desc: "Courier route polylines & real-time shipment map tracking",
-      icon: Truck,
-      color: "bg-emerald-50 text-emerald-600 border-emerald-100"
     },
     {
       name: "Service Provider",

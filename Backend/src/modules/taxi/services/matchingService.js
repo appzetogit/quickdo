@@ -34,7 +34,7 @@ const normalizeVehicleTypeIds = (vehicleTypeIds = [], vehicleTypeId = null) => {
   return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
 };
 
-export const buildDriverMatchFilters = ({ zoneId, vehicleTypeId, vehicleTypeIds, vehicleTypeKeys, transportType, serviceType }) => {
+export const buildDriverMatchFilters = ({ zoneId, vehicleTypeId, vehicleTypeIds, vehicleTypeKeys, transportType }) => {
   const normalizedVehicleTypeIds = normalizeVehicleTypeIds(vehicleTypeIds, vehicleTypeId);
   const normalizedVehicleTypeKeys = Array.isArray(vehicleTypeKeys)
     ? [...new Set(vehicleTypeKeys.map(normalizeVehicleKey).filter(Boolean))]
@@ -54,11 +54,7 @@ export const buildDriverMatchFilters = ({ zoneId, vehicleTypeId, vehicleTypeIds,
       : vehicleTypeClauses[0] || {};
 
   let transportFilter = {};
-  // A parcel goes to whoever holds the parcel capability (filtered below),
-  // whatever they first registered for: a delivery rider who carries bike
-  // parcels is registered for delivery, not taxi.
-  const isParcelJob = String(serviceType || '').trim().toLowerCase() === 'parcel';
-  if (transportType && !isParcelJob) {
+  if (transportType) {
     if (transportType === 'taxi') {
       transportFilter = { registerFor: { $in: ['taxi', 'both', 'all'] } };
     } else if (transportType === 'delivery') {
@@ -94,11 +90,7 @@ export const buildDriverMatchFilters = ({ zoneId, vehicleTypeId, vehicleTypeIds,
   // Flag-gated; legacy behavior is untouched while UNIFIED_DISPATCH_ENABLED is off.
   if (config.unifiedDispatchEnabled) {
     baseFilters.workMode = { $in: ['all', 'taxi'] };
-    // A parcel is not a passenger. Asking for the taxi capability on a
-    // parcel job matched the wrong people in both directions: a
-    // parcel-only driver got nothing, and a passenger driver got boxes.
-    baseFilters.serviceCapabilities =
-      String(serviceType || '').trim().toLowerCase() === 'parcel' ? 'parcel' : 'taxi';
+    baseFilters.serviceCapabilities = 'taxi';
     baseFilters.activeAssignment = null;
   }
 
@@ -163,7 +155,7 @@ export const findZoneByPickup = async (pickupCoords) => {
 /**
  * A city ride starts and ends inside one service zone (client rule 2026-09-30):
  * the drop, and every stop, must lie in the pickup's zone. Throws a 400 the app
- * shows as-is. Intercity trips and outstation parcels are meant to leave the
+ * shows as-is. Intercity trips are meant to leave the
  * zone and are not checked. Skipped while no zone exists, so a server not yet
  * set up keeps working.
  */
@@ -308,14 +300,12 @@ const findDriversForZone = async ({
   normalizedVehicleTypeIds,
   vehicleTypeKeys,
   transportType,
-  serviceType,
 }) => {
   const commonFilters = buildDriverMatchFilters({
     zoneId,
     vehicleTypeIds: normalizedVehicleTypeIds,
     vehicleTypeKeys,
     transportType,
-    serviceType,
   });
   const selectedFields =
     'name phone socketId vehicleTypeId vehicleType vehicleIconType vehicleNumber vehicleColor vehicleMake vehicleModel rating location zoneId isOnline isOnRide routeBooking';
@@ -355,7 +345,6 @@ export const matchDrivers = async (pickupCoords, options = {}) => {
     vehicleTypeId,
     vehicleTypeIds,
     transportType,
-    serviceType,
   } = options;
   const normalizedVehicleTypeIds = normalizeVehicleTypeIds(vehicleTypeIds, vehicleTypeId);
   const allowedVehicles = normalizedVehicleTypeIds.length
@@ -378,7 +367,6 @@ export const matchDrivers = async (pickupCoords, options = {}) => {
     normalizedVehicleTypeIds,
     vehicleTypeKeys,
     transportType,
-    serviceType,
   });
 
   const blockedDriverIds = await getDriverIdsBlockedByUpcomingScheduledRides(
@@ -409,7 +397,6 @@ export const matchDrivers = async (pickupCoords, options = {}) => {
       normalizedVehicleTypeIds,
       vehicleTypeKeys,
       transportType,
-      serviceType,
     });
 
     const fallbackBlockedDriverIds = await getDriverIdsBlockedByUpcomingScheduledRides(
@@ -479,7 +466,6 @@ export const matchDrivers = async (pickupCoords, options = {}) => {
         normalizedVehicleTypeIds,
         vehicleTypeKeys,
         transportType,
-        serviceType,
       });
 
       const fallbackBlockedDriverIds = await getDriverIdsBlockedByUpcomingScheduledRides(

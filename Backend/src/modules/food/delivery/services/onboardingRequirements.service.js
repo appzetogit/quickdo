@@ -13,9 +13,8 @@ import {
  * What the registration screen has to ask THIS driver for.
  *
  * The delivery app used to ship a fixed list of four vehicle types and four
- * documents, identical for everyone. A car driver was offered "bicycle", a
- * parcel driver was never offered a truck, and nobody could be asked for a
- * commercial badge without a new app release.
+ * documents, identical for everyone. A car driver was offered "bicycle", and
+ * nobody could be asked for a commercial badge without a new app release.
  *
  * Both lists are admin data: the vehicle catalogue and the needed-document
  * catalogue, filtered by what the driver said they have. Adding an "EV Scooty"
@@ -81,15 +80,6 @@ export const listOnboardingOptions = () => ({
             singleChoice: true,
             intents: Object.entries(DRIVER_INTENTS)
                 .filter(([, v]) => v.driverClass === DRIVER_CLASSES.PASSENGER_TAXI)
-                .map(([key, v]) => ({ key, label: v.label })),
-        },
-        {
-            key: DRIVER_CLASSES.PARCEL_VEHICLE,
-            label: 'Vehicle for parcel delivery',
-            // Pick one option (radio) or several (tick-boxes).
-            singleChoice: false,
-            intents: Object.entries(DRIVER_INTENTS)
-                .filter(([, v]) => v.driverClass === DRIVER_CLASSES.PARCEL_VEHICLE)
                 .map(([key, v]) => ({ key, label: v.label })),
         },
     ],

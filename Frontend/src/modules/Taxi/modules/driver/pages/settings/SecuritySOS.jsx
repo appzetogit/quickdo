@@ -12,7 +12,7 @@ import {
   User,
   Smartphone,
 } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   addDriverEmergencyContact,
   deleteDriverEmergencyContact,
@@ -30,10 +30,9 @@ const normalizeName = (value) => String(value || '').replace(/[^A-Za-z .'-]/g, '
 
 const SecuritySOS = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const { settings } = useSettings();
   const appName = settings.general?.app_name || 'App';
-  const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+  const routePrefix = '/taxi/driver';
   
   const [contacts, setContacts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);

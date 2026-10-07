@@ -7,7 +7,6 @@ import { FoodRestaurant } from '../../modules/food/restaurant/models/restaurant.
 import { FoodDeliveryPartner } from '../../modules/food/delivery/models/deliveryPartner.model.js';
 import { FoodAdmin } from '../admin/admin.model.js';
 import { Driver as TaxiDriver } from '../../modules/taxi/driver/models/Driver.js';
-import { Owner as TaxiOwner } from '../../modules/taxi/admin/models/Owner.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { AuthError } from '../auth/errors.js';
@@ -21,8 +20,7 @@ const OWNER_MODELS = {
     RESTAURANT: FoodRestaurant,
     DELIVERY_PARTNER: FoodDeliveryPartner,
     ADMIN: FoodAdmin,
-    DRIVER: TaxiDriver,
-    OWNER: TaxiOwner
+    DRIVER: TaxiDriver
 };
 const OWNER_ROLE_ALIASES = {
     USER: 'USER',
@@ -30,16 +28,14 @@ const OWNER_ROLE_ALIASES = {
     DELIVERY_PARTNER: 'DELIVERY_PARTNER',
     ADMIN: 'ADMIN',
     TAXI_USER: 'USER',
-    DRIVER: 'DRIVER',
-    OWNER: 'OWNER'
+    DRIVER: 'DRIVER'
 };
 const OWNER_TOKEN_FIELD_CONFIG = {
     USER: { web: 'fcmTokens', mobile: 'fcmTokenMobile' },
     RESTAURANT: { web: 'fcmTokens', mobile: 'fcmTokenMobile' },
     DELIVERY_PARTNER: { web: 'fcmTokens', mobile: 'fcmTokenMobile' },
     ADMIN: { web: 'fcmTokens', mobile: 'fcmTokenMobile' },
-    DRIVER: { web: 'fcmTokenWeb', mobile: 'fcmTokenMobile' },
-    OWNER: { web: 'fcmTokenWeb', mobile: 'fcmTokenMobile' }
+    DRIVER: { web: 'fcmTokenWeb', mobile: 'fcmTokenMobile' }
 };
 const OWNER_APP_PREFIXES = {
     USER: '👤 [User]',

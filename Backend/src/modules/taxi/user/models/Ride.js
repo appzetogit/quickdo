@@ -66,13 +66,9 @@ const rideSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
-    deliveryId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Delivery',
-      default: null,
-    },
     serviceType: {
       type: String,
+      // 'parcel' is retired (parcel delivery removed); kept so old rides still save.
       enum: ['ride', 'parcel', 'intercity'],
       default: 'ride',
       lowercase: true,
@@ -115,88 +111,6 @@ const rideSchema = new mongoose.Schema(
         min: 0,
       },
       vehicleName: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-    },
-    parcel: {
-      category: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      weight: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      // The weight slot picked at booking. Label and charge are copied from the
-      // goods type then, and the charge is already inside `fare`.
-      goodsTypeId: { type: String, default: '', trim: true },
-      weightSlotId: { type: String, default: '', trim: true },
-      weightSlotLabel: { type: String, default: '', trim: true },
-      weightCharge: { type: Number, default: 0, min: 0 },
-      description: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      deliveryCategory: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      goodsTypeFor: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      // Photographs of the parcel, as Cloudinary URLs.
-      //
-      // `photos` is what the sender showed at booking; the other two are what
-      // the captain photographed at each end. They are kept apart on purpose:
-      // the whole value of a delivery photo is that it can be held against the
-      // booking photo, which one merged list would make impossible.
-      photos: {
-        type: [String],
-        default: [],
-      },
-      pickupPhotos: {
-        type: [String],
-        default: [],
-      },
-      deliveryPhotos: {
-        type: [String],
-        default: [],
-      },
-      deliveryScope: {
-        type: String,
-        enum: ['city', 'outstation'],
-        default: 'city',
-        lowercase: true,
-        trim: true,
-      },
-      isOutstation: {
-        type: Boolean,
-        default: false,
-      },
-      senderName: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      senderMobile: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      receiverName: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      receiverMobile: {
         type: String,
         default: '',
         trim: true,

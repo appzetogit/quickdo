@@ -21,16 +21,11 @@ import {
 const VEHICLE_NUMBER_REGEX = /^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{4}$/;
 const getCurrentVehicleYear = () => new Date().getFullYear();
 const normalizeVehicleNumber = (value = '') => String(value).replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 11);
-const normalizePostalCode = (value = '') => String(value).replace(/\D/g, '').slice(0, 6);
-const matchesVehicleFieldAccountType = (accountType, isOwner) => {
+const matchesVehicleFieldAccountType = (accountType) => {
     const normalizedAccountType = String(accountType || 'individual').trim().toLowerCase();
 
     if (normalizedAccountType === 'both') {
         return true;
-    }
-
-    if (isOwner) {
-        return normalizedAccountType === 'fleet_drivers' || normalizedAccountType === 'fleet drivers';
     }
 
     return normalizedAccountType === 'individual';
@@ -46,7 +41,7 @@ const normalizeServiceCategories = (value, registerFor = 'taxi') => {
         rawValues
             .map((item) => String(item || '').trim().toLowerCase())
             .flatMap((item) => item === 'both' ? ['taxi', 'outstation'] : item ? [item] : [])
-            .filter((item) => ['taxi', 'outstation', 'delivery'].includes(item)),
+            .filter((item) => ['taxi', 'outstation'].includes(item)),
     )];
 
     if (normalized.length > 0) {
@@ -58,7 +53,7 @@ const normalizeServiceCategories = (value, registerFor = 'taxi') => {
         return ['taxi', 'outstation'];
     }
 
-    return ['taxi', 'outstation', 'delivery'].includes(fallback) ? [fallback] : ['taxi'];
+    return ['taxi', 'outstation'].includes(fallback) ? [fallback] : ['taxi'];
 };
 
 const getPrimaryRegisterFor = (serviceCategories = [], fallback = 'taxi') => {
@@ -67,7 +62,6 @@ const getPrimaryRegisterFor = (serviceCategories = [], fallback = 'taxi') => {
     if (normalized.includes('taxi') && normalized.includes('outstation')) return 'both';
     if (normalized.includes('taxi')) return 'taxi';
     if (normalized.includes('outstation')) return 'outstation';
-    if (normalized.includes('delivery')) return 'delivery';
 
     return String(fallback || 'taxi').trim().toLowerCase() || 'taxi';
 };
@@ -81,11 +75,6 @@ const defaultVehicleFieldConfigs = [
     { field_key: 'year', name: 'Year', account_type: 'individual', is_required: true, active: true, sort_order: 60, placeholder: String(getCurrentVehicleYear()), help_text: '' },
     { field_key: 'number', name: 'Plate Number', account_type: 'individual', is_required: true, active: true, sort_order: 70, placeholder: 'DL1RT1234', help_text: '' },
     { field_key: 'color', name: 'Exterior Color', account_type: 'individual', is_required: true, active: true, sort_order: 80, placeholder: 'e.g. White, Black', help_text: '' },
-    { field_key: 'companyName', name: 'Company Name', account_type: 'fleet_drivers', is_required: true, active: true, sort_order: 30, placeholder: 'Legal Company Name', help_text: '' },
-    { field_key: 'companyAddress', name: 'Company Address', account_type: 'fleet_drivers', is_required: true, active: true, sort_order: 40, placeholder: 'Business Address', help_text: '' },
-    { field_key: 'city', name: 'City', account_type: 'fleet_drivers', is_required: true, active: true, sort_order: 50, placeholder: 'City', help_text: '' },
-    { field_key: 'postalCode', name: 'Postal Code', account_type: 'fleet_drivers', is_required: true, active: true, sort_order: 60, placeholder: 'Pincode', help_text: '' },
-    { field_key: 'taxNumber', name: 'Tax Number (GST/VAT)', account_type: 'fleet_drivers', is_required: true, active: true, sort_order: 70, placeholder: 'Tax Identification', help_text: '' },
 ];
 
 
@@ -96,8 +85,6 @@ const StepVehicle = () => {
         ...getStoredDriverRegistrationSession(),
         ...(location.state || {}),
     };
-    const role = session.role || 'driver';
-    const isOwner = role === 'owner';
 
     const [locations, setLocations] = useState([]);
     const [locationsLoading, setLocationsLoading] = useState(true);
@@ -117,12 +104,6 @@ const StepVehicle = () => {
         year: session.year || '',
         number: session.number || '',
         color: session.color || '',
-        // Company info for owners
-        companyName: session.companyName || '',
-        companyAddress: session.companyAddress || '',
-        city: session.city || '',
-        postalCode: session.postalCode || '',
-        taxNumber: session.taxNumber || '',
         customFields: session.customFields || session.vehicleSession?.vehicle?.customFields || {},
     });
     const [loading, setLoading] = useState(false);
@@ -181,7 +162,7 @@ const StepVehicle = () => {
 
         const loadVehicleFieldConfigs = async () => {
             try {
-                const response = await getDriverVehicleFieldTemplates(isOwner ? 'owner' : 'driver');
+                const response = await getDriverVehicleFieldTemplates();
                 const results = response?.data?.results || response?.data?.data?.results || [];
                 if (active && Array.isArray(results) && results.length > 0) {
                     setVehicleFieldConfigs(results);
@@ -255,13 +236,11 @@ const StepVehicle = () => {
     };
     const customVehicleFields = activeVehicleFields.filter((item) => !builtInVehicleFieldKeys.has(String(item?.field_key || '').trim()));
     const visibleCustomVehicleFields = customVehicleFields.filter((item) =>
-        matchesVehicleFieldAccountType(item?.account_type, isOwner),
+        matchesVehicleFieldAccountType(item?.account_type),
     );
 
     const handleContinue = async () => {
-        const required = isOwner
-            ? ['locationId', 'companyName', 'companyAddress', 'city', 'postalCode', 'taxNumber'].filter((key) => isFieldRequired(key, true))
-            : ['locationId', 'vehicleTypeId', 'make', 'model', 'year', 'number', 'color'].filter((key) => isFieldRequired(key, true));
+        const required = ['locationId', 'vehicleTypeId', 'make', 'model', 'year', 'number', 'color'].filter((key) => isFieldRequired(key, true));
 
         const missingCustomField = visibleCustomVehicleFields.find(
             (field) => field?.is_required !== false && !isFilled(formData.customFields?.[field.field_key]),
@@ -272,30 +251,23 @@ const StepVehicle = () => {
         }
 
         if (required.every((key) => isFilled(formData[key]))) {
-            if (isOwner) {
-                if (isFilled(formData.postalCode) && !/^\d{6}$/.test(formData.postalCode)) {
-                    setError('Postal code must be a 6 digit number');
-                    return;
-                }
-            } else {
-                const vehicleYear = Number(formData.year);
-                const currentYear = getCurrentVehicleYear();
-                const normalizedNumber = normalizeVehicleNumber(formData.number);
+            const vehicleYear = Number(formData.year);
+            const currentYear = getCurrentVehicleYear();
+            const normalizedNumber = normalizeVehicleNumber(formData.number);
 
-                if (isFilled(formData.year) && (!/^\d{4}$/.test(formData.year) || vehicleYear < 1980 || vehicleYear > currentYear)) {
-                    setError(`Vehicle year must be between 1980 and ${currentYear}`);
-                    return;
-                }
+            if (isFilled(formData.year) && (!/^\d{4}$/.test(formData.year) || vehicleYear < 1980 || vehicleYear > currentYear)) {
+                setError(`Vehicle year must be between 1980 and ${currentYear}`);
+                return;
+            }
 
-                if (isFilled(normalizedNumber) && !VEHICLE_NUMBER_REGEX.test(normalizedNumber)) {
-                    setError('Vehicle number must be in a valid Indian format, for example DL1RT1234 or MH12AB1234');
-                    return;
-                }
+            if (isFilled(normalizedNumber) && !VEHICLE_NUMBER_REGEX.test(normalizedNumber)) {
+                setError('Vehicle number must be in a valid Indian format, for example DL1RT1234 or MH12AB1234');
+                return;
+            }
 
-                if (isFilled(trimmedModel) && /^\d+$/.test(trimmedModel)) {
-                    setError('Vehicle model cannot contain only numbers');
-                    return;
-                }
+            if (isFilled(trimmedModel) && /^\d+$/.test(trimmedModel)) {
+                setError('Vehicle model cannot contain only numbers');
+                return;
             }
 
             setLoading(true);
@@ -321,11 +293,7 @@ const StepVehicle = () => {
                     year: formData.year,
                     number: normalizedNumber,
                     color: formData.color,
-                    companyName: formData.companyName,
-                    companyAddress: formData.companyAddress,
-                    city: isOwner ? formData.city : selectedServiceLocation?.name || selectedServiceLocation?.service_location_name || formData.city,
-                    postalCode: formData.postalCode,
-                    taxNumber: formData.taxNumber,
+                    city: selectedServiceLocation?.name || selectedServiceLocation?.service_location_name || '',
                     customFields: formData.customFields,
                 });
 
@@ -343,42 +311,27 @@ const StepVehicle = () => {
                 setLoading(false);
             }
         } else {
-            setError(isOwner ? 'Please fill all required company information fields' : 'Please fill all required vehicle information fields');
+            setError('Please fill all required vehicle information fields');
         }
     };
 
     const locationField = getFieldConfig('locationId', { name: 'Operating City' });
     const vehicleTypeField = getFieldConfig('vehicleTypeId', { name: 'Vehicle Type', help_text: 'Select the type of vehicle you drive.' });
-    const companyNameField = getFieldConfig('companyName', { name: 'Company Name', placeholder: 'Legal Company Name' });
-    const companyAddressField = getFieldConfig('companyAddress', { name: 'Company Address', placeholder: 'Business Address' });
-    const cityField = getFieldConfig('city', { name: 'City', placeholder: 'City' });
-    const postalCodeField = getFieldConfig('postalCode', { name: 'Postal Code', placeholder: 'Pincode' });
-    const taxNumberField = getFieldConfig('taxNumber', { name: 'Tax Number (GST/VAT)', placeholder: 'Tax Identification' });
     const makeField = getFieldConfig('make', { name: 'Brand / Make', placeholder: 'e.g. Maruti Suzuki' });
     const modelField = getFieldConfig('model', { name: 'Model', placeholder: 'Swift, Bolt' });
     const yearField = getFieldConfig('year', { name: 'Year', placeholder: String(getCurrentVehicleYear()) });
     const numberField = getFieldConfig('number', { name: 'Plate Number', placeholder: 'DL1RT1234' });
     const colorField = getFieldConfig('color', { name: 'Exterior Color', placeholder: 'e.g. White, Black' });
-    const ownerHasVisibleFields = ['companyName', 'companyAddress', 'city', 'postalCode', 'taxNumber'].some((key) => shouldShowField(key, true));
     const driverHasTechnicalFields = ['make', 'model', 'year', 'number', 'color'].some((key) => shouldShowField(key, true));
-    const canContinue = isOwner
-        ? [
-            !isFieldRequired('locationId', true) || isFilled(formData.locationId),
-            !isFieldRequired('companyName', true) || isFilled(formData.companyName),
-            !isFieldRequired('companyAddress', true) || isFilled(formData.companyAddress),
-            !isFieldRequired('city', true) || isFilled(formData.city),
-            !isFieldRequired('postalCode', true) || isFilled(formData.postalCode),
-            !isFieldRequired('taxNumber', true) || isFilled(formData.taxNumber),
-        ].every(Boolean)
-        : [
-            !isFieldRequired('locationId', true) || isFilled(formData.locationId),
-            !isFieldRequired('vehicleTypeId', true) || isFilled(formData.vehicleTypeId),
-            !isFieldRequired('make', true) || isFilled(formData.make),
-            !isFieldRequired('model', true) || isFilled(formData.model),
-            !isFieldRequired('year', true) || isFilled(formData.year),
-            !isFieldRequired('number', true) || isFilled(formData.number),
-            !isFieldRequired('color', true) || isFilled(formData.color),
-        ].every(Boolean);
+    const canContinue = [
+        !isFieldRequired('locationId', true) || isFilled(formData.locationId),
+        !isFieldRequired('vehicleTypeId', true) || isFilled(formData.vehicleTypeId),
+        !isFieldRequired('make', true) || isFilled(formData.make),
+        !isFieldRequired('model', true) || isFilled(formData.model),
+        !isFieldRequired('year', true) || isFilled(formData.year),
+        !isFieldRequired('number', true) || isFilled(formData.number),
+        !isFieldRequired('color', true) || isFilled(formData.color),
+    ].every(Boolean);
     const hasRequiredCustomFields = visibleCustomVehicleFields.every(
         (field) => field?.is_required === false || isFilled(formData.customFields?.[field.field_key]),
     );
@@ -413,10 +366,10 @@ const StepVehicle = () => {
                             </span>
                         </div>
                         <h1 className="font-['Outfit'] text-[48px] font-black leading-[1] tracking-[-0.04em] text-slate-900">
-                            {isOwner ? 'Fleet' : 'Vehicle'} <span className="text-slate-400">Setup</span>
+                            Vehicle <span className="text-slate-400">Setup</span>
                         </h1>
                         <p className="text-[15px] leading-relaxed text-slate-500 font-bold opacity-80 max-w-[28ch]">
-                            {isOwner ? 'Setup your business profile to start managing your fleet.' : 'Tell us about the vehicle you\'ll be using for your services.'}
+                            {'Tell us about the vehicle you\'ll be using for your services.'}
                         </p>
                     </section>
                 </header>
@@ -435,26 +388,11 @@ const StepVehicle = () => {
                                             value={formData.locationId}
                                             onChange={(e) => {
                                                 const nextLocationId = e.target.value;
-                                                const selectedServiceLocation = locations.find(
-                                                    (item) => String(item._id || item.id) === String(nextLocationId),
-                                                );
 
                                                 setFormData((p) => ({
                                                     ...p,
                                                     locationId: nextLocationId,
                                                     vehicleTypeId: '',
-                                                    ...(isOwner
-                                                        ? {
-                                                            companyAddress: p.companyAddress || String(selectedServiceLocation?.address || '').trim(),
-                                                            city:
-                                                                p.city ||
-                                                                String(
-                                                                    selectedServiceLocation?.service_location_name ||
-                                                                    selectedServiceLocation?.name ||
-                                                                    '',
-                                                                ).trim(),
-                                                        }
-                                                        : {}),
                                                 }));
                                             }}
                                             disabled={locationsLoading || locations.length === 0}
@@ -472,306 +410,239 @@ const StepVehicle = () => {
                             </div>
                         ) : null}
 
-                        {isOwner ? (
-                            <div className="space-y-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
-                                {ownerHasVisibleFields && shouldShowField('companyName', true) ? (
-                                    <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                        <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{companyNameField.name}</label>
-                                        <input
-                                            value={formData.companyName}
-                                            onChange={(e) => setFormData(p => ({ ...p, companyName: e.target.value }))}
-                                            placeholder={companyNameField.placeholder || 'Legal Company Name'}
-                                            className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                        />
+                        <div className="space-y-5 animate-in fade-in slide-in-from-top-4 duration-500">
+                            {shouldShowField('vehicleTypeId', true) && (
+                                <div className="space-y-4 pt-1">
+                                    <div className="space-y-1 px-1">
+                                        <h2 className="text-base font-semibold tracking-[-0.03em] text-slate-950">{vehicleTypeField.name}</h2>
+                                        <p className="text-sm text-slate-500">
+                                            {formData.locationId
+                                                ? (vehicleTypeField.help_text || 'Select the type of vehicle you drive.')
+                                                : 'Select a vehicle type now. Choosing your city later will refine availability if needed.'}
+                                        </p>
                                     </div>
-                                ) : null}
-
-                                {shouldShowField('companyAddress', true) ? (
-                                    <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                        <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{companyAddressField.name}</label>
-                                        <input
-                                            value={formData.companyAddress}
-                                            onChange={(e) => setFormData(p => ({ ...p, companyAddress: e.target.value }))}
-                                            placeholder={companyAddressField.placeholder || 'Business Address'}
-                                            className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                        />
-                                    </div>
-                                ) : null}
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    {shouldShowField('city', true) ? (
-                                        <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                            <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{cityField.name}</label>
-                                            <input
-                                                value={formData.city}
-                                                onChange={(e) => setFormData(p => ({ ...p, city: e.target.value }))}
-                                                placeholder={cityField.placeholder || 'City'}
-                                                className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                            />
-                                        </div>
-                                    ) : null}
-                                    {shouldShowField('postalCode', true) ? (
-                                        <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                            <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{postalCodeField.name}</label>
-                                            <input
-                                                value={formData.postalCode}
-                                                onChange={(e) => setFormData(p => ({ ...p, postalCode: normalizePostalCode(e.target.value) }))}
-                                                placeholder={postalCodeField.placeholder || 'Pincode'}
-                                                inputMode="numeric"
-                                                maxLength={6}
-                                                className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                            />
-                                        </div>
-                                    ) : null}
-                                </div>
-
-                                {shouldShowField('taxNumber', true) ? (
-                                    <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                        <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{taxNumberField.name}</label>
-                                        <input
-                                            value={formData.taxNumber}
-                                            onChange={(e) => setFormData(p => ({ ...p, taxNumber: e.target.value.toUpperCase() }))}
-                                            placeholder={taxNumberField.placeholder || 'Tax Identification'}
-                                            className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200 uppercase"
-                                        />
-                                    </div>
-                                ) : null}
-                            </div>
-                        ) : (
-                            <div className="space-y-5 animate-in fade-in slide-in-from-top-4 duration-500">
-                                {shouldShowField('vehicleTypeId', true) && (
-                                    <div className="space-y-4 pt-1">
-                                        <div className="space-y-1 px-1">
-                                            <h2 className="text-base font-semibold tracking-[-0.03em] text-slate-950">{vehicleTypeField.name}</h2>
-                                            <p className="text-sm text-slate-500">
-                                                {formData.locationId
-                                                    ? (vehicleTypeField.help_text || 'Select the type of vehicle you drive.')
-                                                    : 'Select a vehicle type now. Choosing your city later will refine availability if needed.'}
-                                            </p>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {vehicleTypesLoading ? (
-                                                Array.from({ length: 4 }).map((_, i) => (
-                                                    <div key={i} className="h-32 bg-slate-50/50 rounded-2xl animate-pulse" />
-                                                ))
-                                            ) : (
-                                                vehicleTypes.map((type) => (
-                                                    <button
-                                                        key={type._id || type.id}
-                                                        type="button"
-                                                        onClick={() => setFormData(p => ({ ...p, vehicleTypeId: type._id || type.id }))}
-                                                        className={`relative h-32 rounded-3xl border transition-all flex flex-col group overflow-hidden cursor-pointer touch-manipulation text-left ${formData.vehicleTypeId === (type._id || type.id)
-                                                                ? 'border-slate-900 bg-slate-900/[0.02] ring-1 ring-slate-900/5'
-                                                                : 'border-slate-100 bg-[#FCFCFB] hover:border-slate-200'
-                                                            }`}
-                                                    >
-                                                        <div className="flex-1 flex items-center justify-center p-3">
-                                                            {type.image || type.icon || type.map_icon ? (
-                                                                <img
-                                                                    src={type.image || type.icon || type.map_icon}
-                                                                    alt={type.name}
-                                                                    className="max-h-14 w-auto object-contain transition-transform duration-500"
-                                                                />
-                                                            ) : (
-                                                                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300">
-                                                                    <Car size={24} />
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div className={`p-2.5 text-center transition-colors ${formData.vehicleTypeId === (type._id || type.id) ? 'bg-slate-900 text-white font-bold' : 'bg-white/50 text-slate-700 font-semibold'
-                                                            }`}>
-                                                            <span className="text-[11px] tracking-tight uppercase">{type.name || type.vehicle_type_name}</span>
-                                                        </div>
-                                                    </button>
-                                                ))
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {driverHasTechnicalFields ? (
-                                    <div className="space-y-5 pt-1">
-                                        <div className="space-y-1 px-1">
-                                            <h2 className="text-lg font-black tracking-tight text-slate-900">Technical Specs</h2>
-                                            <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest opacity-60">Verified from RC/Permit</p>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {shouldShowField('make', true) ? (
-                                                <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5 col-span-2">
-                                                    <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{makeField.name}</label>
-                                                    <input
-                                                        value={formData.make}
-                                                        onChange={(e) => setFormData(p => ({ ...p, make: e.target.value }))}
-                                                        placeholder={makeField.placeholder || 'e.g. Maruti Suzuki'}
-                                                        className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                                    />
-                                                </div>
-                                            ) : null}
-
-                                            {shouldShowField('model', true) ? (
-                                                <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                                    <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{modelField.name}</label>
-                                                    <input
-                                                        value={formData.model}
-                                                        onChange={(e) => setFormData(p => ({ ...p, model: e.target.value }))}
-                                                        placeholder={modelField.placeholder || 'Swift, Bolt'}
-                                                        className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                                    />
-                                                </div>
-                                            ) : null}
-
-                                            {shouldShowField('year', true) ? (
-                                                <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                                    <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{yearField.name}</label>
-                                                    <input
-                                                        type="tel"
-                                                        maxLength={4}
-                                                        value={formData.year}
-                                                        onChange={(e) => setFormData(p => ({ ...p, year: e.target.value.replace(/\D/g, '') }))}
-                                                        placeholder={yearField.placeholder || String(getCurrentVehicleYear())}
-                                                        className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                                    />
-                                                </div>
-                                            ) : null}
-
-                                            {shouldShowField('number', true) ? (
-                                                <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5 col-span-2">
-                                                    <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{numberField.name}</label>
-                                                    <input
-                                                        value={formData.number}
-                                                        onChange={(e) => setFormData(p => ({ ...p, number: normalizeVehicleNumber(e.target.value) }))}
-                                                        placeholder={numberField.placeholder || 'DL1RT1234'}
-                                                        className="w-full bg-transparent border-none p-0 text-[16px] font-semibold text-slate-950 focus:outline-none focus:ring-0 placeholder:text-slate-300 uppercase tracking-widest"
-                                                    />
-                                                </div>
-                                            ) : null}
-
-                                            {shouldShowField('color', true) ? (
-                                                <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5 col-span-2">
-                                                    <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{colorField.name}</label>
-                                                    <input
-                                                        value={formData.color}
-                                                        onChange={(e) => setFormData(p => ({ ...p, color: e.target.value }))}
-                                                        placeholder={colorField.placeholder || 'e.g. White, Black'}
-                                                        className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
-                                                    />
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    </div>
-                                ) : null}
-
-                                {visibleCustomVehicleFields.length > 0 ? (
-                                    <div className="space-y-5 pt-1">
-                                        <div className="space-y-1 px-1">
-                                            <h2 className="text-lg font-black tracking-tight text-slate-900">Additional Details</h2>
-                                            <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest opacity-60">
-                                                Configured from admin
-                                            </p>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 gap-3">
-                                            {visibleCustomVehicleFields.map((field) => {
-                                                const fieldKey = String(field.field_key || '').trim();
-                                                const fieldType = String(field.field_type || 'text').trim().toLowerCase();
-                                                const value = formData.customFields?.[fieldKey] || (fieldType === 'multi_select' ? [] : '');
-                                                const optionList = Array.isArray(field.options) ? field.options : [];
-
-                                                if (fieldType === 'textarea') {
-                                                    return (
-                                                        <div key={fieldKey} className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                                            <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{field.name}</label>
-                                                            <textarea
-                                                                value={value}
-                                                                onChange={(event) => handleCustomFieldChange(fieldKey, event.target.value)}
-                                                                placeholder={field.placeholder || ''}
-                                                                rows={3}
-                                                                className="w-full resize-none bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {vehicleTypesLoading ? (
+                                            Array.from({ length: 4 }).map((_, i) => (
+                                                <div key={i} className="h-32 bg-slate-50/50 rounded-2xl animate-pulse" />
+                                            ))
+                                        ) : (
+                                            vehicleTypes.map((type) => (
+                                                <button
+                                                    key={type._id || type.id}
+                                                    type="button"
+                                                    onClick={() => setFormData(p => ({ ...p, vehicleTypeId: type._id || type.id }))}
+                                                    className={`relative h-32 rounded-3xl border transition-all flex flex-col group overflow-hidden cursor-pointer touch-manipulation text-left ${formData.vehicleTypeId === (type._id || type.id)
+                                                            ? 'border-slate-900 bg-slate-900/[0.02] ring-1 ring-slate-900/5'
+                                                            : 'border-slate-100 bg-[#FCFCFB] hover:border-slate-200'
+                                                        }`}
+                                                >
+                                                    <div className="flex-1 flex items-center justify-center p-3">
+                                                        {type.image || type.icon || type.map_icon ? (
+                                                            <img
+                                                                src={type.image || type.icon || type.map_icon}
+                                                                alt={type.name}
+                                                                className="max-h-14 w-auto object-contain transition-transform duration-500"
                                                             />
-                                                            {field.help_text ? <p className="mt-2 text-xs text-slate-400">{field.help_text}</p> : null}
-                                                        </div>
-                                                    );
-                                                }
-
-                                                if (fieldType === 'select') {
-                                                    return (
-                                                        <div key={fieldKey} className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
-                                                            <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{field.name}</label>
-                                                            <select
-                                                                value={value}
-                                                                onChange={(event) => handleCustomFieldChange(fieldKey, event.target.value)}
-                                                                className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 appearance-none"
-                                                            >
-                                                                <option value="">{field.placeholder || `Select ${field.name}`}</option>
-                                                                {optionList.map((option) => (
-                                                                    <option key={option} value={option}>{option}</option>
-                                                                ))}
-                                                            </select>
-                                                            {field.help_text ? <p className="mt-2 text-xs text-slate-400">{field.help_text}</p> : null}
-                                                        </div>
-                                                    );
-                                                }
-
-                                                if (fieldType === 'multi_select') {
-                                                    const selectedValues = Array.isArray(value) ? value : [];
-                                                    return (
-                                                        <div key={fieldKey} className="space-y-3 rounded-[1.8rem] border-2 border-slate-50 bg-slate-50 p-4">
-                                                            <div>
-                                                                <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{field.name}</label>
-                                                                {field.help_text ? <p className="text-xs text-slate-400 px-1">{field.help_text}</p> : null}
+                                                        ) : (
+                                                            <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300">
+                                                                <Car size={24} />
                                                             </div>
-                                                            <div className="flex flex-wrap gap-2">
-                                                                {optionList.map((option) => {
-                                                                    const selected = selectedValues.includes(option);
-                                                                    return (
-                                                                        <button
-                                                                            key={option}
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                const nextValues = selected
-                                                                                    ? selectedValues.filter((item) => item !== option)
-                                                                                    : [...selectedValues, option];
-                                                                                handleCustomFieldChange(fieldKey, nextValues);
-                                                                            }}
-                                                                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${selected
-                                                                                    ? 'bg-slate-900 text-white'
-                                                                                    : 'bg-white text-slate-700 border border-slate-200'
-                                                                                }`}
-                                                                        >
-                                                                            {option}
-                                                                        </button>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                }
+                                                        )}
+                                                    </div>
+                                                    <div className={`p-2.5 text-center transition-colors ${formData.vehicleTypeId === (type._id || type.id) ? 'bg-slate-900 text-white font-bold' : 'bg-white/50 text-slate-700 font-semibold'
+                                                        }`}>
+                                                        <span className="text-[11px] tracking-tight uppercase">{type.name || type.vehicle_type_name}</span>
+                                                    </div>
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
+                            {driverHasTechnicalFields ? (
+                                <div className="space-y-5 pt-1">
+                                    <div className="space-y-1 px-1">
+                                        <h2 className="text-lg font-black tracking-tight text-slate-900">Technical Specs</h2>
+                                        <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest opacity-60">Verified from RC/Permit</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {shouldShowField('make', true) ? (
+                                            <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5 col-span-2">
+                                                <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{makeField.name}</label>
+                                                <input
+                                                    value={formData.make}
+                                                    onChange={(e) => setFormData(p => ({ ...p, make: e.target.value }))}
+                                                    placeholder={makeField.placeholder || 'e.g. Maruti Suzuki'}
+                                                    className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
+                                                />
+                                            </div>
+                                        ) : null}
+
+                                        {shouldShowField('model', true) ? (
+                                            <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
+                                                <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{modelField.name}</label>
+                                                <input
+                                                    value={formData.model}
+                                                    onChange={(e) => setFormData(p => ({ ...p, model: e.target.value }))}
+                                                    placeholder={modelField.placeholder || 'Swift, Bolt'}
+                                                    className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
+                                                />
+                                            </div>
+                                        ) : null}
+
+                                        {shouldShowField('year', true) ? (
+                                            <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
+                                                <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{yearField.name}</label>
+                                                <input
+                                                    type="tel"
+                                                    maxLength={4}
+                                                    value={formData.year}
+                                                    onChange={(e) => setFormData(p => ({ ...p, year: e.target.value.replace(/\D/g, '') }))}
+                                                    placeholder={yearField.placeholder || String(getCurrentVehicleYear())}
+                                                    className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
+                                                />
+                                            </div>
+                                        ) : null}
+
+                                        {shouldShowField('number', true) ? (
+                                            <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5 col-span-2">
+                                                <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{numberField.name}</label>
+                                                <input
+                                                    value={formData.number}
+                                                    onChange={(e) => setFormData(p => ({ ...p, number: normalizeVehicleNumber(e.target.value) }))}
+                                                    placeholder={numberField.placeholder || 'DL1RT1234'}
+                                                    className="w-full bg-transparent border-none p-0 text-[16px] font-semibold text-slate-950 focus:outline-none focus:ring-0 placeholder:text-slate-300 uppercase tracking-widest"
+                                                />
+                                            </div>
+                                        ) : null}
+
+                                        {shouldShowField('color', true) ? (
+                                            <div className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5 col-span-2">
+                                                <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{colorField.name}</label>
+                                                <input
+                                                    value={formData.color}
+                                                    onChange={(e) => setFormData(p => ({ ...p, color: e.target.value }))}
+                                                    placeholder={colorField.placeholder || 'e.g. White, Black'}
+                                                    className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
+                                                />
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            ) : null}
+
+                            {visibleCustomVehicleFields.length > 0 ? (
+                                <div className="space-y-5 pt-1">
+                                    <div className="space-y-1 px-1">
+                                        <h2 className="text-lg font-black tracking-tight text-slate-900">Additional Details</h2>
+                                        <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest opacity-60">
+                                            Configured from admin
+                                        </p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {visibleCustomVehicleFields.map((field) => {
+                                            const fieldKey = String(field.field_key || '').trim();
+                                            const fieldType = String(field.field_type || 'text').trim().toLowerCase();
+                                            const value = formData.customFields?.[fieldKey] || (fieldType === 'multi_select' ? [] : '');
+                                            const optionList = Array.isArray(field.options) ? field.options : [];
+
+                                            if (fieldType === 'textarea') {
                                                 return (
                                                     <div key={fieldKey} className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
                                                         <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{field.name}</label>
-                                                        <input
-                                                            type={fieldType === 'number' ? 'tel' : 'text'}
+                                                        <textarea
                                                             value={value}
-                                                            onChange={(event) => handleCustomFieldChange(
-                                                                fieldKey,
-                                                                fieldType === 'number'
-                                                                    ? event.target.value.replace(/\D/g, '')
-                                                                    : event.target.value,
-                                                            )}
+                                                            onChange={(event) => handleCustomFieldChange(fieldKey, event.target.value)}
                                                             placeholder={field.placeholder || ''}
-                                                            className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
+                                                            rows={3}
+                                                            className="w-full resize-none bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
                                                         />
                                                         {field.help_text ? <p className="mt-2 text-xs text-slate-400">{field.help_text}</p> : null}
                                                     </div>
                                                 );
-                                            })}
-                                        </div>
+                                            }
+
+                                            if (fieldType === 'select') {
+                                                return (
+                                                    <div key={fieldKey} className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
+                                                        <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{field.name}</label>
+                                                        <select
+                                                            value={value}
+                                                            onChange={(event) => handleCustomFieldChange(fieldKey, event.target.value)}
+                                                            className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 appearance-none"
+                                                        >
+                                                            <option value="">{field.placeholder || `Select ${field.name}`}</option>
+                                                            {optionList.map((option) => (
+                                                                <option key={option} value={option}>{option}</option>
+                                                            ))}
+                                                        </select>
+                                                        {field.help_text ? <p className="mt-2 text-xs text-slate-400">{field.help_text}</p> : null}
+                                                    </div>
+                                                );
+                                            }
+
+                                            if (fieldType === 'multi_select') {
+                                                const selectedValues = Array.isArray(value) ? value : [];
+                                                return (
+                                                    <div key={fieldKey} className="space-y-3 rounded-[1.8rem] border-2 border-slate-50 bg-slate-50 p-4">
+                                                        <div>
+                                                            <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{field.name}</label>
+                                                            {field.help_text ? <p className="text-xs text-slate-400 px-1">{field.help_text}</p> : null}
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {optionList.map((option) => {
+                                                                const selected = selectedValues.includes(option);
+                                                                return (
+                                                                    <button
+                                                                        key={option}
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const nextValues = selected
+                                                                                ? selectedValues.filter((item) => item !== option)
+                                                                                : [...selectedValues, option];
+                                                                            handleCustomFieldChange(fieldKey, nextValues);
+                                                                        }}
+                                                                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${selected
+                                                                                ? 'bg-slate-900 text-white'
+                                                                                : 'bg-white text-slate-700 border border-slate-200'
+                                                                            }`}
+                                                                    >
+                                                                        {option}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <div key={fieldKey} className="group rounded-[1.8rem] border-2 transition-all p-4 border-slate-50 bg-slate-50 focus-within:border-slate-900/10 focus-within:bg-white focus-within:shadow-xl focus-within:shadow-slate-900/5">
+                                                    <label className="block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 opacity-70 px-1 mb-1">{field.name}</label>
+                                                    <input
+                                                        type={fieldType === 'number' ? 'tel' : 'text'}
+                                                        value={value}
+                                                        onChange={(event) => handleCustomFieldChange(
+                                                            fieldKey,
+                                                            fieldType === 'number'
+                                                                ? event.target.value.replace(/\D/g, '')
+                                                                : event.target.value,
+                                                        )}
+                                                        placeholder={field.placeholder || ''}
+                                                        className="w-full bg-transparent border-none p-0 text-lg font-black text-slate-900 focus:outline-none focus:ring-0 placeholder:text-slate-200"
+                                                    />
+                                                    {field.help_text ? <p className="mt-2 text-xs text-slate-400">{field.help_text}</p> : null}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                ) : null}
-                            </div>
-                        )}
+                                </div>
+                            ) : null}
+                        </div>
                     </section>
                 </div>
 

@@ -3,11 +3,11 @@ import { motion } from 'framer-motion';
 import { Calendar, ChevronRight, Clock } from 'lucide-react';
 import { buildAvatarFallback } from './activityHelpers';
 
-const ActivityCard = ({ type, title, address, date, time, status, statusTone, price, onClick, driverName, driverImage, vehicleImage, eyebrow }) => {
+const ActivityCard = ({ title, address, date, time, status, statusTone, price, onClick, driverName, driverImage, vehicleImage, eyebrow }) => {
   const [vehicleBroken, setVehicleBroken] = useState(false);
   const [driverBroken, setDriverBroken] = useState(false);
   const resolvedDriverImage = driverBroken ? buildAvatarFallback(driverName) : driverImage;
-  const vehicleAlt = type === 'parcel' ? 'Parcel' : 'Vehicle';
+  const vehicleAlt = 'Vehicle';
 
   return (
     <motion.button

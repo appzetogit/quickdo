@@ -414,8 +414,6 @@ export const quoteRide = async (req, res) => {
     transport_type,
     service_location_id,
     serviceLocationId,
-    weightSlotId,
-    goodsTypeId,
   } = req.body || {};
 
   // The trip is measured from these, exactly as the booking measures it: any
@@ -431,8 +429,6 @@ export const quoteRide = async (req, res) => {
     vehicleTypeIds: Array.isArray(vehicleTypeIds) ? vehicleTypeIds : [vehicleTypeId].filter(Boolean),
     transport_type,
     service_location_id: service_location_id || serviceLocationId,
-    weightSlotId,
-    goodsTypeId,
   });
 
   res.json({ success: true, data: { quotes } });
@@ -576,68 +572,6 @@ export const updateRideStatus = async (req, res) => {
   res.json({
     success: true,
     data: serializeRideRealtime(ride),
-  });
-};
-
-/**
- * Files the captain's photographs of the parcel.
- *
- * `stage` says which end of the job they are from. They are appended, never
- * replaced: the point of the pickup photo is that it can be held against the
- * delivery photo and against what the sender showed at booking, and a write
- * that overwrote either would destroy exactly that.
- *
- * Driver-only, and only on their own ride.
- */
-export const addParcelPhotos = async (req, res) => {
-  if (req.auth.role !== 'driver') {
-    throw new ApiError(403, 'Only the assigned captain can add parcel photos');
-  }
-
-  const stage = String(req.body?.stage || '').trim().toLowerCase();
-  if (stage !== 'pickup' && stage !== 'delivery') {
-    throw new ApiError(400, 'stage must be pickup or delivery');
-  }
-
-  const incoming = Array.isArray(req.body?.photos) ? req.body.photos : [req.body?.photos];
-  const photos = incoming
-    .map((item) => String(item || '').trim())
-    .filter((url) => {
-      const lower = url.toLowerCase();
-      return lower.startsWith('http://') || lower.startsWith('https://');
-    })
-    .slice(0, 4);
-
-  if (photos.length === 0) {
-    throw new ApiError(400, 'At least one photo URL is required');
-  }
-
-  const ride = await Ride.findById(req.params.rideId);
-  if (!ride) {
-    throw new ApiError(404, 'Ride not found');
-  }
-  if (String(ride.driverId) !== String(req.auth.sub)) {
-    throw new ApiError(403, 'This ride belongs to another captain');
-  }
-
-  const field = stage === 'pickup' ? 'pickupPhotos' : 'deliveryPhotos';
-  ride.parcel = ride.parcel || {};
-  const existing = Array.isArray(ride.parcel[field]) ? ride.parcel[field] : [];
-  // Capped so a retry loop cannot grow the document without bound.
-  ride.parcel[field] = existing.concat(photos).slice(0, 6);
-  ride.markModified('parcel');
-  await ride.save();
-
-  // The customer is watching this ride; the photo is the update.
-  emitToRideRoom(ride._id, SOCKET_EVENTS.RIDE_STATE, serializeRideRealtime(ride));
-
-  res.json({
-    success: true,
-    data: {
-      rideId: String(ride._id),
-      stage,
-      photos: ride.parcel[field],
-    },
   });
 };
 
@@ -1259,7 +1193,7 @@ export const cancelRide = async (req, res) => {
 };
 
 export const listAvailableDrivers = async (req, res) => {
-  const { vehicleTypeId, lat, lng, maxDistance, limit = 30, service_location_id, transport_type, service_type } = req.query;
+  const { vehicleTypeId, lat, lng, maxDistance, limit = 30, service_location_id, transport_type } = req.query;
   const latitude = Number(lat);
   const longitude = Number(lng);
   const distance = Number(maxDistance);
@@ -1290,12 +1224,6 @@ export const listAvailableDrivers = async (req, res) => {
   const driverMatchFilters = buildDriverMatchFilters({
     vehicleTypeId,
     transportType: transport_type,
-    // Without this, a delivery-only driver (parcel capability, no taxi) is
-    // always filtered out of this lookup -- the unified-dispatch capability
-    // check below defaults to requiring `taxi` unless told this is a parcel
-    // job, which left the parcel booking screen's ETA permanently empty for
-    // a nearby rider who simply never holds that capability.
-    serviceType: service_type,
   });
 
   const drivers = await Driver.find({

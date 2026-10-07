@@ -260,7 +260,7 @@ const LegalPage = () => {
       try {
         if (docType === 'terms' || docType === 'privacy') {
           const role = String(location.state?.role || '').toLowerCase();
-          const isDriver = ['driver', 'owner'].includes(role) || location.pathname.includes('/driver');
+          const isDriver = role === 'driver' || location.pathname.includes('/driver');
           const own = await fetchAppLegal(isDriver ? 'taxi_driver' : 'taxi_user', docType);
           if (own) {
             setDynamicContent(own);

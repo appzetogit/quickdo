@@ -11,7 +11,7 @@ import { BACKEND_ORIGIN } from '../../../../shared/api/runtimeConfig';
 import toast from 'react-hot-toast';
 
 /*
- * Same shared ladder engine Food/Quick/Medical already use
+ * Same shared ladder engine Food/Quick already use
  * (Backend/src/core/incentives/), scoped here by vehicle type as well as
  * zone -- an e-rickshaw and a cab earn at different rates for the same ride
  * count. Mounted under /platform/settings, not /taxi/..., so this instance's

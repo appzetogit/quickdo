@@ -19,7 +19,6 @@ const customVehicleFieldSentinel = '__custom__';
 const driverClassOptions = [
   { value: 'two_wheeler', label: 'Apply in 2 wheeler' },
   { value: 'passenger_taxi', label: 'Taxi for passenger delivery' },
-  { value: 'parcel_vehicle', label: 'Parcel delivery vehicle' },
 ];
 
 const initialDocumentForm = {
@@ -55,7 +54,6 @@ const initialVehicleFieldForm = {
 
 const accountTypeOptions = [
   { value: 'individual', label: 'Individual' },
-  { value: 'fleet_drivers', label: 'Fleet Drivers' },
   { value: 'both', label: 'Both' },
 ];
 
@@ -73,18 +71,13 @@ const imageTypeOptions = [
 
 const vehicleFieldOptions = [
   { value: 'locationId', label: 'Operating City', field_type: 'location_select', field_group: 'common', placeholder: '', account_type: 'both' },
-  { value: 'serviceCategories', label: 'Service Category', field_type: 'multi_select', field_group: 'driver', placeholder: '', account_type: 'individual', options: ['taxi', 'outstation', 'delivery'] },
+  { value: 'serviceCategories', label: 'Service Category', field_type: 'multi_select', field_group: 'driver', placeholder: '', account_type: 'individual', options: ['taxi', 'outstation'] },
   { value: 'vehicleTypeId', label: 'Vehicle Type', field_type: 'vehicle_type_select', field_group: 'driver', placeholder: '', account_type: 'individual' },
   { value: 'make', label: 'Brand / Make', field_type: 'text', field_group: 'driver', placeholder: 'e.g. Maruti Suzuki', account_type: 'individual' },
   { value: 'model', label: 'Model', field_type: 'text', field_group: 'driver', placeholder: 'Swift, Bolt', account_type: 'individual' },
   { value: 'year', label: 'Year', field_type: 'number', field_group: 'driver', placeholder: 'e.g. 2024', account_type: 'individual' },
   { value: 'number', label: 'Plate Number', field_type: 'text', field_group: 'driver', placeholder: 'DL1RT1234', account_type: 'individual' },
   { value: 'color', label: 'Exterior Color', field_type: 'text', field_group: 'driver', placeholder: 'e.g. White, Black', account_type: 'individual' },
-  { value: 'companyName', label: 'Company Name', field_type: 'text', field_group: 'owner', placeholder: 'Legal Company Name', account_type: 'fleet_drivers' },
-  { value: 'companyAddress', label: 'Company Address', field_type: 'text', field_group: 'owner', placeholder: 'Business Address', account_type: 'fleet_drivers' },
-  { value: 'city', label: 'City', field_type: 'text', field_group: 'owner', placeholder: 'City', account_type: 'fleet_drivers' },
-  { value: 'postalCode', label: 'Postal Code', field_type: 'number', field_group: 'owner', placeholder: 'Pincode', account_type: 'fleet_drivers' },
-  { value: 'taxNumber', label: 'Tax Number (GST/VAT)', field_type: 'text', field_group: 'owner', placeholder: 'Tax Identification', account_type: 'fleet_drivers' },
 ];
 
 const vehicleFieldTypeOptions = [
@@ -483,7 +476,7 @@ const DriverDocumentForm = () => {
                 type="text"
                 value={vehicleFieldForm.field_group}
                 onChange={(event) => handleVehicleFieldChange('field_group', event.target.value)}
-                placeholder="driver, owner, common"
+                placeholder="driver, common"
                 className={inputClass}
               />
             </div>

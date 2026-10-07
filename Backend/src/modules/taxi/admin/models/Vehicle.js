@@ -176,7 +176,7 @@ const vehicleSchema = new mongoose.Schema(
     /**
      * The home-screen modules that offer this vehicle type.
      *
-     * Ids of TaxiAppModule documents — Bike Taxi, Car Taxi, Bike Parcel and
+     * Ids of TaxiAppModule documents — Bike Taxi, Car Taxi, Outstation and
      * so on — so the set is whatever the admin has created rather than a
      * list frozen in code.
      *

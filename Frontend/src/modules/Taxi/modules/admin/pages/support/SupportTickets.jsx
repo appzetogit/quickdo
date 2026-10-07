@@ -180,7 +180,6 @@ const SupportTickets = () => {
               <option value="all">All user types</option>
               <option value="user">User</option>
               <option value="driver">Driver</option>
-              <option value="owner">Owner</option>
             </select>
             <input
               value={search}

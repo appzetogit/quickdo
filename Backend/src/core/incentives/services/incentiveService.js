@@ -81,9 +81,9 @@ async function resolveDriverContext({ startFrom, id }) {
         if (!driver) return null;
         foodPartnerId = driver.legacyDeliveryPartnerId || null;
         qcPartnerId = driver.legacyQcPartnerId || null;
-        // Older links point only the other way (partner.driverId). A bike parcel
-        // starts here and must still find the Food account, whose delivery
-        // wallet is where the food ladder pays.
+        // Older links point only the other way (partner.driverId). A ride
+        // starts here and must still find the Food account, so the card nudge
+        // reaches the delivery app.
         if (!foodPartnerId) {
             const linked = await FoodDeliveryPartner.findOne({ driverId: driver._id }).select('_id').lean();
             foodPartnerId = linked?._id || null;
@@ -271,115 +271,11 @@ export function tiersOfRule(rule) {
 }
 
 /*
- * Which ladder a ride climbs (client, 2026-10-01):
- *   - a parcel on a 2-wheeler is a bike parcel: it goes with the Food + Daily
- *     needs + Medical rider, so it counts on the foodAndQuick ladder;
- *   - any other parcel/porter job is heavyParcel;
- *   - a passenger ride (bike taxi, auto, cab) is taxiAndPorter, shown as "Taxi".
+ * Every completed ride climbs the taxiAndPorter ladder, shown as "Taxi".
+ * (Parcel delivery, and with it the bike-parcel and heavyParcel ladders, was
+ * removed; old 'parcel' rides still count as rides.)
  */
-const TWO_WHEELER_ICONS = ['bike', 'scooty', 'scooter', 'ev_bike', 'evbike', 'motorcycle'];
-const PASSENGER_RIDE = { serviceType: { $ne: 'parcel' } };
-const RIDE_SEGMENTS = new Set(['taxiAndPorter', 'heavyParcel']);
-
-/*
- * A ride often carries an empty vehicleIconType (the customer app does not
- * always send it), so a 2-wheeler is also recognised by its vehicle type in
- * the catalogue. Cached for a minute: the catalogue changes rarely.
- */
-let twoWheelerTypeCache = { at: 0, ids: [] };
-async function twoWheelerVehicleTypeIds() {
-    if (Date.now() - twoWheelerTypeCache.at < 60 * 1000) return twoWheelerTypeCache.ids;
-    try {
-        const { Vehicle } = await import('../../../modules/taxi/admin/models/Vehicle.js');
-        const rows = await Vehicle.find({ icon_types: { $in: TWO_WHEELER_ICONS } }).select('_id').lean();
-        twoWheelerTypeCache = { at: Date.now(), ids: rows.map((r) => r._id) };
-    } catch {
-        /* keep the last list */
-    }
-    return twoWheelerTypeCache.ids;
-}
-
-async function bikeParcelFilter() {
-    return {
-        serviceType: 'parcel',
-        $or: [
-            { vehicleIconType: { $in: TWO_WHEELER_ICONS } },
-            { vehicleTypeId: { $in: await twoWheelerVehicleTypeIds() } },
-        ],
-    };
-}
-
-async function heavyParcelFilter() {
-    return {
-        serviceType: 'parcel',
-        vehicleIconType: { $nin: TWO_WHEELER_ICONS },
-        vehicleTypeId: { $nin: await twoWheelerVehicleTypeIds() },
-    };
-}
-
-/** The ladder a completed ride counts on. */
-export async function segmentOfRide(ride) {
-    if (String(ride?.serviceType || '').toLowerCase() !== 'parcel') return 'taxiAndPorter';
-    const icon = String(ride?.vehicleIconType || '').toLowerCase();
-    if (TWO_WHEELER_ICONS.includes(icon)) return 'foodAndQuick';
-    const typeId = String(ride?.vehicleTypeId || '');
-    const bikes = await twoWheelerVehicleTypeIds();
-    return typeId && bikes.some((id) => String(id) === typeId) ? 'foodAndQuick' : 'heavyParcel';
-}
-
-/**
- * The Food/Quick/Medical zone a point is in, for a bike parcel on the food
- * ladder (whose zone ladders are keyed by those zones, not taxi zones).
- */
-async function deliveryZoneIdAt(coordinates) {
-    const [lng, lat] = Array.isArray(coordinates) ? coordinates.map(Number) : [];
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    try {
-        const { loadActiveZones, resolveZoneIdForPoint } = await import('../../../modules/food/shared/zoneMatching.js');
-        const food = resolveZoneIdForPoint(lat, lng, await loadActiveZones());
-        if (food) return food;
-        const { findZoneForPoint } = await import('../../../modules/quickCommerce/modules/food/shared/zoneServiceability.js');
-        for (const vertical of ['quick', 'medical']) {
-            // eslint-disable-next-line no-await-in-loop
-            const zone = await findZoneForPoint(lat, lng, vertical);
-            if (zone?._id) return String(zone._id);
-        }
-    } catch (err) {
-        logger.warn(`incentive: delivery zone lookup failed: ${err.message}`);
-    }
-    return null;
-}
-
-/** Food/Quick/Medical zone polygons by id, as GeoJSON (they are stored as lat/lng rings). */
-async function deliveryZoneShapes(ids = []) {
-    if (!ids.length) return [];
-    const { FoodZone } = await import('../../../modules/food/admin/models/zone.model.js');
-    const { zoneModelFor } = await import('../../../modules/quickCommerce/modules/food/shared/zoneServiceability.js');
-    const lists = await Promise.all([
-        FoodZone.find({ _id: { $in: ids } }).select('coordinates').lean().catch(() => []),
-        zoneModelFor('quick').find({ _id: { $in: ids } }).select('coordinates').lean().catch(() => []),
-        zoneModelFor('medical').find({ _id: { $in: ids } }).select('coordinates').lean().catch(() => []),
-    ]);
-    return lists.flat()
-        .map((z) => (Array.isArray(z.coordinates) ? z.coordinates : []))
-        .filter((ring) => ring.length >= 3)
-        .map((ring) => {
-            const pts = ring.map((c) => [Number(c.longitude), Number(c.latitude)]);
-            const first = pts[0];
-            const last = pts[pts.length - 1];
-            if (first[0] !== last[0] || first[1] !== last[1]) pts.push(first);
-            return { type: 'Polygon', coordinates: [pts] };
-        });
-}
-
-/** Narrows a bike-parcel count to a food ladder's zones. */
-async function bikeParcelZoneFilter(scope = {}) {
-    const ids = scope.onlyZone ? [scope.onlyZone] : scope.excludeZones || [];
-    if (!ids.length) return {};
-    const within = (await deliveryZoneShapes(ids)).map((g) => ({ pickupLocation: { $geoWithin: { $geometry: g } } }));
-    if (scope.onlyZone) return within.length ? { $or: within } : { _id: null };
-    return within.length ? { $nor: within } : {};
-}
+const RIDE_SEGMENTS = new Set(['taxiAndPorter']);
 
 function sortedTiersOf(rule) {
     return [...tiersOfRule(rule)].sort((a, b) => a.toOrders - b.toOrders);
@@ -396,7 +292,6 @@ async function countCompletedToday(ctx, segment, { start, end }, scope = {}) {
                     completedAt: { $gte: start, $lte: end },
                     ...rideVehicleTypeFilter(scope),
                 },
-                segment === 'heavyParcel' ? await heavyParcelFilter() : PASSENGER_RIDE,
                 await rideZoneFilter(scope),
             ],
         });
@@ -418,24 +313,6 @@ async function countCompletedToday(ctx, segment, { start, end }, scope = {}) {
             orderStatus: 'delivered',
             'deliveryState.deliveredAt': { $gte: start, $lte: end },
             ...zone,
-        });
-    }
-    // Bike parcels count with the rider's food, daily-needs and medical orders.
-    // Fails soft: a bad zone shape must not take the orders' count down with it.
-    if (ctx.taxiDriverId) {
-        total += await Ride.countDocuments({
-            $and: [
-                {
-                    driverId: ctx.taxiDriverId,
-                    liveStatus: 'completed',
-                    completedAt: { $gte: start, $lte: end },
-                },
-                await bikeParcelFilter(),
-                await bikeParcelZoneFilter(scope),
-            ],
-        }).catch((err) => {
-            logger.warn(`incentive: bike parcel count failed: ${err.message}`);
-            return 0;
         });
     }
     return total;
@@ -465,7 +342,7 @@ async function payTierReward({ ctx, rule, tier, completedOrders, periodKey }) {
     // Food & Quick rewards go to the delivery wallet -- the balance the delivery
     // app shows and pays out from. They used to go to the taxi driver wallet
     // for a linked rider, which the delivery app never reads, so the reward
-    // was earned but never seen. Taxi & porter rewards stay in the taxi wallet.
+    // was earned but never seen. Taxi rewards stay in the taxi wallet.
     const deliveryPartnerId = rule.segment === 'foodAndQuick'
         ? (ctx.foodPartnerId || ctx.qcPartnerId)
         : null;
@@ -603,31 +480,20 @@ export function onFoodOrQuickCommerceOrderCompleted({ deliveryPartnerId, vertica
 }
 
 /**
- * Called after a taxi ride, bike parcel or porter job is completed. Each
- * climbs its own ladder (segmentOfRide); a bike parcel climbs the food one,
- * in the Food/Quick/Medical zone its pickup is in.
+ * Called after a taxi ride is completed. It climbs the taxiAndPorter ladder
+ * for the ride's zone and vehicle type.
  */
 export async function onTaxiRideCompleted({ driverId, ride = null }) {
-    const segment = await segmentOfRide(ride);
-    if (segment === 'foodAndQuick') {
-        await maybeCreditIncentive({
-            startFrom: 'taxiDriver',
-            id: driverId,
-            segment,
-            zoneId: await deliveryZoneIdAt(ride?.pickupLocation?.coordinates),
-        });
-    } else {
-        const { taxiZoneIdOfRide } = await import('../../zones/taxiZone.js');
-        const zoneId = ride ? await taxiZoneIdOfRide(ride) : null;
-        const vehicleTypeId = ride?.vehicleTypeId || null;
-        await maybeCreditIncentive({
-            startFrom: 'taxiDriver',
-            id: driverId,
-            segment,
-            zoneId,
-            vehicleTypeId,
-        });
-    }
+    const { taxiZoneIdOfRide } = await import('../../zones/taxiZone.js');
+    const zoneId = ride ? await taxiZoneIdOfRide(ride) : null;
+    const vehicleTypeId = ride?.vehicleTypeId || null;
+    await maybeCreditIncentive({
+        startFrom: 'taxiDriver',
+        id: driverId,
+        segment: 'taxiAndPorter',
+        zoneId,
+        vehicleTypeId,
+    });
     await nudgeIncentiveCard(driverId);
 }
 
@@ -635,7 +501,7 @@ export async function onTaxiRideCompleted({ driverId, ride = null }) {
  * Tell the delivery app to redraw its incentive card now.
  *
  * The app refetches the card when a FOOD order finishes, but not when a
- * parcel or ride does, so the bar waited for its 60-second poll. It already
+ * ride does, so the bar waited for its 60-second poll. It already
  * refetches on an `incentive_credited` push; one with no tier or amount is
  * silent (data-only, nothing announced, no notification shown).
  */
@@ -785,26 +651,18 @@ export async function getCurrentIncentiveForDriver(taxiDriverId) {
 
 /**
  * Which ladder a driver's card shows, from what they were approved for.
- *
- * The app asks for the ride ladder whenever its work mode takes rides, and a
- * Food + Bike parcel rider is kept on 'all' so parcels reach them; without
- * this they were shown the Taxi ladder for work they never do.
  *   - passengers: the taxi ladder;
- *   - deliveries (bike parcels count there): the food ladder;
- *   - parcels only (truck, tempo...): the heavy parcel ladder.
+ *   - deliveries: the food ladder.
  */
 export async function ladderSegmentForDriver(taxiDriverId) {
     const driver = await Driver.findById(taxiDriverId).select('serviceCapabilities').lean().catch(() => null);
     const caps = new Set(Array.isArray(driver?.serviceCapabilities) ? driver.serviceCapabilities : []);
     if (caps.has('taxi')) return 'taxiAndPorter';
     if (caps.has('delivery') || caps.has('quickCommerce')) return 'foodAndQuick';
-    if (caps.has('parcel')) return 'heavyParcel';
     return 'taxiAndPorter';
 }
 
 export const __testables = {
-    segmentOfRide,
-    deliveryZoneIdAt,
     istDayBounds,
     istWeekBounds,
     resolveDriverContext,

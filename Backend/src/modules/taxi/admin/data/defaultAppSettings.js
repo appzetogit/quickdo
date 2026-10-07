@@ -75,17 +75,6 @@ export const createDefaultAppSettings = () => ({
     },
     {
       _id: objectId(),
-      name: 'Parcel Delivery',
-      transport_type: 'delivery',
-      service_type: 'normal',
-      order_by: 5,
-      short_description: 'Send packages',
-      description: 'Reliable parcel delivery service for your goods.',
-      active: true,
-      mobile_menu_icon: '/5_Parcel.png',
-    },
-    {
-      _id: objectId(),
       name: 'Outstation',
       transport_type: 'taxi',
       service_type: 'outstation',

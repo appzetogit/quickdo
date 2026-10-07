@@ -14,7 +14,6 @@ import {
   getDriverDocumentTemplates,
   clearDriverAuthState,
   getLocalDriverToken,
-  getStoredDriverRole,
   persistDriverAuthSession,
 } from "../../services/registrationService";
 
@@ -61,15 +60,11 @@ const RegistrationStatus = () => {
   const appName = settings.general?.app_name || "App";
   const appLogo = activeLogo || settings.general?.logo || settings.customization?.logo;
   const isVehicleReapproval = location.state?.statusReason === "vehicle-update" || driver?.approve === false;
-  const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+  const routePrefix = '/taxi/driver';
 
   useEffect(() => {
     if (location.state?.role) {
-      const normalizedRole =
-        String(location.state.role).toLowerCase() === "owner"
-          ? "owner"
-          : "driver";
-      persistDriverAuthSession({ role: normalizedRole });
+      persistDriverAuthSession({ role: "driver" });
     }
 
     const onboardingToken =
@@ -78,10 +73,9 @@ const RegistrationStatus = () => {
       "";
 
     if (onboardingToken) {
-      const roleFromState = String(location.state?.role || "").toLowerCase();
       persistDriverAuthSession({
         token: onboardingToken,
-        role: roleFromState === "owner" ? "owner" : "driver",
+        role: "driver",
       });
     }
 
@@ -89,8 +83,7 @@ const RegistrationStatus = () => {
 
     const fetchTemplates = async () => {
       try {
-        const role = getStoredDriverRole() || location.state?.role || "driver";
-        const response = await getDriverDocumentTemplates(role);
+        const response = await getDriverDocumentTemplates();
         const templates = response?.data?.data?.results || response?.data?.results || [];
         if (mountedRef.current) setDocumentTemplates(templates);
       } catch (err) {
@@ -133,13 +126,7 @@ const RegistrationStatus = () => {
 
         if (isApproved) {
           clearDriverRegistrationSession();
-          const normalizedRole =
-            String(getStoredDriverRole() || location.state?.role || "driver").toLowerCase();
-
-          const isOwner = normalizedRole === "owner";
-          const path = isOwner ? "/taxi/owner/home" : "/taxi/driver/home";
-
-          navigate(path, { replace: true });
+          navigate("/taxi/driver/home", { replace: true });
           requestInFlightRef.current = false;
           return;
         }

@@ -9,7 +9,6 @@ import {
 } from '../../services/registrationService';
 import { useImageUpload } from '../../../../shared/hooks/useImageUpload';
 import DriverBottomNav from '../../../shared/components/DriverBottomNav';
-import OwnerVehicleFleet from './OwnerVehicleFleet';
 import CarIcon from '../../../../assets/icons/car.png';
 import BikeIcon from '../../../../assets/icons/bike.png';
 import AutoIcon from '../../../../assets/icons/auto.png';
@@ -163,7 +162,6 @@ const buildVisibleVehicleTypes = (allTypes, driver) => {
 
 const VehicleFleet = () => {
     const navigate = useNavigate();
-    const [isOwner] = useState(() => String(localStorage.getItem('role') || 'driver').toLowerCase() === 'owner');
     const [driver, setDriver] = useState(null);
     const [vehicleTypes, setVehicleTypes] = useState([]);
     const [formData, setFormData] = useState(buildForm(null));
@@ -195,10 +193,6 @@ const VehicleFleet = () => {
     const vehicleModel = [driver?.vehicleMake, driver?.vehicleModel].filter(Boolean).join(' ') || activeVehicleName;
 
     useEffect(() => {
-        if (isOwner) {
-            return undefined;
-        }
-
         let active = true;
 
         const load = async () => {
@@ -242,7 +236,7 @@ const VehicleFleet = () => {
         return () => {
             active = false;
         };
-    }, [isOwner]);
+    }, []);
 
     useEffect(() => {
         sessionStorage.setItem(VEHICLE_FLEET_DRAFT_KEY, JSON.stringify(formData));
@@ -337,11 +331,7 @@ const VehicleFleet = () => {
     };
 
     return (
-        <>
-            {isOwner ? (
-                <OwnerVehicleFleet />
-            ) : (
-                <div className="min-h-screen bg-[#f8f9fb] font-sans p-6 pt-14 pb-32 overflow-x-hidden">
+        <div className="min-h-screen bg-[#f8f9fb] font-sans p-6 pt-14 pb-32 overflow-x-hidden">
             <header className="flex items-center gap-4 mb-8">
                 <button onClick={() => navigate('/taxi/driver/profile')} className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center">
                     <ArrowLeft size={18} className="text-slate-900" />
@@ -569,9 +559,7 @@ const VehicleFleet = () => {
                 )}
             </AnimatePresence>
             <DriverBottomNav />
-            </div>
-            )}
-        </>
+        </div>
     );
 };
 

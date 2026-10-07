@@ -1,5 +1,4 @@
 import { Admin } from '../admin/models/Admin.js';
-import { Owner } from '../admin/models/Owner.js';
 import { ApiError } from '../../../utils/ApiError.js';
 import { Driver } from '../driver/models/Driver.js';
 import { User } from '../user/models/User.js';
@@ -14,7 +13,6 @@ const roleModelMap = {
   admin: Admin,
   'super-admin': Admin,
   driver: Driver,
-  owner: Owner,
   user: User,
 };
 
@@ -137,16 +135,6 @@ export const authenticate = (allowedRoles = [], options = {}) => async (req, _re
       (entity.approve === false || String(entity.status || '').toLowerCase() === 'pending')
     ) {
       throw new ApiError(403, 'Driver account is pending approval');
-    }
-
-    if (
-      normalizedRole === 'owner' &&
-      !allowPending &&
-      (entity.active === false ||
-        entity.approve === false ||
-        String(entity.status || '').toLowerCase() === 'pending')
-    ) {
-      throw new ApiError(403, 'Owner account is pending approval');
     }
 
     attachResolvedAuth(req, { ...payload, sub: String(subjectId) });

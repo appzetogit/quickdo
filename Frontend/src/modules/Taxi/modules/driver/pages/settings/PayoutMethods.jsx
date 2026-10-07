@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, CreditCard, Plus, HelpCircle, ArrowRight, ShieldCheck, Banknote, X, CheckSquare } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const PayoutMethods = () => {
     const navigate = useNavigate();
-    const location = useLocation();
-    const routePrefix = location.pathname.startsWith('/taxi/owner') ? '/taxi/owner' : '/taxi/driver';
+    const routePrefix = '/taxi/driver';
     const [accounts, setAccounts] = useState([
         { id: 1, type: 'Bank Account', name: 'Zeto Bank Savings', info: '**** 5678', status: 'Primary', icon: <Banknote size={20} /> },
         { id: 2, type: 'UPI ID', name: 'Google Pay', info: '95898@okaxis', status: 'Active', icon: <CreditCard size={20} /> }

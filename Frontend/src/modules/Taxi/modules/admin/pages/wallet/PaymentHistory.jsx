@@ -24,7 +24,6 @@ const PaymentHistory = () => {
               <option>Select</option>
               <option>User</option>
               <option>Driver</option>
-              <option>Owner</option>
             </select>
           </div>
 

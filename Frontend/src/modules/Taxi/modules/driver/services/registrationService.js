@@ -75,16 +75,6 @@ export const getStoredDriverRole = () =>
   || readSessionValue("role")
   || String(localStorage.getItem("driverRole") || localStorage.getItem("role") || "driver").toLowerCase();
 
-export const normalizeDriverPortalRole = (role) => {
-  const normalized = String(role || "").toLowerCase();
-
-  if (!normalized) return "";
-
-  if (normalized === "owner") return "owner";
-
-  return "driver";
-};
-
 export const sendDriverOtp = (payload) =>
   api.post("/drivers/onboarding/send-otp", payload);
 
@@ -138,22 +128,22 @@ const getTokenPayload = (token) => {
 
 const readLocalDriverToken = () => {
   const direct = readSessionValue("driverToken");
-  if (["driver", "owner"].includes(getTokenPayload(direct)?.role)) {
+  if (getTokenPayload(direct)?.role === "driver") {
     return direct;
   }
 
   const fallback = readSessionValue("token");
-  if (["driver", "owner"].includes(getTokenPayload(fallback)?.role)) {
+  if (getTokenPayload(fallback)?.role === "driver") {
     return fallback;
   }
 
   const persistedDriverToken = String(localStorage.getItem("driverToken") || "");
-  if (["driver", "owner"].includes(getTokenPayload(persistedDriverToken)?.role)) {
+  if (getTokenPayload(persistedDriverToken)?.role === "driver") {
     return persistedDriverToken;
   }
 
   const persistedGenericToken = String(localStorage.getItem("token") || "");
-  if (["driver", "owner"].includes(getTokenPayload(persistedGenericToken)?.role)) {
+  if (getTokenPayload(persistedGenericToken)?.role === "driver") {
     return persistedGenericToken;
   }
 
@@ -161,13 +151,6 @@ const readLocalDriverToken = () => {
 };
 
 export const getLocalDriverToken = readLocalDriverToken;
-
-export const getAuthenticatedDriverRole = () => {
-  const tokenPayloadRole = normalizeDriverPortalRole(getTokenPayload(readLocalDriverToken())?.role);
-  const storedRole = normalizeDriverPortalRole(getStoredDriverRole());
-
-  return tokenPayloadRole || storedRole || "driver";
-};
 
 const withDriverAuth = (config = {}) => {
   const token = readLocalDriverToken();
@@ -264,30 +247,6 @@ export const getDriverApprovalStatus = () => {
     }),
   );
 };
-
-export const getOwnerFleetDrivers = () =>
-  api.get("/drivers/fleet/drivers", withDriverAuth());
-
-export const getOwnerFleetDashboard = () =>
-  api.get("/drivers/fleet/dashboard", withDriverAuth());
-
-export const createOwnerFleetDriver = (payload) =>
-  api.post("/drivers/fleet/drivers", payload, withDriverAuth());
-
-export const updateOwnerFleetDriver = (driverId, payload) =>
-  api.patch(`/drivers/fleet/drivers/${driverId}`, payload, withDriverAuth());
-
-export const getOwnerFleetVehicles = () =>
-  api.get("/drivers/fleet/vehicles", withDriverAuth());
-
-export const createOwnerFleetVehicle = (payload) =>
-  api.post("/drivers/fleet/vehicles", payload, withDriverAuth());
-
-export const updateOwnerFleetVehicle = (vehicleId, payload) =>
-  api.patch(`/drivers/fleet/vehicles/${vehicleId}`, payload, withDriverAuth());
-
-export const deleteOwnerFleetVehicle = (vehicleId) =>
-  api.delete(`/drivers/fleet/vehicles/${vehicleId}`, withDriverAuth());
 
 export const getDriverRegistrationSession = ({ registrationId, phone }) =>
   api.get(`/drivers/onboarding/session/${registrationId}`, {

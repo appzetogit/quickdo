@@ -225,10 +225,10 @@ export const platformSettingsAPI = {
    * services are matched in by link or by phone. Read only -- blocking and
    * editing stay on the screens whose schema owns those fields.
    */
-  /** Master > Orders: every order, per tab (all | food | quick | medical | taxi | parcel). */
+  /** Master > Orders: every order, per tab (all | food | quick | taxi). */
   getMasterOrders: (params = {}) =>
     apiClient.get("/platform/settings/orders", { params, contextModule: "admin" }),
-  /** Delete one order from Master > All Orders (source: food | quick | medical | taxi | parcel). */
+  /** Delete one order from Master > All Orders (source: food | quick | taxi). */
   deleteMasterOrder: (source, id) =>
     apiClient.delete(`/platform/settings/orders/${source}/${id}`, { contextModule: "admin" }),
   getGlobalUsers: (params = {}) =>
@@ -280,12 +280,12 @@ export const appServicesAPI = {
 };
 
 /**
- * Admin accounts for every panel (food, quick commerce, medical, taxi). Platform
+ * Admin accounts for every panel (food, quick commerce, taxi). Platform
  * level, so the same list and the same permissions whichever panel it is opened
  * from.
  */
 /**
- * Stock per product variant, per store (quick commerce and medical). `scope`
+ * Stock per product variant, per store (quick commerce). `scope`
  * picks the admin API (any store) or the store's own. Both are written with
  * /food/ and rewritten to /qc/ by the axios layer for these panels.
  */
@@ -379,9 +379,9 @@ export const supportInboxAPI = {
     apiClient.patch(`/platform/support/tickets/${encodeURIComponent(source)}/${encodeURIComponent(id)}`, data, { contextModule: "admin" }),
 };
 
-/** Admin orders base for a vertical: Food on /food/admin, Quick & Medical on /qc/admin. */
+/** Admin orders base for a vertical: Food on /food/admin, Quick on /qc/admin. */
 const adminOrdersBase = (vertical) =>
-  vertical === "quickCommerce" || vertical === "quick" || vertical === "medical"
+  vertical === "quickCommerce" || vertical === "quick"
     ? "/qc/admin/orders"
     : "/food/admin/orders";
 
@@ -788,52 +788,6 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
-  /*
-   * Medical panel only. The paths say /food because the axios interceptor
-   * rewrites them to /qc on /admin/medical -- see services/api/axios.js. Both
-   * endpoints scope themselves to pharmacies server-side; nothing here can
-   * widen them.
-   */
-  getPrescriptionOrders: (params = {}) =>
-    apiClient.get("/food/admin/prescriptions", { params, contextModule: "admin" }),
-  getPrescriptionOrderCounts: (params = {}) =>
-    apiClient.get("/food/admin/prescriptions/counts", { params, contextModule: "admin" }),
-  getPrescriptionOrder: (orderId) =>
-    apiClient.get(`/food/admin/prescriptions/${String(orderId)}`, { contextModule: "admin" }),
-  // Takes a finished order off the queue; the order itself is kept.
-  removePrescriptionOrder: (orderId, reason = "") =>
-    apiClient.delete(`/food/admin/prescriptions/${String(orderId)}`, { data: { reason }, contextModule: "admin" }),
-  getDrugLicences: (params = {}) =>
-    apiClient.get("/food/admin/drug-licences", { params, contextModule: "admin" }),
-  getDrugLicenceSummary: (params = {}) =>
-    apiClient.get("/food/admin/drug-licences/summary", { params, contextModule: "admin" }),
-  /*
-   * How far a prescription may travel, and the log of where each one went.
-   * The range decides both which pharmacies a customer is shown and which ones
-   * a broadcast reaches, so it is one number with two visible effects.
-   */
-  getMedicalSettings: () =>
-    apiClient.get("/food/admin/medical/settings", { contextModule: "admin" }),
-  updateMedicalSettings: (payload) =>
-    apiClient.put("/food/admin/medical/settings", payload, { contextModule: "admin" }),
-  /** Pharmacy commission: the default and each shop's own rate. */
-  getMedicalCommissions: (params = {}) =>
-    apiClient.get("/food/admin/medical/commission", { params, contextModule: "admin" }),
-  setMedicalDefaultCommission: (rate) =>
-    apiClient.put("/food/admin/medical/commission/default", rate, { contextModule: "admin" }),
-  setMedicalShopCommission: (id, rate) =>
-    apiClient.put(`/food/admin/medical/commission/shops/${encodeURIComponent(id)}`, rate, { contextModule: "admin" }),
-  clearMedicalShopCommission: (id) =>
-    apiClient.delete(`/food/admin/medical/commission/shops/${encodeURIComponent(id)}`, { contextModule: "admin" }),
-  getMedicalRequests: (params = {}) =>
-    apiClient.get("/food/admin/medical/requests", { params, contextModule: "admin" }),
-  /** Pharmacy applications with their documents and checklist, and the decision. */
-  getPharmacyApplications: (params = {}) =>
-    apiClient.get("/food/admin/medical/verification", { params, contextModule: "admin" }),
-  approvePharmacyApplication: (id) =>
-    apiClient.post(`/food/admin/medical/verification/${encodeURIComponent(id)}/approve`, {}, { contextModule: "admin" }),
-  rejectPharmacyApplication: (id, reason) =>
-    apiClient.post(`/food/admin/medical/verification/${encodeURIComponent(id)}/reject`, { reason }, { contextModule: "admin" }),
   /** What each menu currently carries, as opposed to what was asked for. */
   getStandingAdjustments: () =>
     apiClient.get("/food/admin/price-adjustments/standing", {
@@ -925,9 +879,9 @@ export const adminAPI = {
     }),
   /**
    * Manual rider assignment (per order). `vertical` is 'food' or
-   * 'quickCommerce' (Quick and Medical share the /qc admin API). Note the
+   * 'quickCommerce' (the /qc admin API). Note the
    * request interceptor still moves any /food URL to /qc while the browser is
-   * on a quick-commerce or medical admin path, so 'food' there means the page's
+   * on a quick-commerce admin path, so 'food' there means the page's
    * own vertical.
    */
   getRiderCandidates: (vertical, orderId, { q, limit } = {}) =>
@@ -1747,18 +1701,6 @@ export const restaurantAPI = {
       orderStatus: "cancelled_by_restaurant",
       note: reason,
     }),
-  /**
-   * Approve or reject a medical order's prescription (pharmacy only).
-   * Separate from the order's own accept/reject -- see
-   * Backend/.../food/shared/prescriptionRules.js. A rejection reason is
-   * required by the server when decision is "rejected".
-   */
-  reviewPrescription: (orderId, decision, reason = "") =>
-    apiClient.patch(
-      `/food/restaurant/orders/${String(orderId)}/prescription`,
-      { decision, reason },
-      { contextModule: "restaurant" },
-    ),
   /** Mark order ready (restaurant handoff). */
   markOrderReady: (orderId) =>
     restaurantAPI.updateOrderStatus(orderId, {
