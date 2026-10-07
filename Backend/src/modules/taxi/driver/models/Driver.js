@@ -315,13 +315,20 @@ const driverSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /*
+     * A driver waits for review unless whoever creates them says otherwise
+     * (plan §4.9) -- admin-created drivers included. These defaults were
+     * approve:true / 'approved', so any path that forgot to set them created
+     * an approved driver. Existing drivers stored without these fields keep
+     * their approval through scripts/backfill-driver-approval.mjs.
+     */
     approve: {
       type: Boolean,
-      default: true,
+      default: false,
     },
     status: {
       type: String,
-      default: 'approved',
+      default: 'pending',
       trim: true,
     },
     rating: {

@@ -759,6 +759,7 @@ const AdminLayout = () => {
           },
           { icon: Car, label: 'Trip Requests', path: '/taxi/admin/trips', permission: 'trips.view' },
           { icon: Clock, label: 'Ongoing Requests', path: '/taxi/admin/ongoing', permission: 'ongoing.view' },
+          { icon: Clock, label: 'Toll Approvals', path: '/taxi/admin/tolls', permission: 'ongoing.view' },
         ],
       },
       {

@@ -613,7 +613,11 @@ const SearchingDriver = () => {
            * the price on the booking screen and the price charged were measured
            * over different routes.
            */
-          stops: Array.isArray(routeState.stops) ? routeState.stops : [],
+          // With their coordinates: the server stores only stops it can price
+          // and navigate to (plan §4.1).
+          stops: Array.isArray(routeState.stopPoints) ? routeState.stopPoints : [],
+          tripType: routeState.tripType === 'round_trip' ? 'round_trip' : 'one_way',
+          returnAt: routeState.tripType === 'round_trip' ? (routeState.returnAt || null) : null,
           pickupAddress: routeState.pickup || '',
           dropAddress: routeState.drop || '',
           fare: routeState.baseFare || routeState.fare || routeState.vehicle?.price || 22,

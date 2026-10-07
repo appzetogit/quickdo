@@ -49,7 +49,8 @@ import {
   verifyDriverLoginOtpRequest,
   updateCurrentDriverDocument,
 } from "../controllers/driverController.js";
-import { triggerDriverSosAlert } from '../../safety/controllers/safetyController.js';
+import { triggerDriverSosAlert, updateDriverSosLocation } from '../../safety/controllers/safetyController.js';
+import { addRideTollEntry, reachRideStop } from '../controllers/rideExtrasController.js';
 
 export const driverRouter = Router();
 
@@ -84,6 +85,11 @@ driverRouter.post(
   "/sos",
   authenticate(["driver"]),
   asyncHandler(triggerDriverSosAlert),
+);
+driverRouter.post(
+  "/sos/:alertId/location",
+  authenticate(["driver"]),
+  asyncHandler(updateDriverSosLocation),
 );
 driverRouter.get(
   "/emergency-contacts",
@@ -124,6 +130,17 @@ driverRouter.post(
   "/rides/:rideId/cancel",
   authenticate(["driver"]),
   asyncHandler(cancelDriverActiveRide),
+);
+// Multiple stops and tolls during a trip (SOW plan §4.1, §4.3).
+driverRouter.post(
+  "/rides/:rideId/stops/:order/reached",
+  authenticate(["driver"]),
+  asyncHandler(reachRideStop),
+);
+driverRouter.post(
+  "/rides/:rideId/tolls",
+  authenticate(["driver"]),
+  asyncHandler(addRideTollEntry),
 );
 driverRouter.post(
   "/rides/:rideId/decline",

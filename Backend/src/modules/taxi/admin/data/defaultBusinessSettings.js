@@ -84,6 +84,10 @@ export const createDefaultBusinessSettings = () => ({
     max_dist_secondary_ride: '2',
     enable_my_route_booking_feature: '0',
     how_many_times_a_driver_can_enable_the_my_route_booking_per_day: '1',
+    // Tolls a driver adds during a trip are approved on the spot while the
+    // ride's auto-approved total stays within this (rupees). 0 = an admin
+    // reviews every toll (plan §4.3).
+    toll_auto_approve_limit: '0',
   },
   bid_ride: {
     bidding_low_percentage: '10',

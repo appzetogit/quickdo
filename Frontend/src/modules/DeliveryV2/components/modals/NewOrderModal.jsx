@@ -4,6 +4,7 @@ import { User, MapPin, FastForward, Clock, Phone, ChefHat, ChevronDown } from 'l
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { getHaversineDistance, calculateETA } from '@/modules/DeliveryV2/utils/geo';
+import { buildDirectionsUrl } from '../../utils/mapsDirections';
 
 /**
  * NewOrderModal - Ported to Original 1:1 Theme with Slider Accept.
@@ -124,11 +125,13 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
       ? `Lat ${Number(customerLocation.lat).toFixed(5)}, Lng ${Number(customerLocation.lng).toFixed(5)}`
       : 'Location not available');
 
+  // Directions to the customer by way of the restaurant (plan §4.10).
   const mapsLink =
     customerLocation?.lat != null && customerLocation?.lng != null
-      ? `https://www.google.com/maps?q=${encodeURIComponent(
-          `${customerLocation.lat},${customerLocation.lng}`,
-        )}`
+      ? buildDirectionsUrl({
+          destination: customerLocation,
+          waypoints: order.restaurantLocation ? [order.restaurantLocation] : [],
+        }) || null
       : null;
 
   return (

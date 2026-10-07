@@ -25,6 +25,8 @@ import { socketService } from '../../../shared/api/socket';
 import api from '../../../shared/api/axiosInstance';
 import carIcon from '../../../assets/icons/car.png';
 import { getLocalDriverToken } from '../services/registrationService';
+import { buildGoogleDirectionsUrl, buildStopsTimeline, getRideStops } from '../../../shared/utils/rideStops';
+import { uploadService } from '../../../shared/services/uploadService';
 
 const MAP_CONTAINER_STYLE = {
     width: '100%',
@@ -801,6 +803,13 @@ const ActiveTrip = () => {
         [assignedDriverCoords, pickupPosition],
     );
 
+    const [stopsOverride, setStopsOverride] = useState(null);
+    const [isMarkingStop, setIsMarkingStop] = useState(false);
+    const [rideTolls, setRideTolls] = useState([]);
+    const [showTollForm, setShowTollForm] = useState(false);
+    const [tollDraft, setTollDraft] = useState({ amount: '', file: null });
+    const [tollError, setTollError] = useState('');
+    const [isSubmittingToll, setIsSubmittingToll] = useState(false);
     const [phase, setPhase] = useState(() => {
         const initialState = storedActiveTripSnapshot || routeState;
         const initialJob = initialState?.request?.raw || initialState?.request || initialState || {};
@@ -1287,17 +1296,107 @@ const ActiveTrip = () => {
     const serverFareAmount = Number(liveRaw?.fare ?? effectiveState?.fare ?? 0);
     const rawFareAmount = isFareFinalisedByServer && serverFareAmount > 0
         ? serverFareAmount
-        : Math.max(0, baseFareAmount + waitingCharge + timeCharge + additionalCharge + adminExtraChargeAmount + cancellationChargeAmount - promoDiscountAmount);
+        // Approved tolls are added to the fare at completion (plan §4.3).
+        : Math.max(0, baseFareAmount + waitingCharge + timeCharge + additionalCharge + adminExtraChargeAmount + cancellationChargeAmount - promoDiscountAmount
+            + rideTolls.filter((toll) => toll?.status === 'approved').reduce((sum, toll) => sum + Number(toll.amount || 0), 0));
     const fareAmount = Math.ceil(rawFareAmount);
 
     const displayFare = `Rs ${fareAmount}`;
     // Ordered stops of a multi-stop ride: [{ type: 'pickup'|'stop'|'drop', address,
     // label?, status?: 'completed', etaMinutes? }]. Renders nothing for a plain A-to-B ride.
-    const rideStopsSource = liveRaw?.stops || liveRequest?.stops || effectiveState?.stops;
+    // The ride's own stops ({ address, lat, lng, order, reachedAt }), refreshed
+    // by ride:stop:updated (plan §4.1).
+    const rideStopsSource = stopsOverride || liveRaw?.stops || liveRequest?.stops || effectiveState?.stops;
+    const serverStops = useMemo(() => getRideStops(rideStopsSource), [rideStopsSource]);
+    const nextOpenStop = serverStops.find((stop) => !stop.reachedAt) || null;
+    const timelineStatus = phase === 'in_trip'
+        ? 'started'
+        : (phase === 'payment_confirm' || phase === 'review') ? 'arrived' : 'accepted';
     const rideStops = useMemo(
-        () => (Array.isArray(rideStopsSource) ? rideStopsSource.filter(Boolean) : []),
-        [rideStopsSource],
+        () => buildStopsTimeline({
+            stops: serverStops,
+            pickupAddress: tripData.pickup,
+            dropAddress: tripData.drop,
+            liveStatus: timelineStatus,
+        }),
+        [serverStops, tripData.pickup, tripData.drop, timelineStatus],
     );
+
+    // Stops and tolls change during the trip: keep this screen in step.
+    const serverTolls = liveRaw?.tolls || effectiveState?.tolls;
+    useEffect(() => {
+        if (Array.isArray(serverTolls)) setRideTolls(serverTolls);
+    }, [serverTolls]);
+
+    useEffect(() => {
+        if (!rideId) return undefined;
+        const onStopUpdated = (payload) => {
+            if (String(payload?.rideId || '') === String(rideId) && Array.isArray(payload?.stops)) {
+                setStopsOverride(payload.stops);
+            }
+        };
+        const onTollsUpdated = (payload) => {
+            if (String(payload?.rideId || '') === String(rideId) && Array.isArray(payload?.tolls)) {
+                setRideTolls(payload.tolls);
+            }
+        };
+        socketService.on('ride:stop:updated', onStopUpdated);
+        socketService.on('ride:tolls:updated', onTollsUpdated);
+        return () => {
+            socketService.off('ride:stop:updated', onStopUpdated);
+            socketService.off('ride:tolls:updated', onTollsUpdated);
+        };
+    }, [rideId]);
+
+    const markStopReached = async (order) => {
+        if (!rideId || !order || isMarkingStop) return;
+        setIsMarkingStop(true);
+        try {
+            const response = await api.post(
+                `/drivers/rides/${rideId}/stops/${order}/reached`,
+                {},
+                withDriverAuthorization(getLocalDriverToken()),
+            );
+            const payload = response?.data?.data || response?.data || response;
+            if (Array.isArray(payload?.stops)) setStopsOverride(payload.stops);
+        } catch (error) {
+            window.alert(error?.response?.data?.message || error?.message || 'Could not mark the stop reached.');
+        } finally {
+            setIsMarkingStop(false);
+        }
+    };
+
+    // A toll paid during the trip, with its receipt (plan §4.3).
+    const submitToll = async () => {
+        const amount = Number(tollDraft.amount);
+        if (!rideId || !(amount > 0) || !tollDraft.file) {
+            setTollError('Enter the amount and add a photo of the receipt.');
+            return;
+        }
+        setTollError('');
+        setIsSubmittingToll(true);
+        try {
+            const upload = await uploadService.uploadImageFile(tollDraft.file, 'toll-receipts');
+            const receiptPhotoUrl = upload?.data?.url || upload?.url || '';
+            if (!receiptPhotoUrl) throw new Error('The receipt photo did not upload.');
+            const here = driverPosition && Number.isFinite(Number(driverPosition.lat))
+                ? { lat: driverPosition.lat, lng: driverPosition.lng }
+                : {};
+            const response = await api.post(
+                `/drivers/rides/${rideId}/tolls`,
+                { amount, receiptPhotoUrl, ...here },
+                withDriverAuthorization(getLocalDriverToken()),
+            );
+            const payload = response?.data?.data || response?.data || response;
+            if (Array.isArray(payload?.tolls)) setRideTolls(payload.tolls);
+            setTollDraft({ amount: '', file: null });
+            setShowTollForm(false);
+        } catch (error) {
+            setTollError(error?.response?.data?.message || error?.message || 'Could not add the toll.');
+        } finally {
+            setIsSubmittingToll(false);
+        }
+    };
 
     const stopsTimelineElement = useMemo(() => {
         if (rideStops.length === 0) {
@@ -1404,7 +1503,11 @@ const ActiveTrip = () => {
 
     const openNavigation = () => {
         if (activeDestination?.lat && activeDestination?.lng) {
-            window.open(`https://www.google.com/maps/dir/?api=1&destination=${activeDestination.lat},${activeDestination.lng}`, '_blank');
+            // On the trip, route through the stops not yet reached (plan §4.1).
+            const waypoints = phase === 'in_trip'
+                ? serverStops.filter((stop) => !stop.reachedAt).map((stop) => ({ lat: stop.lat, lng: stop.lng }))
+                : [];
+            window.open(buildGoogleDirectionsUrl(activeDestination, waypoints), '_blank');
         }
     };
 
@@ -2442,6 +2545,69 @@ const ActiveTrip = () => {
                                 </div>
                             </div>
                             {stopsTimelineElement}
+                            {nextOpenStop && (
+                                <button
+                                    type="button"
+                                    onClick={() => markStopReached(nextOpenStop.order)}
+                                    disabled={isMarkingStop}
+                                    className="mb-3 w-full rounded-xl border border-teal-200 bg-teal-50 py-3 text-[13px] font-semibold text-[#0F766E] active:scale-[0.98] disabled:opacity-60"
+                                >
+                                    {isMarkingStop ? 'Saving...' : `Reached Stop ${nextOpenStop.order}`}
+                                </button>
+                            )}
+                            <div className="mb-4 rounded-2xl border border-slate-100 bg-white p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-[12px] font-semibold text-slate-700">
+                                        Tolls {rideTolls.length ? `(${rideTolls.length})` : ''}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setShowTollForm((open) => !open); setTollError(''); }}
+                                        className="text-[12px] font-semibold"
+                                        style={{ color: routeStrokeColor }}
+                                    >
+                                        {showTollForm ? 'Close' : 'Add toll'}
+                                    </button>
+                                </div>
+                                {rideTolls.map((toll) => (
+                                    <div key={toll.id} className="mt-2 flex items-center justify-between text-[11px] text-slate-600">
+                                        <span>Rs {Number(toll.amount || 0)}</span>
+                                        <span className={toll.status === 'approved' ? 'text-emerald-600' : toll.status === 'rejected' ? 'text-rose-600' : 'text-amber-600'}>
+                                            {toll.status === 'approved' ? 'Approved' : toll.status === 'rejected' ? 'Rejected' : 'Awaiting approval'}
+                                        </span>
+                                    </div>
+                                ))}
+                                {showTollForm && (
+                                    <div className="mt-3 space-y-2">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            inputMode="decimal"
+                                            placeholder="Amount paid (Rs)"
+                                            value={tollDraft.amount}
+                                            onChange={(event) => setTollDraft((draft) => ({ ...draft, amount: event.target.value }))}
+                                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px]"
+                                        />
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            capture="environment"
+                                            onChange={(event) => setTollDraft((draft) => ({ ...draft, file: event.target.files?.[0] || null }))}
+                                            className="w-full text-[12px]"
+                                        />
+                                        {tollError && <p className="text-[11px] text-rose-600">{tollError}</p>}
+                                        <button
+                                            type="button"
+                                            onClick={submitToll}
+                                            disabled={isSubmittingToll}
+                                            className="w-full rounded-lg py-2.5 text-[13px] font-semibold text-white disabled:opacity-60"
+                                            style={{ backgroundColor: routeStrokeColor }}
+                                        >
+                                            {isSubmittingToll ? 'Adding...' : 'Add toll with receipt'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                             <div className="bg-slate-50 rounded-2xl p-3 mb-6 border border-slate-100 flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center">

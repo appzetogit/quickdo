@@ -13,8 +13,10 @@ const SafetyToolkit = ({ rideId, driver, isOpen, onClose }) => {
     setIsSharing(true);
     try {
       const res = await api.post('/safety/trip/share', { trip_id: rideId });
-      const token = res.data?.data?.token;
-      const shareUrl = `${window.location.origin}/track-trip/${token}`;
+      const link = res?.data?.data || res?.data || {};
+      const token = link.token;
+      // The server's url when it knows the public web address; else this site.
+      const shareUrl = link.url && /^https?:\/\//.test(link.url) ? link.url : `${window.location.origin}/track-trip/${token}`;
       
       if (navigator.share) {
         await navigator.share({

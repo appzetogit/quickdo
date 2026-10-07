@@ -144,6 +144,45 @@ const safetyAlertSchema = new mongoose.Schema(
       type: [safetyAlertLogSchema],
       default: [],
     },
+    /*
+     * Where the person was while the alert stayed open (plan §4.7): one point
+     * at most every 10 seconds, from the driver's ride location updates and
+     * from the app's own POST .../sos/:id/location. Capped; the latest is also
+     * in `location`.
+     */
+    locationTrail: {
+      type: [
+        {
+          coordinates: { type: [Number], default: undefined },
+          at: { type: Date, default: Date.now },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
+    lastLocationAt: {
+      type: Date,
+      default: null,
+    },
+    // The live trip link sent to the contacts, when the alert is on a ride.
+    shareToken: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    // Who was texted, and whether it went. Phone numbers masked.
+    contactsNotified: {
+      type: [
+        {
+          name: { type: String, default: '' },
+          phoneMasked: { type: String, default: '' },
+          status: { type: String, enum: ['sent', 'failed', 'skipped'], default: 'skipped' },
+          reason: { type: String, default: '' },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
     resolvedAt: {
       type: Date,
       default: null,
@@ -159,6 +198,7 @@ const safetyAlertSchema = new mongoose.Schema(
 
 safetyAlertSchema.index({ createdAt: -1 });
 safetyAlertSchema.index({ status: 1, createdAt: -1 });
+safetyAlertSchema.index({ rideId: 1, status: 1 });
 
 export const SafetyAlert =
   mongoose.models.TaxiSafetyAlert || mongoose.model('TaxiSafetyAlert', safetyAlertSchema);

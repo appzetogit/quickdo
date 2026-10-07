@@ -112,6 +112,15 @@ const deliveryPartnerSchema = new mongoose.Schema(
         drivingLicensePhoto: {
             type: String
         },
+        // Vehicle registration certificate (SOW plan §4.11): required at signup
+        // for a motorised vehicle. The admin review already reads these names.
+        vehicleRcNumber: {
+            type: String,
+            trim: true
+        },
+        vehicleRcPhoto: {
+            type: String
+        },
         /** When payout details last changed: withdrawals pause for 24h after. */
         bankDetailsChangedAt: { type: Date, default: null },
         status: {

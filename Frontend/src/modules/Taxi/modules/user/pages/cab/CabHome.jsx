@@ -31,9 +31,11 @@ const services = [
   {
     id: 'oneway',
     title: 'One Way',
-    sub: 'Intercity drop at best price',
+    sub: 'Intercity drop or round trip',
     img: imgOneWay,
-    path: '/intercity',
+    // The normal ride flow at outstation rates; one way or round trip is
+    // picked on the vehicle screen (SOW plan §4.2).
+    path: '/ride/select-location?rideType=outstation',
     accent: 'bg-[linear-gradient(135deg,#FFF7ED_0%,#FFE5C2_100%)]',
     tag: 'No return charge',
     tagColor: 'bg-primary-orange/5 text-accent-orange border-primary-orange/10',

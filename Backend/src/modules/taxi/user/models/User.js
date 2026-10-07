@@ -223,7 +223,9 @@ const userSchema = new mongoose.Schema(
   },
 );
 
-userSchema.index({ phone: 1 }, { unique: true });
+// Same spec as core/users/user.model.js (one collection, one index): unique among
+// accounts that have a phone, so email- and social-only accounts can coexist.
+userSchema.index({ phone: 1 }, { unique: true, partialFilterExpression: { phone: { $type: 'string' } } });
 userSchema.index({ 'addresses.location': '2dsphere' });
 userSchema.index({ 'deletionRequest.status': 1, deletedAt: 1 });
 

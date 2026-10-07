@@ -13,8 +13,24 @@ const createEmptyUploadedDocs = () => ({
   profilePhoto: null,
   aadharPhoto: null,
   panPhoto: null,
-  drivingLicensePhoto: null
+  drivingLicensePhoto: null,
+  vehicleRcPhoto: null
 })
+
+// Everything but a bicycle is registered with the RTO, so its RC is required
+// (SOW plan §4.11). Mirrors isMotorisedVehicleType on the server.
+const isMotorisedVehicleType = (vehicleType) => {
+  const value = String(vehicleType || "").trim().toLowerCase()
+  return Boolean(value) && !/^(bicycle|cycle|bi-cycle|pushbike)$/.test(value)
+}
+
+const readSignupVehicleType = () => {
+  try {
+    return JSON.parse(sessionStorage.getItem("deliverySignupDetails") || "{}")?.vehicleType || ""
+  } catch {
+    return ""
+  }
+}
 
 const sanitizeUploadedDocValue = (value) => {
   if (!value) return null
@@ -38,7 +54,8 @@ const sanitizeUploadedDocs = (docs) => ({
   profilePhoto: sanitizeUploadedDocValue(docs?.profilePhoto),
   aadharPhoto: sanitizeUploadedDocValue(docs?.aadharPhoto),
   panPhoto: sanitizeUploadedDocValue(docs?.panPhoto),
-  drivingLicensePhoto: sanitizeUploadedDocValue(docs?.drivingLicensePhoto)
+  drivingLicensePhoto: sanitizeUploadedDocValue(docs?.drivingLicensePhoto),
+  vehicleRcPhoto: sanitizeUploadedDocValue(docs?.vehicleRcPhoto)
 })
 
 const getFriendlyRegistrationError = (error) => {
@@ -82,14 +99,17 @@ export default function SignupStep2() {
     profilePhoto: null,
     aadharPhoto: null,
     panPhoto: null,
-    drivingLicensePhoto: null
+    drivingLicensePhoto: null,
+    vehicleRcPhoto: null
   })
   const [documents, setDocuments] = useState({
     profilePhoto: null,
     aadharPhoto: null,
     panPhoto: null,
-    drivingLicensePhoto: null
+    drivingLicensePhoto: null,
+    vehicleRcPhoto: null
   })
+  const needsVehicleRc = isMotorisedVehicleType(readSignupVehicleType())
   const [uploadedDocs, setUploadedDocs] = useState(() => {
     const saved = sessionStorage.getItem("deliverySignupDocs")
     if (saved) {
@@ -215,8 +235,9 @@ export default function SignupStep2() {
     const aadharPhotoVal = getDocValue("aadharPhoto");
     const panPhotoVal = getDocValue("panPhoto");
     const drivingLicensePhotoVal = getDocValue("drivingLicensePhoto");
+    const vehicleRcPhotoVal = getDocValue("vehicleRcPhoto");
 
-    if (!profilePhotoVal || !aadharPhotoVal || !panPhotoVal || !drivingLicensePhotoVal) {
+    if (!profilePhotoVal || !aadharPhotoVal || !panPhotoVal || !drivingLicensePhotoVal || (needsVehicleRc && !vehicleRcPhotoVal)) {
       toast.error("Please upload all required documents")
       return
     }
@@ -260,6 +281,7 @@ export default function SignupStep2() {
     formData.append("aadharPhoto", aadharPhotoVal)
     formData.append("panPhoto", panPhotoVal)
     formData.append("drivingLicensePhoto", drivingLicensePhotoVal)
+    if (vehicleRcPhotoVal) formData.append("vehicleRcPhoto", vehicleRcPhotoVal)
 
     // Try to get FCM token before registering
     let fcmToken = null;
@@ -440,12 +462,15 @@ export default function SignupStep2() {
           <DocumentUpload docType="aadharPhoto" label="Aadhar Card Photo" required={true} />
           <DocumentUpload docType="panPhoto" label="PAN Card Photo" required={true} />
           <DocumentUpload docType="drivingLicensePhoto" label="Driving License Photo" required={true} />
+          {needsVehicleRc && (
+            <DocumentUpload docType="vehicleRcPhoto" label="Vehicle RC (Registration Certificate)" required={true} />
+          )}
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isSubmitting || !uploadedDocs.profilePhoto || !uploadedDocs.aadharPhoto || !uploadedDocs.panPhoto || !uploadedDocs.drivingLicensePhoto}
-            className={`w-full py-4 rounded-xl font-bold text-white text-base transition-all mt-6 shadow-md ${isSubmitting || !uploadedDocs.profilePhoto || !uploadedDocs.aadharPhoto || !uploadedDocs.panPhoto || !uploadedDocs.drivingLicensePhoto
+            disabled={isSubmitting || !uploadedDocs.profilePhoto || !uploadedDocs.aadharPhoto || !uploadedDocs.panPhoto || !uploadedDocs.drivingLicensePhoto || (needsVehicleRc && !uploadedDocs.vehicleRcPhoto)}
+            className={`w-full py-4 rounded-xl font-bold text-white text-base transition-all mt-6 shadow-md ${isSubmitting || !uploadedDocs.profilePhoto || !uploadedDocs.aadharPhoto || !uploadedDocs.panPhoto || !uploadedDocs.drivingLicensePhoto || (needsVehicleRc && !uploadedDocs.vehicleRcPhoto)
               ? "bg-gray-400 cursor-not-allowed"
               : "bg-[#1A1A1A] hover:bg-black hover:shadow-lg"
               }`}

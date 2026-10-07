@@ -7,6 +7,7 @@ import { useDeliveryNotifications } from '@food/hooks/useDeliveryNotifications';
 import { writeOrderTracking } from '@food/realtimeTracking';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
+import { openDirections } from '../utils/mapsDirections';
 
 // Components
 import LiveMap from '@/modules/DeliveryV2/components/map/LiveMap';
@@ -881,6 +882,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                                  </div>
                               </div>
                             </div>
+                            <div className="flex items-center gap-2">
                             {customerPhone && (
                               <button
                                 onClick={() => {
@@ -892,6 +894,16 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                                 <Phone className="w-5 h-5" />
                               </button>
                             )}
+                            {activeOrder?.customerLocation && (
+                              <button
+                                onClick={() => openDirections({ destination: activeOrder.customerLocation })}
+                                className="w-11 h-11 rounded-2xl bg-gray-950 flex items-center justify-center text-white shadow-xl hover:bg-gray-800 transition-colors active:scale-90 shrink-0"
+                                aria-label="Directions to customer"
+                              >
+                                <Navigation2 className="w-5 h-5" />
+                              </button>
+                            )}
+                            </div>
                           </div>
   
                           {/* Customer Instructions Panel */}

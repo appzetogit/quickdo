@@ -12,6 +12,23 @@ const aadharRegex = /^[0-9]{12}$/;
 // 2 letters (state) + 1-2 digits (RTO) + 2 or 4 digits (year) + 4-7 digits (serial)
 const drivingLicenseRegex = /^[A-Z]{2}[0-9]{1,2}(?:[0-9]{2}|[0-9]{4})[0-9]{4,7}$/;
 
+// Vehicle RC number, normalised (no spaces/hyphens): state + RTO + series + number.
+const vehicleRcNumberRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{1,4}$|^[0-9]{2}BH[0-9]{4}[A-Z]{1,2}$/;
+const vehicleRcNumberField = z
+    .string()
+    .transform((value) => String(value || '').toUpperCase().replace(/[\s-]/g, ''))
+    .refine((value) => value === '' || vehicleRcNumberRegex.test(value), 'Invalid vehicle RC number')
+    .optional();
+
+/**
+ * A vehicle that needs registering with the RTO -- everything but a bicycle.
+ * A motorised vehicle cannot sign up without its RC (plan §4.11).
+ */
+export const isMotorisedVehicleType = (vehicleType) => {
+    const value = String(vehicleType || '').trim().toLowerCase();
+    return Boolean(value) && !/^(bicycle|cycle|bi-cycle|pushbike)$/.test(value);
+};
+
 const deliveryRegisterSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     phone: phoneSchema,
@@ -38,6 +55,10 @@ const deliveryRegisterSchema = z.object({
         .regex(drivingLicenseRegex, 'Invalid driving license format')
         .optional()
         .or(z.literal('')),
+    vehicleRcNumber: vehicleRcNumberField,
+    // The RC photo as a file (multipart `vehicleRcPhoto`), or the URL of one
+    // already uploaded through the upload endpoint.
+    vehicleRcPhoto: z.string().url().optional().or(z.literal('')),
     ref: z.string().trim().max(64).optional().or(z.literal('')),
     panNumber: z
         .string()
@@ -92,6 +113,7 @@ const deliveryProfileUpdateSchema = z.object({
         .regex(drivingLicenseRegex, 'Invalid driving license format')
         .optional()
         .or(z.literal('')),
+    vehicleRcNumber: vehicleRcNumberField,
     fcmToken: z.string().optional().nullable(),
     platform: z.enum(['web', 'mobile']).optional().default('web')
 });

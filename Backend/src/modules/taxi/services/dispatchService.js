@@ -12,7 +12,7 @@ import {
   RIDE_LIVE_STATUS,
   RIDE_STATUS,
 } from '../constants/index.js';
-import { getRideRoom, resolveSetPriceForRide } from './rideService.js';
+import { getRideRoom, resolveSetPriceForRide, serializeRideStops } from './rideService.js';
 import { SOCKET_EVENTS } from '../socket/events.js';
 import { resolveTransportDispatchConfig, getTransportRideSettings } from './transportSettingsService.js';
 import { sendPushNotificationToEntities } from './pushNotificationService.js';
@@ -566,6 +566,11 @@ const emitRideRequestToDrivers = async ({
       pickupAddress: ride.pickupAddress || '',
       dropLocation: ride.dropLocation,
       dropAddress: ride.dropAddress || '',
+      // The stops to call at, in order, and whether the driver brings the
+      // rider back (plan §4.1, §4.2).
+      stops: serializeRideStops(ride.stops),
+      tripType: ride.tripType || 'one_way',
+      returnAt: ride.returnAt || null,
       scheduledAt: ride.scheduledAt || null,
       estimatedDistanceMeters: ride.estimatedDistanceMeters || 0,
       estimatedDurationMinutes: ride.estimatedDurationMinutes || 0,
@@ -656,6 +661,30 @@ export const markDriverRejectedFromDispatch = (rideId, driverId) => {
   const rejectedDriverIds = [...new Set([...state.rejectedDriverIds, String(driverId)])];
 
   saveDispatchState(rideId, { rejectedDriverIds });
+};
+
+/*
+ * The end of a round nobody accepted. For a scheduled ride whose round at the
+ * scheduled time is still ahead, this was only the advance offer: the ride
+ * stays booked and the drivers who saw it are told the offer closed. Any
+ * other ride is closed as unmatched, as before.
+ */
+const closeAdvanceRoundOrUnmatched = async (rideId) => {
+  const ride = await Ride.findById(rideId).select('userId status scheduledAt scheduledDispatch').lean();
+  if (ride?.status === RIDE_STATUS.SEARCHING && awaitsScheduledRound(ride)) {
+    closeDriverRequestWindow(rideId, getDispatchState(rideId).notifiedDriverIds);
+    // Booked for later, not in progress: the rider may book a ride now
+    // without this one being replaced (rideService.clearUserActiveRideIfPresent).
+    await User.updateOne({ _id: ride.userId, currentRideId: ride._id }, { $set: { currentRideId: null } });
+    emitToRoom(getUserRoom(ride.userId), 'rideSearchUpdate', {
+      rideId: String(rideId),
+      status: ride.status,
+      scheduled: true,
+      nextSearchAt: ride.scheduledDispatch.runAt,
+    });
+    return;
+  }
+  await closeRideAsUnmatched(rideId);
 };
 
 const closeRideAsUnmatched = async (rideId) => {
@@ -1295,9 +1324,13 @@ const dispatchAttempt = async (rideId, attemptIndex = 0) => {
     if (attemptIndex >= dispatchConfig.maxAttempts - 1) {
       // Final attempt waits one more cycle before the ride is closed as unmatched.
       const timer = setTimeout(() => {
-        closeRideAsUnmatched(rideId)
+        closeAdvanceRoundOrUnmatched(rideId)
           .catch((error) => console.error('Failed to mark ride unmatched', error))
-          .finally(() => stopDispatchFlow(rideId));
+          // Not stopDispatchFlow: that would also drop the scheduled round's timer.
+          .finally(() => {
+            clearDispatchTimer(rideId);
+            activeDispatches.delete(String(rideId));
+          });
       }, dispatchConfig.retryDelayMs);
 
         saveDispatchState(rideId, {
@@ -1318,40 +1351,199 @@ const dispatchAttempt = async (rideId, attemptIndex = 0) => {
   }
 };
 
-export const startDispatchFlow = async (ride) => {
-  stopDispatchFlow(ride._id);
+/*
+ * Scheduled rides (plan §4.13).
+ *
+ * A scheduled ride is offered to drivers straight away, so one can accept it
+ * in advance, as before. What is new is the round AT the scheduled time
+ * (scheduledAt less the admin's search buffer): if nobody took the ride in
+ * advance it is offered again then, instead of the advance round's expiry
+ * cancelling a ride booked for next week.
+ *
+ * That round used to be an in-memory timer -- lost on a restart, and fired
+ * once per server. With BULLMQ_ENABLED it is a delayed BullMQ job whose id is
+ * the ride's, so scheduling it twice keeps one job; without BullMQ it is still
+ * a timer, re-armed on boot by restoreScheduledDispatches. Either way it fires
+ * through fireScheduledDispatch, which claims ride.scheduledDispatch.firedAt
+ * atomically: whichever server or retry gets there first dispatches, the rest
+ * do nothing.
+ */
+export const TAXI_SCHEDULED_DISPATCH_QUEUE = 'taxi-scheduled-dispatch';
+const scheduledJobId = (rideId) => `taxi-scheduled-dispatch-${rideId}`;
 
-  const scheduledAt = ride?.scheduledAt ? new Date(ride.scheduledAt) : null;
-  const bookingMode = String(ride?.bookingMode || 'normal').trim().toLowerCase();
-  const shouldDispatchImmediately = bookingMode === 'bidding';
-
-  let searchBufferMs = 15 * 60 * 1000;
+const getScheduleSearchBufferMs = async () => {
   try {
     const settings = await getTransportRideSettings();
     const bufferMinutes = Number(settings.minimum_time_for_starting_trip_drivers_for_schedule_ride);
     if (Number.isFinite(bufferMinutes) && bufferMinutes > 0) {
-      searchBufferMs = bufferMinutes * 60 * 1000;
+      return bufferMinutes * 60 * 1000;
     }
   } catch (error) {
     console.error('Failed to get scheduled ride search buffer', error);
   }
+  return 15 * 60 * 1000;
+};
 
-  const delayMs = scheduledAt ? scheduledAt.getTime() - Date.now() - searchBufferMs : 0;
+const getScheduledDispatchQueue = async () => {
+  try {
+    const { getQueue } = await import('../../../queues/index.js');
+    return getQueue(TAXI_SCHEDULED_DISPATCH_QUEUE);
+  } catch (error) {
+    console.error('Scheduled dispatch queue unavailable', error?.message || error);
+    return null;
+  }
+};
+
+/**
+ * Fire the scheduled round for a ride, once. Returns { fired, reason }.
+ * `dispatch` is the round itself; tests pass a stand-in.
+ */
+export const fireScheduledDispatch = async (rideId, { dispatch = (id) => dispatchAttempt(id, 0) } = {}) => {
+  clearScheduledDispatchTimer(rideId);
+  const claimed = await Ride.findOneAndUpdate(
+    {
+      _id: rideId,
+      status: RIDE_STATUS.SEARCHING,
+      liveStatus: RIDE_LIVE_STATUS.SEARCHING,
+      'scheduledDispatch.firedAt': null,
+    },
+    { $set: { 'scheduledDispatch.firedAt': new Date() } },
+    { returnDocument: 'after' },
+  ).select('_id');
+
+  if (!claimed) {
+    return { fired: false, reason: 'already-fired-or-not-searching' };
+  }
+
+  // The ride is the rider's current one again while it is being dispatched.
+  const owner = await Ride.findById(rideId).select('userId').lean();
+  if (owner?.userId) {
+    await User.updateOne({ _id: owner.userId, currentRideId: null }, { $set: { currentRideId: owner._id } });
+  }
+
+  // A fresh round: drop whatever the advance round left behind.
+  clearDispatchTimer(rideId);
+  activeDispatches.delete(String(rideId));
+  await dispatch(rideId);
+  return { fired: true, reason: '' };
+};
+
+/**
+ * Arrange the scheduled round for a ride. Idempotent: a second call for the
+ * same ride leaves one timer or one job.
+ */
+export const scheduleRideDispatch = async (ride, { bufferMs } = {}) => {
+  const scheduledAt = ride?.scheduledAt ? new Date(ride.scheduledAt) : null;
+  if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+    return { scheduled: false, reason: 'not-scheduled' };
+  }
+  const buffer = Number.isFinite(bufferMs) ? bufferMs : await getScheduleSearchBufferMs();
+  const runAt = new Date(scheduledAt.getTime() - buffer);
+  const delayMs = Math.max(0, runAt.getTime() - Date.now());
+  const key = String(ride._id);
+
+  const queue = await getScheduledDispatchQueue();
+  if (queue) {
+    try {
+      // The job id is the ride's, so a second add is ignored by BullMQ.
+      await queue.add(
+        'dispatch',
+        { rideId: key },
+        { jobId: scheduledJobId(key), delay: delayMs, attempts: 3, removeOnComplete: true, removeOnFail: { age: 24 * 3600 } },
+      );
+      await Ride.updateOne({ _id: ride._id }, { $set: { 'scheduledDispatch.runAt': runAt, 'scheduledDispatch.via': 'bullmq' } });
+      return { scheduled: true, via: 'bullmq', runAt };
+    } catch (error) {
+      console.error(`Scheduled dispatch job failed for ride ${key}; using an in-memory timer`, error?.message || error);
+    }
+  }
+
+  clearScheduledDispatchTimer(key);
+  const timer = setTimeout(() => {
+    scheduledDispatchTimers.delete(key);
+    fireScheduledDispatch(key).catch((error) => console.error('Scheduled dispatch failed', error));
+  }, delayMs);
+  timer.unref?.();
+  scheduledDispatchTimers.set(key, timer);
+  await Ride.updateOne({ _id: ride._id }, { $set: { 'scheduledDispatch.runAt': runAt, 'scheduledDispatch.via': 'timer' } });
+  return { scheduled: true, via: 'timer', runAt };
+};
+
+export const hasScheduledDispatchTimer = (rideId) => scheduledDispatchTimers.has(String(rideId));
+
+/** Whether a ride still has its scheduled round ahead of it. */
+const awaitsScheduledRound = (ride) => Boolean(
+  ride?.scheduledAt
+  && ride?.scheduledDispatch?.runAt
+  && !ride?.scheduledDispatch?.firedAt
+  && new Date(ride.scheduledDispatch.runAt).getTime() > Date.now(),
+);
+
+export const startDispatchFlow = async (ride) => {
+  stopDispatchFlow(ride._id);
+
+  const scheduledAt = ride?.scheduledAt ? new Date(ride.scheduledAt) : null;
+  if (scheduledAt && scheduledAt.getTime() > Date.now()) {
+    const bufferMs = await getScheduleSearchBufferMs();
+    if (scheduledAt.getTime() - bufferMs > Date.now()) {
+      await scheduleRideDispatch(ride, { bufferMs });
+    } else {
+      // Already inside the search window: this round is the scheduled one.
+      await Ride.updateOne(
+        { _id: ride._id, 'scheduledDispatch.firedAt': null },
+        { $set: { 'scheduledDispatch.firedAt': new Date(), 'scheduledDispatch.via': 'immediate' } },
+      );
+    }
+  }
 
   // Dispatch scheduled rides immediately so drivers can accept and get assigned in advance
   await dispatchAttempt(ride._id, 0);
 };
 
+/**
+ * On boot, without BullMQ: re-arm the scheduled round of every ride still
+ * waiting for one (a due one fires now). With BullMQ the jobs are in Redis
+ * and survive the restart by themselves.
+ */
 export const restoreScheduledDispatches = async () => {
   const rides = await Ride.find({
     status: RIDE_STATUS.SEARCHING,
     liveStatus: RIDE_LIVE_STATUS.SEARCHING,
-    scheduledAt: { $ne: null },
-  }).select('_id scheduledAt');
+    // A ride whose time passed over an hour ago is not dispatched late.
+    scheduledAt: { $gt: new Date(Date.now() - 60 * 60 * 1000) },
+    'scheduledDispatch.firedAt': null,
+  }).select('_id scheduledAt scheduledDispatch');
 
+  let restored = 0;
   for (const ride of rides) {
-    await startDispatchFlow(ride);
+    const result = await scheduleRideDispatch(ride);
+    if (result.scheduled) restored += 1;
   }
+  return restored;
+};
+
+/**
+ * The BullMQ worker for the scheduled round. It runs in the API process, not
+ * the workers bundle: a dispatch round goes out over this process's socket
+ * server. Every API instance may run one; BullMQ hands each job to one of
+ * them, and the claim in fireScheduledDispatch covers a retry.
+ */
+export const startScheduledDispatchWorker = async () => {
+  const queue = await getScheduledDispatchQueue();
+  if (!queue) return null;
+  const [{ Worker }, { getBullMQConnection }] = await Promise.all([
+    import('bullmq'),
+    import('../../../queues/connection.js'),
+  ]);
+  const connection = getBullMQConnection();
+  if (!connection) return null;
+  const worker = new Worker(
+    TAXI_SCHEDULED_DISPATCH_QUEUE,
+    async (job) => fireScheduledDispatch(job?.data?.rideId),
+    { connection, concurrency: 5 },
+  );
+  worker.on('failed', (job, err) => console.error(`Scheduled dispatch job ${job?.id} failed: ${err?.message}`));
+  return worker;
 };
 
 export const notifyLateAvailableDriver = async (driverId) => {
@@ -1493,6 +1685,9 @@ export const notifyRideAccepted = async (ride) => {
     pickupAddress: populatedRide.pickupAddress || '',
     dropLocation: populatedRide.dropLocation,
     dropAddress: populatedRide.dropAddress || '',
+    stops: serializeRideStops(populatedRide.stops),
+    tripType: populatedRide.tripType || 'one_way',
+    returnAt: populatedRide.returnAt || null,
     acceptedAt: populatedRide.acceptedAt,
     startedAt: populatedRide.startedAt,
     completedAt: populatedRide.completedAt,

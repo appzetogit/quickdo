@@ -26,6 +26,47 @@ const rideMessageSchema = new mongoose.Schema(
   { _id: true },
 );
 
+/*
+ * A stop between pickup and drop (SOW plan §4.1), in the order the rider set.
+ * Only stops with a coordinate are stored: they are exactly the stops the fare
+ * was priced through (common/tripExtras.normalizeRideStops). reachedAt is
+ * stamped when the driver reports reaching it.
+ */
+const rideStopSchema = new mongoose.Schema(
+  {
+    address: { type: String, default: '', trim: true },
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
+    order: { type: Number, required: true, min: 1 },
+    reachedAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
+/*
+ * A toll the driver paid during the trip (SOW plan §4.3). Approved tolls --
+ * automatically within the admin's per-ride limit, or by an admin -- are added
+ * to the fare as a separate line at completion.
+ */
+const rideTollSchema = new mongoose.Schema(
+  {
+    amount: { type: Number, required: true, min: 0 },
+    receiptPhotoUrl: { type: String, default: '', trim: true },
+    at: { type: Date, default: Date.now },
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    autoApproved: { type: Boolean, default: false },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: String, default: '', trim: true },
+    note: { type: String, default: '', trim: true, maxlength: 300 },
+    // Approved after the ride was settled: paid to the driver by the platform,
+    // not added to the rider's fare (see tollService.reviewRideToll).
+    settledAfterCompletion: { type: Boolean, default: false },
+  },
+  { _id: true },
+);
+
 const rideSchema = new mongoose.Schema(
   {
     /** Removed from the admin trips list by an admin. The ride itself is kept
@@ -120,6 +161,70 @@ const rideSchema = new mongoose.Schema(
       type: Date,
       default: null,
       index: true,
+    },
+    /*
+     * The dispatch round at the scheduled time (plan §4.13): when it is due and
+     * when it fired. firedAt is claimed atomically, so a restart, a BullMQ
+     * retry or a second server cannot fire it twice.
+     */
+    scheduledDispatch: {
+      runAt: { type: Date, default: null },
+      firedAt: { type: Date, default: null },
+      via: { type: String, default: '' },
+    },
+    stops: {
+      type: [rideStopSchema],
+      default: [],
+    },
+    // Round trip in the normal ride flow (SOW plan §4.2, decision D3).
+    tripType: {
+      type: String,
+      enum: ['one_way', 'round_trip'],
+      default: 'one_way',
+    },
+    returnAt: {
+      type: Date,
+      default: null,
+    },
+    tolls: {
+      type: [rideTollSchema],
+      default: [],
+    },
+    // The approved tolls, as added to the fare at completion.
+    tollChargeAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    // The night charge priced into the agreed fare at booking (shown as a line).
+    nightChargeAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    /*
+     * The distance the driver actually drove with the rider on board, summed
+     * on the server from the ride's own location updates (updateRideDriverLocation).
+     * Used for the extra-km charge only when it is trustworthy: enough points,
+     * no long silences and no impossible jumps (see rideService.isTripTraceReliable).
+     */
+    tripTrace: {
+      distanceMeters: { type: Number, default: 0, min: 0 },
+      points: { type: Number, default: 0, min: 0 },
+      lastCoordinates: { type: [Number], default: undefined },
+      lastAt: { type: Date, default: null },
+      maxGapSeconds: { type: Number, default: 0, min: 0 },
+      rejectedJumps: { type: Number, default: 0, min: 0 },
+      startedAt: { type: Date, default: null },
+    },
+    // What completion decided about extra km, kept so the line can be explained.
+    extraDistance: {
+      quotedMeters: { type: Number, default: 0, min: 0 },
+      tracedMeters: { type: Number, default: 0, min: 0 },
+      traceReliable: { type: Boolean, default: false },
+      allowanceKm: { type: Number, default: 0, min: 0 },
+      extraKm: { type: Number, default: 0, min: 0 },
+      evaluatedAt: { type: Date, default: null },
     },
     status: {
       type: String,
@@ -496,6 +601,56 @@ const rideSchema = new mongoose.Schema(
         ref: 'TaxiZone',
         default: null,
       },
+      // The fare lines priced at booking for a round trip and the night window,
+      // and the inputs completion needs for extra km -- saved on the ride so a
+      // later price change cannot alter a booked fare (plan §11, Money).
+      trip_type: {
+        type: String,
+        default: 'one_way',
+      },
+      return_trip_fare: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      round_trip_waiting_charge: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      night_charge_amount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      night_charge_window: {
+        type: String,
+        default: '',
+      },
+      // The trip distance priced (both legs of a round trip).
+      priced_distance_meters: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      price_per_distance: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      extra_km_enabled: {
+        type: Boolean,
+        default: false,
+      },
+      extra_km_tolerance_type: {
+        type: String,
+        default: 'percent',
+      },
+      extra_km_tolerance_value: {
+        type: Number,
+        default: 10,
+        min: 0,
+      },
       // Set when an admin's time-slot surge priced the ride (percent of the fare).
       surge_percent: {
         type: Number,
@@ -809,5 +964,7 @@ const rideSchema = new mongoose.Schema(
 
 rideSchema.index({ userId: 1, createdAt: -1 });
 rideSchema.index({ driverId: 1, createdAt: -1 });
+// The admin's pending-toll queue.
+rideSchema.index({ 'tolls.status': 1, updatedAt: -1 });
 
 export const Ride = mongoose.models.TaxiRide || mongoose.model('TaxiRide', rideSchema);

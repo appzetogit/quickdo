@@ -162,6 +162,8 @@ const initialFormData = {
   country: '',
   profile_picture: '',
   customFields: {},
+  // Off: the new driver waits in Pending Drivers for review (SOW plan §4.9).
+  approve_now: false,
 };
 
 const CreateDriver = () => {
@@ -629,8 +631,8 @@ const CreateDriver = () => {
         vehicle_model: formData.vehicle_model.trim(),
         vehicle_color: formData.vehicle_color.trim(),
         vehicle_number: normalizeVehicleNumber(formData.vehicle_number),
-        approve: true,
-        status: 'approved',
+        approve: Boolean(formData.approve_now),
+        status: formData.approve_now ? 'approved' : 'pending',
         documents: payloadDocuments,
         onboarding: {
           role: 'driver',
@@ -1188,7 +1190,16 @@ const CreateDriver = () => {
             </div>
           </section>
 
-          <div className="flex justify-end">
+          <div className="flex flex-col items-end gap-4 sm:flex-row sm:items-center sm:justify-end">
+            <label className="inline-flex cursor-pointer items-center gap-3 text-sm font-bold text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(formData.approve_now)}
+                onChange={(event) => setFormData((prev) => ({ ...prev, approve_now: event.target.checked }))}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Approve now (skip review)
+            </label>
             <button
               type="submit"
               disabled={submitting}

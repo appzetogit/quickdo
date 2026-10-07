@@ -196,6 +196,49 @@ const setPriceSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    /*
+     * Round trips in the normal ride flow (SOW plan §4.2). The return leg is the
+     * outbound trip fare x round_trip_return_factor; waiting at the destination
+     * is free for round_trip_wait_free_minutes, then round_trip_wait_per_hour
+     * for each started hour. See common/tripExtras.js.
+     */
+    round_trip_return_factor: {
+      type: Number,
+      default: 1,
+      min: 0,
+    },
+    round_trip_wait_free_minutes: {
+      type: Number,
+      default: 60,
+      min: 0,
+    },
+    round_trip_wait_per_hour: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    /*
+     * Night charge (SOW plan §4.4), separate from time-slot surge. Wall-clock
+     * "HH:MM" in Asia/Kolkata; an end at or before the start runs past
+     * midnight. Off until an admin switches it on.
+     */
+    night_charge: {
+      enabled: { type: Boolean, default: false },
+      start: { type: String, default: '22:00', trim: true },
+      end: { type: String, default: '06:00', trim: true },
+      type: { type: String, enum: ['percentage', 'fixed'], default: 'percentage' },
+      value: { type: Number, default: 0, min: 0 },
+    },
+    /*
+     * Extra kilometres (SOW plan §4.5): at completion, distance driven beyond
+     * the quoted distance plus this tolerance is charged at price_per_distance.
+     * Off until an admin switches it on.
+     */
+    extra_km_charge: {
+      enabled: { type: Boolean, default: false },
+      tolerance_type: { type: String, enum: ['km', 'percent'], default: 'percent' },
+      tolerance_value: { type: Number, default: 10, min: 0 },
+    },
     free_waiting_before: {
       type: Number,
       default: null,

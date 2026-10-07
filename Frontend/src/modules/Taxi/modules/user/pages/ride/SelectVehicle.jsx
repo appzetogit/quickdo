@@ -1041,6 +1041,19 @@ const SelectVehicle = () => {
     () => (Array.isArray(routeState.stops) ? routeState.stops : []),
     [routeState.stops],
   );
+  // The stops with coordinates -- what the server prices and stores (plan §4.1).
+  const stopPoints = useMemo(
+    () => (Array.isArray(routeState.stopPoints) ? routeState.stopPoints : []),
+    [routeState.stopPoints],
+  );
+  // One way or round trip, in the normal ride flow (plan §4.2). The server
+  // prices the return leg and the wait; nothing is multiplied here.
+  const [tripType, setTripType] = useState(() => (routeState.tripType === 'round_trip' ? 'round_trip' : 'one_way'));
+  const [returnAt, setReturnAt] = useState(() => (routeState.returnAt ? String(routeState.returnAt).slice(0, 16) : ''));
+  const [quoteError, setQuoteError] = useState('');
+  const returnAtIso = tripType === 'round_trip' && returnAt && !Number.isNaN(new Date(returnAt).getTime())
+    ? new Date(returnAt).toISOString()
+    : null;
   
   const routePrefix = location.pathname.startsWith('/taxi/user') ? '/taxi/user' : '';
   const pickupPosition = useMemo(() => toLatLng(pickupCoords), [pickupCoords]);
@@ -1315,6 +1328,7 @@ const SelectVehicle = () => {
 
     let active = true;
     setIsLoadingServerQuotes(true);
+    setQuoteError('');
     // A short pause so moving a pin or adding a stop asks once, not per frame.
     const timer = setTimeout(async () => {
       try {
@@ -1324,13 +1338,21 @@ const SelectVehicle = () => {
               .post('/rides/quote', {
                 pickup: pickupCoords,
                 drop: dropCoords,
-                stops,
+                stops: stopPoints,
                 vehicleTypeIds,
                 transport_type,
                 service_location_id: effectiveServiceLocationId || undefined,
+                tripType,
+                returnAt: returnAtIso || undefined,
+                scheduledAt: rideMode === 'schedule' && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
               })
               .then((res) => res?.data?.quotes ?? res?.quotes ?? [])
-              .catch(() => [])),
+              .catch((error) => {
+                // A round trip with a return time the server refuses is shown,
+                // not silently priced as a one-way trip.
+                if (active) setQuoteError(error?.response?.data?.message || error?.message || '');
+                return [];
+              })),
         );
         if (!active) return;
         const next = {};
@@ -1351,7 +1373,7 @@ const SelectVehicle = () => {
     // vehicleQuoteKey stands in for `vehicles`, whose identity changes on every
     // refresh even when the list does not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicleQuoteKey, pickupCoords, dropCoords, stops, effectiveServiceLocationId, routeState.transport_type, routeState.transportType]);
+  }, [vehicleQuoteKey, pickupCoords, dropCoords, stopPoints, effectiveServiceLocationId, routeState.transport_type, routeState.transportType, tripType, returnAtIso, rideMode, scheduledAt]);
 
   const pricedVehicles = useMemo(
     () =>
@@ -1376,7 +1398,9 @@ const SelectVehicle = () => {
           // it is added here too, as it always was.
           price: (hasServerQuote
             ? serverTotal
-            : calculateEstimatedFare({
+            // A round trip is priced only by the server: there is no local
+            // estimate of the return leg to fall back on.
+            : tripType === 'round_trip' ? 0 : calculateEstimatedFare({
               vehicle,
               pricingRule,
               distanceMeters: tripMetrics.distanceMeters,
@@ -1387,7 +1411,7 @@ const SelectVehicle = () => {
           priceIsServerQuote: hasServerQuote,
         };
       }),
-    [pricingRules, effectiveServiceLocationId, matchedZoneId, tripMetrics.distanceMeters, tripMetrics.durationMinutes, vehicles, pendingCancellationDue, serverQuotes],
+    [pricingRules, effectiveServiceLocationId, matchedZoneId, tripMetrics.distanceMeters, tripMetrics.durationMinutes, vehicles, pendingCancellationDue, serverQuotes, tripType],
   );
 
   // Held until the server's price arrives, so the customer is not shown the
@@ -1818,6 +1842,9 @@ const SelectVehicle = () => {
         pickupCoords,
         dropCoords,
         stops,
+        stopPoints,
+        tripType,
+        returnAt,
       },
     });
   };
@@ -1838,6 +1865,9 @@ const SelectVehicle = () => {
         pickupCoords,
         dropCoords,
         stops,
+        stopPoints,
+        tripType,
+        returnAt: returnAtIso,
         service_location_id: effectiveServiceLocationId,
         transport_type: resolvedTransportType,
         vehicle: selectedVehicle,
@@ -1873,6 +1903,11 @@ const SelectVehicle = () => {
 
   const handleBook = () => {
     if (!selectedVehicle) {
+      return;
+    }
+
+    if (tripType === 'round_trip' && (quoteError || !selectedVehicle.priceIsServerQuote)) {
+      setScheduleError(quoteError || 'The round-trip fare is still loading.');
       return;
     }
 
@@ -1970,6 +2005,39 @@ const SelectVehicle = () => {
             </button>
           </div>
         </div>
+
+        <div className="mx-3 mt-1 mb-1 flex items-center gap-2">
+          <div className="flex flex-1 rounded-[12px] bg-slate-100 p-1">
+            {[
+              { id: 'one_way', label: 'One way' },
+              { id: 'round_trip', label: 'Round trip' },
+            ].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setTripType(option.id)}
+                className={`flex-1 rounded-[10px] py-1.5 text-[12px] font-bold transition-all ${tripType === option.id ? 'bg-white text-slate-900 shadow-[0_2px_8px_rgba(0,0,0,0.04)]' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {tripType === 'round_trip' && (
+            <label className="flex shrink-0 flex-col text-[10px] font-semibold text-slate-500">
+              Return at
+              <input
+                type="datetime-local"
+                value={returnAt}
+                min={minScheduledAt}
+                onChange={(event) => setReturnAt(event.target.value)}
+                className="mt-0.5 rounded-[10px] border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700"
+              />
+            </label>
+          )}
+        </div>
+        {quoteError && (
+          <p className="mx-3 mb-1 text-[11px] font-medium text-rose-600">{quoteError}</p>
+        )}
 
         <div className="mx-3 mt-1 mb-2 flex rounded-[12px] bg-slate-100 p-1">
           <button

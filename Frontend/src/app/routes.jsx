@@ -14,6 +14,7 @@ const TermsPage = lazy(() => import('../modules/auth/pages/TermsPage'))
 const PrivacyPage = lazy(() => import('../modules/auth/pages/PrivacyPage'))
 const LandingPage = lazy(() => import('../modules/LandingPage/LandingPage'))
 const PartnerApp = lazy(() => import('../modules/partner/PartnerApp'))
+const TrackTrip = lazy(() => import('../modules/Taxi/modules/public/TrackTrip'))
 import ProtectedRoute from '@food/components/ProtectedRoute'
 
 const PageLoader = () => <AppShellSkeleton />
@@ -154,6 +155,9 @@ const AppRoutes = () => {
 
         {/* Taxi Module */}
         <Route path="/taxi/*" element={<TaxiAppWrapper />} />
+
+        {/* A shared live-trip link: public, no sign-in (SOW plan §4.8) */}
+        <Route path="/track-trip/:token" element={<Suspense fallback={<PageLoader />}><TrackTrip /></Suspense>} />
 
         {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
         <Route

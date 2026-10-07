@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../../../utils/asyncHandler.js';
-import { authenticateOrResolveUser } from '../../middlewares/authMiddleware.js';
+import { authenticate, authenticateOrResolveUser } from '../../middlewares/authMiddleware.js';
 import {
   createRazorpayWalletTopupOrder,
   createPhonePeWalletTopupOrder,
@@ -30,7 +30,7 @@ import {
   buySubscription,
 } from '../controllers/userController.js';
 import { getAppModules, getPopularPlaces, getPublicSetPrices, getPublicVehicleTypeCatalog } from '../../admin/controllers/adminController.js';
-import { triggerUserSosAlert } from '../../safety/controllers/safetyController.js';
+import { triggerUserSosAlert, updateUserSosLocation } from '../../safety/controllers/safetyController.js';
 
 export const userRouter = Router();
 
@@ -80,6 +80,8 @@ userRouter.get('/notifications', authenticateOrResolveUser(['user']), asyncHandl
 userRouter.delete('/notifications/:id', authenticateOrResolveUser(['user']), asyncHandler(deleteUserNotification));
 userRouter.delete('/notifications', authenticateOrResolveUser(['user']), asyncHandler(clearAllUserNotifications));
 userRouter.post('/sos', authenticateOrResolveUser(['user']), asyncHandler(triggerUserSosAlert));
+// While an SOS is open the app posts its position every 10 s (plan §4.7).
+userRouter.post('/sos/:alertId/location', authenticate(['user']), asyncHandler(updateUserSosLocation));
 userRouter.get('/wallet', authenticateOrResolveUser(['user']), asyncHandler(getUserWallet));
 userRouter.post('/wallet/topup', authenticateOrResolveUser(['user']), asyncHandler(topupUserWallet));
 userRouter.post('/wallet/transfer', authenticateOrResolveUser(['user']), asyncHandler(transferUserWallet));

@@ -11,4 +11,11 @@ export const SOCKET_EVENTS = Object.freeze({
   RIDE_DRIVER_ROUTE_UPDATED: 'ride:driver-route:updated',
   RIDE_MESSAGE_SEND: 'ride:message:send',
   RIDE_MESSAGE_NEW: 'ride:message:new',
+  // Multiple stops (plan §4.1): the driver emits the first, the ride room hears the second.
+  RIDE_STOP_REACHED: 'ride:stop:reached',
+  RIDE_STOP_UPDATED: 'ride:stop:updated',
+  // Tolls added or reviewed (plan §4.3).
+  RIDE_TOLLS_UPDATED: 'ride:tolls:updated',
+  // Live ETA to the pickup or the drop (plan §4.6).
+  RIDE_ETA_UPDATED: 'ride:eta:updated',
 });

@@ -340,3 +340,76 @@ export const sendOtpSms = async ({ phone, otp, purpose = 'otp' }) => {
     jobId: parsedFinalResponse?.JobId || null,
   };
 };
+
+/*
+ * An SOS text to a trusted / emergency contact (SOW plan §4.7).
+ *
+ * Indian operators deliver transactional SMS only against a DLT-registered
+ * template, and the text must match the registered one with ##var## filled in.
+ * The OTP template cannot carry an SOS, so this one has its own config:
+ *   SMS_INDIA_HUB_SOS_TEMPLATE_ID   the DLT template id (required)
+ *   SMS_SOS_TEMPLATE_TEXT           its registered text, two ##var##: the
+ *                                   person's name, then the live link
+ * With no template id nothing is sent and the reason is logged, so the alert
+ * records "not sent" instead of the provider silently dropping it.
+ */
+const DEFAULT_SOS_TEMPLATE_TEXT =
+  'SOS: ##var## has raised an emergency alert on a ride. Live location: ##var##';
+
+export const sendSosAlertSms = async ({ phone, name, link }) => {
+  const templateId = readValue(process.env.SMS_INDIA_HUB_SOS_TEMPLATE_ID);
+  if (!templateId) {
+    console.warn('[smsService] SOS SMS not sent: SMS_INDIA_HUB_SOS_TEMPLATE_ID is not configured');
+    return { sent: false, reason: 'sos_template_missing' };
+  }
+
+  const config = getSmsIndiaHubConfig();
+  if (!config.senderId || !(config.apiKey || (config.user && config.password))) {
+    console.warn('[smsService] SOS SMS not sent: SMS India Hub credentials are not configured');
+    return { sent: false, reason: 'sms_not_configured' };
+  }
+
+  const normalizedPhone = normalizeIndianPhone(phone);
+  if (!/^91\d{10}$/.test(normalizedPhone)) {
+    return { sent: false, reason: 'invalid_phone' };
+  }
+
+  const text = readValue(process.env.SMS_SOS_TEMPLATE_TEXT, DEFAULT_SOS_TEMPLATE_TEXT)
+    .replace('##var##', String(name || 'A rider').slice(0, 30))
+    .replace('##var##', String(link || ''));
+  const payload = new URLSearchParams({
+    senderid: config.senderId,
+    channel: 'Trans',
+    DCS: '0',
+    flashsms: '0',
+    number: normalizedPhone,
+    text,
+    TemplateId: templateId,
+  });
+  if (config.apiKey) {
+    payload.set('APIKey', config.apiKey);
+  } else {
+    payload.set('user', config.user);
+    payload.set('password', config.password);
+  }
+
+  try {
+    const response = await fetch(SMS_INDIA_HUB_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json, text/plain;q=0.9, */*;q=0.8',
+      },
+      body: payload.toString(),
+    });
+    const responseText = (await response.text()).trim();
+    if (isSuccessfulProviderResponse(response, responseText)) {
+      return { sent: true, reason: '' };
+    }
+    console.warn(`[smsService] SOS SMS rejected: ${responseText.slice(0, 200)}`);
+    return { sent: false, reason: 'provider_rejected' };
+  } catch (error) {
+    console.warn(`[smsService] SOS SMS failed: ${error?.message || error}`);
+    return { sent: false, reason: 'provider_unreachable' };
+  }
+};

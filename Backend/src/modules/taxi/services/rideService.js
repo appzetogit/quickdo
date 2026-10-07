@@ -27,6 +27,15 @@ import { computeRideFare } from '../common/rideFare.js';
 import { pickSurgeSlot, surgeFromPercent } from '../common/surgeSlot.js';
 import { SurgeSlot } from '../admin/models/SurgeSlot.js';
 import { measureTrip, measureTripRoad } from '../common/tripMeasure.js';
+import {
+  approvedTollTotal,
+  computeExtraKmCharge,
+  nightChargeSettings,
+  normalizeRideStops,
+  normalizeTripType,
+  roundTripWaitMinutes,
+  validateReturnAt,
+} from '../common/tripExtras.js';
 
 import { taxiReferralFor } from '../../../core/referral/referralSettings.service.js';
 const clearUserActiveRideIfPresent = async (user) => {
@@ -953,6 +962,31 @@ export const resolveRideSurge = ({ surgeZone, pricingRule, slots = [], vehicleTy
  * this trip. Same zone, same price lookup (borrowing included) and the same
  * calculation as createRideRecord, so the two cannot disagree.
  */
+/*
+ * A one-way or round trip's timing, checked: when it departs (the schedule, or
+ * now), whether the return time makes sense, and how long the driver waits at
+ * the destination. Shared by the quote and the booking so they price alike.
+ */
+const resolveTripTiming = ({ tripType, returnAt, scheduledAt, durationMinutes }) => {
+  const normalizedTripType = normalizeTripType(tripType);
+  const departAt = scheduledAt ? new Date(scheduledAt) : new Date();
+  const pickupAt = Number.isNaN(departAt.getTime()) ? new Date() : departAt;
+  if (normalizedTripType !== 'round_trip') {
+    return { tripType: 'one_way', returnAt: null, pickupAt, waitMinutes: 0 };
+  }
+  const parsedReturnAt = returnAt ? new Date(returnAt) : null;
+  const problem = validateReturnAt({ departAt: pickupAt, durationMinutes, returnAt: parsedReturnAt });
+  if (problem) {
+    throw new ApiError(400, problem);
+  }
+  return {
+    tripType: 'round_trip',
+    returnAt: parsedReturnAt,
+    pickupAt,
+    waitMinutes: roundTripWaitMinutes({ departAt: pickupAt, durationMinutes, returnAt: parsedReturnAt }),
+  };
+};
+
 export const quoteRideFares = async ({
   pickupCoords,
   dropCoords,
@@ -960,6 +994,9 @@ export const quoteRideFares = async ({
   vehicleTypeIds = [],
   transport_type,
   service_location_id,
+  tripType,
+  returnAt,
+  scheduledAt,
 }) => {
   assertNotParcelBooking({ transport_type });
   const transportType = normalizeRideTransportType(transport_type);
@@ -969,6 +1006,8 @@ export const quoteRideFares = async ({
       : null;
   const pickupPoint = normalizePoint(pickupCoords, 'pickupCoords');
   const dropPoint = normalizePoint(dropCoords, 'dropCoords');
+  // Priced through exactly the stops the booking stores.
+  stops = normalizeRideStops(stops);
   // Refused at the quote, so the app says so as soon as the drop is chosen
   // rather than at "Book". Intercity quotes leave the zone by design.
   if (transportType !== 'intercity') {
@@ -981,6 +1020,12 @@ export const quoteRideFares = async ({
   const trip = await measureTripRoad({ pickup: pickupPoint, drop: dropPoint, stops });
   const distanceMeters = trip ? trip.distanceMeters : 0;
   const durationMinutes = trip ? trip.durationMinutes : 0;
+  const timing = resolveTripTiming({ tripType, returnAt, scheduledAt, durationMinutes });
+  const tripOptions = {
+    tripType: timing.tripType,
+    roundTripWaitMinutes: timing.waitMinutes,
+    pickupAt: timing.pickupAt,
+  };
 
   const ids = [...new Set(
     (Array.isArray(vehicleTypeIds) ? vehicleTypeIds : [vehicleTypeIds])
@@ -995,12 +1040,17 @@ export const quoteRideFares = async ({
       transportType,
       vehicleTypeId,
     });
-    const base = computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes });
+    const base = computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes, ...tripOptions });
     const surge = base
-      ? resolveRideSurge({ surgeZone, pricingRule, slots: surgeSlots, vehicleTypeId, fareBeforeSurge: base.fareBeforeSurge })
+      ? resolveRideSurge({ surgeZone, pricingRule, slots: surgeSlots, vehicleTypeId, fareBeforeSurge: base.fareBeforeSurge, at: timing.pickupAt })
       : null;
     const fare = base
-      ? { ...computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes, surgeAmount: surge.amount }), surgePercent: surge.percent, surgeSlotName: surge.slotName }
+      ? {
+        ...computeRideFare({ pricingRule, transportType, distanceMeters, durationMinutes, surgeAmount: surge.amount, ...tripOptions }),
+        surgePercent: surge.percent,
+        surgeSlotName: surge.slotName,
+        nightChargeWindow: base.nightCharge > 0 ? (nightChargeSettings(pricingRule)?.label || '') : '',
+      }
       : null;
     // The measured trip travels with the quote so the app can SHOW the same
     // distance it is being charged for. Without it the app displayed its own
@@ -1013,6 +1063,9 @@ export const quoteRideFares = async ({
       measuredDistanceMeters: distanceMeters,
       measuredDurationMinutes: durationMinutes,
       distanceSource: trip ? (trip.source || 'straight_line') : 'unknown',
+      tripType: timing.tripType,
+      returnAt: timing.returnAt,
+      stopCount: stops.length,
     };
   }));
 };
@@ -1062,8 +1115,13 @@ export const createRideRecord = async ({
   bookingMode,
   userMaxBidFare,
   bidStepAmount,
+  tripType,
+  returnAt,
 }) => {
   assertNotParcelBooking({ serviceType, transport_type });
+  // The stops the quote priced, as the ride stores them (plan §4.1).
+  const rideStops = normalizeRideStops(stops);
+  stops = rideStops;
 
   const user = await User.findById(userId);
 
@@ -1106,6 +1164,12 @@ export const createRideRecord = async ({
   const measuredTrip = await measureTripRoad({ pickup: pickupCoords, drop: dropCoords, stops });
   const safeEstimatedDistanceMeters = measuredTrip ? measuredTrip.distanceMeters : 0;
   const safeEstimatedDurationMinutes = measuredTrip ? measuredTrip.durationMinutes : 0;
+  const tripTiming = resolveTripTiming({
+    tripType,
+    returnAt,
+    scheduledAt: normalizeScheduledAt(scheduledAt),
+    durationMinutes: safeEstimatedDurationMinutes,
+  });
   const clientFare = Number(fare);
 
   if (!Number.isFinite(clientFare) || clientFare < 0) {
@@ -1154,6 +1218,9 @@ export const createRideRecord = async ({
     transportType: normalizedTransportType,
     distanceMeters: safeEstimatedDistanceMeters,
     durationMinutes: safeEstimatedDurationMinutes,
+    tripType: tripTiming.tripType,
+    roundTripWaitMinutes: tripTiming.waitMinutes,
+    pickupAt: tripTiming.pickupAt,
   });
 
   if (!fareQuote) {
@@ -1242,6 +1309,7 @@ export const createRideRecord = async ({
     slots: await loadZoneSurgeSlots(surgeZone?._id),
     vehicleTypeId: primaryVehicleTypeId,
     fareBeforeSurge: safeFare,
+    at: tripTiming.pickupAt,
   });
   const rideSurgeAmount = rideSurge.amount;
   const effectiveStartingFareWithoutSurge = pricingNegotiationMode === 'user_increment_only'
@@ -1278,6 +1346,20 @@ export const createRideRecord = async ({
     promo_discount_applied: 0,
     surge_zone_id: surgeZone?._id || null,
     surge_zone_name: surgeZone?.name || '',
+    trip_type: tripTiming.tripType,
+    return_trip_fare: fareQuote.returnTripFare,
+    round_trip_waiting_charge: fareQuote.roundTripWaitingCharge,
+    night_charge_amount: fareQuote.nightCharge,
+    night_charge_window: fareQuote.nightCharge > 0 ? (nightChargeSettings(pricingRule)?.label || '') : '',
+    priced_distance_meters: tripTiming.tripType === 'round_trip'
+      ? safeEstimatedDistanceMeters * 2
+      : safeEstimatedDistanceMeters,
+    price_per_distance: normalizedTransportType === 'intercity'
+      ? Math.max(0, Number(pricingRule?.outstation_price_per_distance ?? 0))
+      : Math.max(0, Number(pricingRule?.price_per_distance ?? 0)),
+    extra_km_enabled: pricingRule?.extra_km_charge?.enabled === true,
+    extra_km_tolerance_type: pricingRule?.extra_km_charge?.tolerance_type === 'km' ? 'km' : 'percent',
+    extra_km_tolerance_value: Math.max(0, Number(pricingRule?.extra_km_charge?.tolerance_value ?? 10)),
     allowed_payment_methods: allowedPaymentMethods,
     user_cancellation_fee_type: pricingRule?.user_cancellation_fee_type || 'percentage',
     user_cancellation_fee: Number(pricingRule?.user_cancellation_fee ?? 0),
@@ -1391,6 +1473,10 @@ export const createRideRecord = async ({
       pricingSnapshot,
       intercity: normalizeIntercityPayload(intercity),
       scheduledAt: normalizedScheduledAt,
+      stops: rideStops,
+      tripType: tripTiming.tripType,
+      returnAt: tripTiming.returnAt,
+      nightChargeAmount: fareQuote.nightCharge,
       status: RIDE_STATUS.SEARCHING,
       liveStatus: RIDE_LIVE_STATUS.SEARCHING,
       pending_cancellation_due: Number(user.pending_cancellation_due || 0),
@@ -1445,6 +1531,10 @@ export const createRideRecord = async ({
             pricingSnapshot,
             intercity: normalizeIntercityPayload(intercity),
             scheduledAt: normalizedScheduledAt,
+            stops: rideStops,
+            tripType: tripTiming.tripType,
+            returnAt: tripTiming.returnAt,
+            nightChargeAmount: fareQuote.nightCharge,
             status: RIDE_STATUS.SEARCHING,
             liveStatus: RIDE_LIVE_STATUS.SEARCHING,
             pending_cancellation_due: Number(user.pending_cancellation_due || 0),
@@ -1548,6 +1638,30 @@ const populateRideRealtime = async (rideId) => {
   return ride;
 };
 
+/** A ride's stops as every app reads them: { address, lat, lng, order, reachedAt }. */
+export const serializeRideStops = (stops = []) => (Array.isArray(stops) ? stops : [])
+  .map((stop) => ({
+    address: stop?.address || '',
+    lat: Number(stop?.lat),
+    lng: Number(stop?.lng),
+    order: Number(stop?.order || 0),
+    reachedAt: stop?.reachedAt || null,
+  }))
+  .sort((a, b) => a.order - b.order);
+
+export const serializeRideTolls = (tolls = []) => (Array.isArray(tolls) ? tolls : []).map((toll) => ({
+  id: String(toll?._id || ''),
+  amount: Number(toll?.amount || 0),
+  receiptPhotoUrl: toll?.receiptPhotoUrl || '',
+  at: toll?.at || null,
+  lat: toll?.lat ?? null,
+  lng: toll?.lng ?? null,
+  status: toll?.status || 'pending',
+  autoApproved: Boolean(toll?.autoApproved),
+  reviewedAt: toll?.reviewedAt || null,
+  note: toll?.note || '',
+}));
+
 export const serializeRideRealtime = (ride) => ({
   rideId: String(ride._id),
   room: getRideRoom(ride._id),
@@ -1637,6 +1751,12 @@ export const serializeRideRealtime = (ride) => ({
       surge_zone_name: ride.pricingSnapshot.surge_zone_name || '',
       surge_percent: Number(ride.pricingSnapshot.surge_percent ?? 0),
       surge_slot_name: ride.pricingSnapshot.surge_slot_name || '',
+      trip_type: ride.pricingSnapshot.trip_type || 'one_way',
+      return_trip_fare: Number(ride.pricingSnapshot.return_trip_fare ?? 0),
+      round_trip_waiting_charge: Number(ride.pricingSnapshot.round_trip_waiting_charge ?? 0),
+      night_charge_amount: Number(ride.pricingSnapshot.night_charge_amount ?? 0),
+      night_charge_window: ride.pricingSnapshot.night_charge_window || '',
+      priced_distance_meters: Number(ride.pricingSnapshot.priced_distance_meters ?? 0),
       allowed_payment_methods: normalizeAllowedRidePaymentMethods(ride.pricingSnapshot.allowed_payment_methods),
       user_cancellation_fee_type: ride.pricingSnapshot.user_cancellation_fee_type || 'percentage',
       user_cancellation_fee: Number(ride.pricingSnapshot.user_cancellation_fee ?? 0),
@@ -1662,6 +1782,22 @@ export const serializeRideRealtime = (ride) => ({
   dropLocation: ride.dropLocation,
   dropAddress: ride.dropAddress || '',
   scheduledAt: ride.scheduledAt || null,
+  // Multiple stops, round trip, tolls, night charge and extra km (plan §4.1-4.5).
+  stops: serializeRideStops(ride.stops),
+  tripType: ride.tripType || 'one_way',
+  returnAt: ride.returnAt || null,
+  tolls: serializeRideTolls(ride.tolls),
+  tollChargeAmount: Number(ride.tollChargeAmount || 0),
+  nightChargeAmount: Number(ride.nightChargeAmount || 0),
+  extraDistance: ride.extraDistance?.evaluatedAt
+    ? {
+      quotedMeters: Number(ride.extraDistance.quotedMeters || 0),
+      tracedMeters: Number(ride.extraDistance.tracedMeters || 0),
+      traceReliable: Boolean(ride.extraDistance.traceReliable),
+      allowanceKm: Number(ride.extraDistance.allowanceKm || 0),
+      extraKm: Number(ride.extraDistance.extraKm || 0),
+    }
+    : null,
   arrivedAt: ride.arrivedAt,
   destinationArrivedAt: ride.destinationArrivedAt || null,
   startedAt: ride.startedAt,
@@ -2055,6 +2191,77 @@ const resolvePromoDiscountApplied = (ride) => {
   return ride?.acceptedBidId ? 0 : roundRideMoney(Math.max(0, Number(ride?.promo?.discount_amount || 0)));
 };
 
+/*
+ * The trip trace (plan §4.5): the distance driven with the rider on board,
+ * summed here from the ride's own location updates rather than taken from the
+ * driver's app.
+ *
+ * Built to err towards the rider:
+ *   - a move of under TRACE_MIN_STEP_M is GPS jitter at a standstill and is not
+ *     counted until the driver has really moved;
+ *   - a jump no vehicle could make (over 1 km at over 70 m/s, the same rule the
+ *     driver's position uses) is dropped and counted as a rejected jump;
+ *   - a silence in the updates is bridged with the straight line, which can
+ *     only under-count.
+ */
+const TRACE_MIN_STEP_M = 25;
+const TRACE_MIN_POINTS = 10;
+const TRACE_MAX_GAP_SECONDS = 180;
+const TRACE_MAX_REJECTED_JUMPS = 3;
+
+const traceMeters = (a, b) => {
+  const toRad = (d) => (Number(d) * Math.PI) / 180;
+  const h = Math.sin(toRad(b[1] - a[1]) / 2) ** 2
+    + Math.cos(toRad(a[1])) * Math.cos(toRad(b[1])) * Math.sin(toRad(b[0] - a[0]) / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+};
+
+export const advanceTripTrace = (trace = {}, coordinates, at = new Date()) => {
+  const next = {
+    distanceMeters: Number(trace?.distanceMeters || 0),
+    points: Number(trace?.points || 0),
+    lastCoordinates: Array.isArray(trace?.lastCoordinates) && trace.lastCoordinates.length === 2
+      ? [...trace.lastCoordinates]
+      : null,
+    lastAt: trace?.lastAt ? new Date(trace.lastAt) : null,
+    maxGapSeconds: Number(trace?.maxGapSeconds || 0),
+    rejectedJumps: Number(trace?.rejectedJumps || 0),
+    startedAt: trace?.startedAt ? new Date(trace.startedAt) : new Date(at),
+  };
+  const now = new Date(at);
+  if (!next.lastCoordinates) {
+    // The first point after the start; the gap from the start counts too.
+    const gap = (now.getTime() - next.startedAt.getTime()) / 1000;
+    next.maxGapSeconds = Math.max(next.maxGapSeconds, Number.isFinite(gap) ? gap : 0);
+    return { ...next, lastCoordinates: coordinates, lastAt: now, points: next.points + 1 };
+  }
+  const seconds = Math.max(1, (now.getTime() - (next.lastAt?.getTime() || now.getTime())) / 1000);
+  const step = traceMeters(next.lastCoordinates, coordinates);
+  if (step > 1000 && step / seconds > 70) {
+    return { ...next, rejectedJumps: next.rejectedJumps + 1 };
+  }
+  next.maxGapSeconds = Math.max(next.maxGapSeconds, seconds);
+  next.points += 1;
+  next.lastAt = now;
+  if (step >= TRACE_MIN_STEP_M) {
+    next.distanceMeters += step;
+    next.lastCoordinates = coordinates;
+  }
+  return next;
+};
+
+/** Whether a ride's trace is good enough to bill extra km from. */
+export const isTripTraceReliable = (ride) => {
+  const trace = ride?.tripTrace;
+  if (!trace?.startedAt || !(Number(trace.distanceMeters) > 0)) return false;
+  if (Number(trace.points || 0) < TRACE_MIN_POINTS) return false;
+  if (Number(trace.rejectedJumps || 0) > TRACE_MAX_REJECTED_JUMPS) return false;
+  // A long silence -- an app in the background, a dead phone -- leaves the
+  // trace guessing, and a guess is not billed.
+  if (Number(trace.maxGapSeconds || 0) > TRACE_MAX_GAP_SECONDS) return false;
+  return true;
+};
+
 const rideStatusConfig = {
   [RIDE_LIVE_STATUS.ACCEPTED]: {
     persistedStatus: RIDE_STATUS.ACCEPTED,
@@ -2151,6 +2358,12 @@ export const updateRideLifecycle = async ({ rideId, driverId, nextStatus, paymen
     ride.startedAt = new Date();
   }
 
+  if (nextStatus === RIDE_LIVE_STATUS.STARTED && !ride.tripTrace?.startedAt) {
+    // The trace of the trip itself starts here; the drive to the pickup is not
+    // the rider's distance.
+    ride.tripTrace = { distanceMeters: 0, points: 0, maxGapSeconds: 0, rejectedJumps: 0, startedAt: new Date(), lastAt: null };
+  }
+
   if (nextStatus === RIDE_LIVE_STATUS.ARRIVED && !ride.destinationArrivedAt) {
     ride.destinationArrivedAt = new Date();
   }
@@ -2214,14 +2427,52 @@ export const updateRideLifecycle = async ({ rideId, driverId, nextStatus, paymen
     const waitingCharge = computeRideWaitingCharge(ride);
     const adminAdditionalCharge = roundRideMoney(Math.max(0, Number(ride.additionalCharge || 0)));
     const recoveredDue = roundRideMoney(Math.max(0, Number(ride.recovered_cancellation_due || 0)));
+    /*
+     * Tolls (plan §4.3): only the ones approved -- within the admin's per-ride
+     * auto-approve limit, or by an admin -- as their own line. What the driver's
+     * app sends as additionalCharge is still ignored; a toll it wants paid is
+     * added with POST /drivers/rides/:rideId/tolls and a receipt.
+     */
+    const tollCharge = approvedTollTotal(ride.tolls);
+    /*
+     * Extra km (plan §4.5): the distance the server traced while the rider was
+     * on board, against the distance the rider was quoted. Charged only past
+     * the price row's tolerance, only when the row switched it on at booking,
+     * and only from a trace the server trusts -- with none, nothing extra.
+     */
+    const snapshot = ride.pricingSnapshot || {};
+    const quotedMeters = Number(snapshot.priced_distance_meters || 0) > 0
+      ? Number(snapshot.priced_distance_meters)
+      : Number(ride.estimatedDistanceMeters || 0) * (ride.tripType === 'round_trip' ? 2 : 1);
+    const tracedMeters = Math.max(0, Number(ride.tripTrace?.distanceMeters || 0));
+    const traceReliable = isTripTraceReliable(ride);
+    const extraKm = computeExtraKmCharge({
+      settings: snapshot.extra_km_enabled
+        ? { toleranceType: snapshot.extra_km_tolerance_type === 'km' ? 'km' : 'percent', toleranceValue: Number(snapshot.extra_km_tolerance_value ?? 10) }
+        : null,
+      quotedMeters,
+      tracedMeters,
+      traceReliable,
+      perKm: Math.max(0, Number(snapshot.price_per_distance || 0)),
+    });
 
     // baseFare is the pre-promo figure, so the breakdown the apps show
-    // (base - promo + waiting + additional + recovered due) adds up to fare.
+    // (base - promo + waiting + additional + tolls + extra km + recovered due)
+    // adds up to fare.
     ride.baseFare = roundRideMoney(agreedFare + promoDiscount);
     ride.waitingChargeAmount = waitingCharge;
     ride.timeChargeAmount = 0;
-    ride.distanceChargeAmount = 0;
-    ride.fare = roundRideMoney(agreedFare + waitingCharge + adminAdditionalCharge + recoveredDue);
+    ride.distanceChargeAmount = extraKm.amount;
+    ride.tollChargeAmount = tollCharge;
+    ride.extraDistance = {
+      quotedMeters: Math.round(quotedMeters),
+      tracedMeters: Math.round(tracedMeters),
+      traceReliable,
+      allowanceKm: extraKm.allowanceKm,
+      extraKm: extraKm.extraKm,
+      evaluatedAt: new Date(),
+    };
+    ride.fare = roundRideMoney(agreedFare + waitingCharge + adminAdditionalCharge + tollCharge + extraKm.amount + recoveredDue);
   }
 
   /*
@@ -2351,6 +2602,10 @@ export const updateRideDriverLocation = async ({ rideId, driverId, coordinates, 
     speed: Number.isFinite(Number(speed)) ? Number(speed) : null,
     updatedAt: new Date(),
   };
+
+  if ([RIDE_LIVE_STATUS.STARTED, RIDE_LIVE_STATUS.ARRIVED].includes(ride.liveStatus)) {
+    ride.tripTrace = advanceTripTrace(ride.tripTrace, normalizedCoords, new Date());
+  }
 
   await ride.save();
 

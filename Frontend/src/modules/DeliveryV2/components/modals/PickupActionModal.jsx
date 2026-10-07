@@ -9,6 +9,7 @@ import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { uploadAPI } from '@food/api';
 import { toast } from 'sonner';
 import { openCamera } from "@food/utils/imageUploadUtils";
+import { openDirections } from '../../utils/mapsDirections';
 
 /**
  * PickupActionModal - Unified White/Green Theme with Slider Actions.
@@ -144,7 +145,7 @@ export const PickupActionModal = ({
                   </button>
                 )}
                 <button 
-                  onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurantAddress)}`, '_blank')}
+                  onClick={() => openDirections({ destination: order.restaurantLocation || restaurantAddress })}
                   className="w-11 h-11 rounded-2xl bg-gray-950 flex items-center justify-center text-white shadow-xl hover:bg-gray-800 transition-colors active:scale-90"
                 >
                   <Navigation className="w-5 h-5" />

@@ -1,11 +1,10 @@
-import crypto from 'crypto';
 import TrustedContact from '../models/TrustedContact.js';
-import EmergencyAlert from '../models/EmergencyAlert.js';
 import SafetyReport from '../models/SafetyReport.js';
 import RideCheckLog from '../models/RideCheckLog.js';
 import SafetyTip from '../models/SafetyTip.js';
-import TripShareLink from '../models/TripShareLink.js';
 import EmergencySetting from '../models/EmergencySetting.js';
+import { triggerSos } from './sos.service.js';
+import { createTripShareLink } from './tripShare.service.js';
 
 class UserSafetyService {
   async getSettings() {
@@ -54,47 +53,24 @@ class UserSafetyService {
     return TrustedContact.findOneAndDelete({ _id: contactId, user_id: userId });
   }
 
+  /*
+   * POST /safety/sos. Goes through the one SOS service (sos.service.js), which
+   * alerts the admins, texts the trusted contacts and tracks the location --
+   * this used to save an EmergencyAlert and tell nobody.
+   */
   async triggerSOS(userId, data) {
-    const settings = await this.getSettings();
-    if (!settings.enable_sos) {
-      throw new Error('SOS feature is currently disabled.');
-    }
-
-    const alert = new EmergencyAlert({
-      user_id: userId,
-      trip_id: data.trip_id,
-      driver_id: data.driver_id,
-      location: {
-        type: 'Point',
-        coordinates: [data.longitude, data.latitude],
-      },
-      ride_status: data.ride_status,
-      alert_type: 'sos_button',
+    return triggerSos({
+      sourceApp: 'user',
+      actorId: userId,
+      rideId: data.trip_id || data.rideId,
+      location: data.location || { lat: data.latitude, lng: data.longitude },
+      notes: data.notes,
     });
-    
-    await alert.save();
-    
-    // In future: Trigger SMS/Push notification to trusted contacts and admin
-    
-    return alert;
   }
 
+  /** POST /safety/trip/share: the rider's own ride only; returns the link with its url. */
   async shareTrip(userId, data) {
-    const token = crypto.randomBytes(24).toString('hex');
-    
-    // Default expiry 24 hours
-    const expiryTime = new Date();
-    expiryTime.setHours(expiryTime.getHours() + 24);
-
-    const shareLink = new TripShareLink({
-      user_id: userId,
-      trip_id: data.trip_id,
-      token,
-      expiry_time: expiryTime,
-    });
-
-    await shareLink.save();
-    return shareLink;
+    return createTripShareLink({ userId, rideId: data.trip_id || data.rideId });
   }
 
   async reportDriver(userId, data, filePaths = {}) {
@@ -124,17 +100,14 @@ class UserSafetyService {
     await log.save();
 
     if (data.user_response === 'need_help' || data.user_response === 'no_response') {
-      // Create SOS alert
-      const alert = new EmergencyAlert({
-        user_id: userId,
-        trip_id: data.trip_id,
-        location: {
-          type: 'Point',
-          coordinates: [data.longitude || 0, data.latitude || 0],
-        },
-        alert_type: data.user_response === 'need_help' ? 'ride_check_help' : 'ride_check_missed',
+      // The same SOS as the button: admins, contacts and live location.
+      await triggerSos({
+        sourceApp: 'user',
+        actorId: userId,
+        rideId: data.trip_id,
+        location: { lat: data.latitude, lng: data.longitude },
+        reason: data.user_response === 'need_help' ? 'ride_check_help' : 'ride_check_missed',
       });
-      await alert.save();
     }
 
     return log;

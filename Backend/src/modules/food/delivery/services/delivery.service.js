@@ -7,6 +7,7 @@ import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { isMotorisedVehicleType } from '../validators/delivery.validator.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
 
 /**
@@ -63,6 +64,7 @@ const LEGACY_DOCUMENTS = [
     { match: /aadha?a?r/i, photo: 'aadharPhoto', number: 'aadharNumber' },
     { match: /(^|[-_ ])pan([-_ ]|$)|pan[-_ ]?card/i, photo: 'panPhoto', number: 'panNumber' },
     { match: /licen[cs]e|(^|[-_ ])dl([-_ ]|$)/i, photo: 'drivingLicensePhoto', number: 'drivingLicenseNumber' },
+    { match: /(^|[-_ ])rc([-_ ]|$)|registration[-_ ]?cert/i, photo: 'vehicleRcPhoto', number: 'vehicleRcNumber' },
 ];
 
 export const mirrorLegacyDocuments = (catalogueDocs = [], images = {}, numbers = {}) => {
@@ -79,11 +81,13 @@ export const registerDeliveryPartner = async (payload, files) => {
     const { 
         name, phone, email, countryCode, address, city, state, 
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
+        vehicleRcNumber,
         fcmToken, platform, driverClass, serviceIntents,
         profilePhoto: preExistingProfilePhoto,
         aadharPhoto: preExistingAadharPhoto,
         panPhoto: preExistingPanPhoto,
-        drivingLicensePhoto: preExistingDrivingLicensePhoto
+        drivingLicensePhoto: preExistingDrivingLicensePhoto,
+        vehicleRcPhoto: preExistingVehicleRcPhoto
     } = payload;
     const refRaw = typeof payload?.ref === 'string' ? String(payload.ref).trim() : '';
 
@@ -122,7 +126,8 @@ export const registerDeliveryPartner = async (payload, files) => {
         profilePhoto: preExistingProfilePhoto || '',
         aadharPhoto: preExistingAadharPhoto || '',
         panPhoto: preExistingPanPhoto || '',
-        drivingLicensePhoto: preExistingDrivingLicensePhoto || ''
+        drivingLicensePhoto: preExistingDrivingLicensePhoto || '',
+        vehicleRcPhoto: typeof preExistingVehicleRcPhoto === 'string' ? preExistingVehicleRcPhoto : ''
     };
 
     if (files?.profilePhoto?.[0]) {
@@ -141,10 +146,21 @@ export const registerDeliveryPartner = async (payload, files) => {
         );
     }
 
+    if (files?.vehicleRcPhoto?.[0]) {
+        images.vehicleRcPhoto = await uploadImageBuffer(files.vehicleRcPhoto[0].buffer, 'food/delivery/registration');
+    }
+
     const onboardingDocuments = await collectCatalogueDocuments(payload, files);
     const { numbers: legacyNumbers } = mirrorLegacyDocuments(onboardingDocuments, images, {
-        aadharNumber, panNumber, drivingLicenseNumber,
+        aadharNumber, panNumber, drivingLicenseNumber, vehicleRcNumber,
     });
+
+    // A motorised vehicle is registered with the RTO, and the RC proves the
+    // vehicle the partner rides is theirs to ride (plan §4.11). Checked after
+    // the catalogue mirror, so an RC sent as an admin-defined document counts.
+    if (isMotorisedVehicleType(vehicleType) && !images.vehicleRcPhoto) {
+        throw new ValidationError('Vehicle RC photo is required for a motorised vehicle');
+    }
 
     const partnerFields = {
         name,
@@ -158,6 +174,8 @@ export const registerDeliveryPartner = async (payload, files) => {
         vehicleName,
         vehicleNumber,
         drivingLicenseNumber: legacyNumbers.drivingLicenseNumber,
+        // The RC carries the vehicle's registration number unless told otherwise.
+        vehicleRcNumber: legacyNumbers.vehicleRcNumber || (images.vehicleRcPhoto ? vehicleNumber : undefined) || undefined,
         panNumber: legacyNumbers.panNumber,
         aadharNumber: legacyNumbers.aadharNumber,
         // Recorded as asked, filtered to the options that belong to the
@@ -250,6 +268,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     if (vehicleName !== undefined) partner.vehicleName = vehicleName;
     if (vehicleNumber !== undefined) partner.vehicleNumber = vehicleNumber;
     if (drivingLicenseNumber !== undefined) partner.drivingLicenseNumber = drivingLicenseNumber;
+    if (payload.vehicleRcNumber !== undefined) partner.vehicleRcNumber = payload.vehicleRcNumber;
 
     if (fcmToken) {
         if (platform === 'mobile') {
@@ -269,6 +288,9 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
 
     if (files?.profilePhoto?.[0]) {
         partner.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
+    }
+    if (files?.vehicleRcPhoto?.[0]) {
+        partner.vehicleRcPhoto = await uploadImageBuffer(files.vehicleRcPhoto[0].buffer, 'food/delivery/registration');
     }
 
     await partner.save();

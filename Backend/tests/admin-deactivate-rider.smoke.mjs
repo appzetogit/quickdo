@@ -65,6 +65,7 @@ await check('a driver deleted the old way signs up again as a NEW account; the o
   const again = await registerDeliveryPartner({
     name: 'Rider Again', phone: '9822200001', city: 'Indore', state: 'MP', vehicleType: 'bike',
     vehicleNumber: 'MP09AB1234', drivingLicenseNumber: 'DL123', panNumber: 'ABCDE1234F', aadharNumber: '123412341234',
+    vehicleRcPhoto: 'https://example.com/rc.jpg', // a motorised vehicle needs its RC (plan §4.11)
   }, {});
   const id = String(again?._id || again?.partner?._id || again?.deliveryPartner?._id || '');
   assert.ok(id && id !== String(rider._id), 'the deleted account was reused, bringing its old records back');

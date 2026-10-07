@@ -60,6 +60,7 @@ await check('signing up again on the same number and bike is a clean new account
   const again = await registerDeliveryPartner({
     name: 'Rider New', phone: '9833300001', city: 'Indore', state: 'MP', vehicleType: 'bike',
     vehicleNumber: 'MP09ZZ0001', drivingLicenseNumber: 'DL1', panNumber: 'ABCDE1234F', aadharNumber: '123412341234',
+    vehicleRcPhoto: 'https://example.com/rc.jpg', // a motorised vehicle needs its RC (plan §4.11)
   }, {});
   const id = String(again?._id || again?.partner?._id || again?.deliveryPartner?._id || '');
   assert.ok(id && id !== String(rider._id));

@@ -13,6 +13,8 @@ import {
 import { authorizeRideRoomAccess } from '../middleware/rideRoomAuth.js';
 import { SOCKET_EVENTS } from '../events.js';
 import { clearDriverRoute, updateDriverRoute } from '../services/driverRouteService.js';
+import { markRideStopReached } from '../../services/rideExtrasService.js';
+import { publishLiveEta } from '../services/liveEtaService.js';
 
 const driverLifecycleStatuses = new Set([
   RIDE_LIVE_STATUS.ACCEPTED,
@@ -99,6 +101,16 @@ export const registerRideSocketHandlers = ({ io, socket, onAsync }) => {
         driverId: socket.auth.sub || socket.auth.id || socket.auth._id || socket.auth.userId,
         coordinates: locationUpdate.coordinates,
       });
+
+      // Live ETA to the pickup or the drop (plan §4.6). Rate-limited inside;
+      // never holds up the location update.
+      publishLiveEta({ io, rideId, coordinates: locationUpdate.coordinates })
+        .catch((error) => console.error('Live ETA failed', error?.message || error));
+
+      // An open SOS on this ride follows the driver (plan §4.7).
+      import('../../safety/services/sos.service.js')
+        .then(({ recordSosLocationForRide }) => recordSosLocationForRide({ rideId, coordinates: locationUpdate.coordinates }))
+        .catch((error) => console.error('SOS location update failed', error?.message || error));
     }),
   );
 
@@ -146,6 +158,8 @@ export const registerRideSocketHandlers = ({ io, socket, onAsync }) => {
         fare: populatedRide.fare || 0,
         baseFare: populatedRide.baseFare || 0,
         additionalCharge: populatedRide.additionalCharge || 0,
+        tollChargeAmount: populatedRide.tollChargeAmount || 0,
+        nightChargeAmount: populatedRide.nightChargeAmount || 0,
         recovered_cancellation_due: populatedRide.recovered_cancellation_due || 0,
         promo: populatedRide.promo || null,
         driverEarnings: populatedRide.driverEarnings || 0,
@@ -168,6 +182,27 @@ export const registerRideSocketHandlers = ({ io, socket, onAsync }) => {
         }
         clearDriverRoute(socket.auth.sub || socket.auth.id || socket.auth._id || socket.auth.userId);
       }
+    }),
+  );
+
+  // The driver reached a stop (plan §4.1). Same as
+  // POST /drivers/rides/:rideId/stops/:order/reached.
+  socket.on(
+    SOCKET_EVENTS.RIDE_STOP_REACHED,
+    onAsync(socket, async ({ rideId, order }) => {
+      if (socket.auth.role !== 'driver') {
+        throw new Error('Only drivers can mark a stop reached');
+      }
+
+      await authorizeRideRoomAccess({ socket, rideId });
+
+      const result = await markRideStopReached({
+        rideId,
+        driverId: socket.auth.sub || socket.auth.id || socket.auth._id || socket.auth.userId,
+        order,
+      });
+
+      io.to(getRideRoom(rideId)).emit(SOCKET_EVENTS.RIDE_STOP_UPDATED, result);
     }),
   );
 

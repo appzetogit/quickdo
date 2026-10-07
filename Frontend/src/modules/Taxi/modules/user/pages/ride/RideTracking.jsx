@@ -14,6 +14,7 @@ import { BACKEND_ORIGIN } from '../../../../shared/api/runtimeConfig';
 import toast from 'react-hot-toast';
 import FloatingSOS from '../safety/FloatingSOS';
 import SafetyToolkit from '../safety/SafetyToolkit';
+import { buildStopsTimeline } from '../../../../shared/utils/rideStops';
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 const DEFAULT_CENTER = { lat: 22.7196, lng: 75.8577 };
@@ -420,6 +421,12 @@ const RideTracking = () => {
   const distanceChargeAmount = Number(rideRealtime?.distanceChargeAmount ?? state.distanceChargeAmount ?? 0);
   const timeChargeAmount = Number(rideRealtime?.timeChargeAmount ?? state.timeChargeAmount ?? 0);
   const adminExtraChargeAmount = Number(rideRealtime?.adminExtraCharge?.amount ?? state.adminExtraCharge?.amount ?? 0);
+  // Tolls the driver paid, once approved (plan §4.3), and the night charge
+  // already inside the fare (plan §4.4).
+  const approvedTollsAmount = (Array.isArray(rideRealtime?.tolls) ? rideRealtime.tolls : [])
+    .filter((toll) => toll?.status === 'approved')
+    .reduce((sum, toll) => sum + Number(toll.amount || 0), 0);
+  const nightChargeAmount = Number(rideRealtime?.nightChargeAmount ?? 0);
 
   const { user } = useAuthStore();
   const pendingCancellationDue = Number(rideRealtime?.pending_cancellation_due || state.pending_cancellation_due || user?.pending_cancellation_due || 0);
@@ -428,14 +435,22 @@ const RideTracking = () => {
   const promoDiscountAmount = Number(rideRealtime?.promo?.discount_amount ?? state?.promo?.discount_amount ?? 0);
   const currentTotalFare = ['arrived', 'completed'].includes(tripStatus)
     ? Math.max(0, Math.round(Number(fare || 0) + adminExtraChargeAmount + applicableCancellationDue - promoDiscountAmount))
-    : Math.max(0, Math.round(Number(fare || 0) + waitingCharge + distanceChargeAmount + timeChargeAmount + additionalCharge + adminExtraChargeAmount + applicableCancellationDue - promoDiscountAmount));
+    : Math.max(0, Math.round(Number(fare || 0) + waitingCharge + distanceChargeAmount + timeChargeAmount + additionalCharge + adminExtraChargeAmount + approvedTollsAmount + applicableCancellationDue - promoDiscountAmount));
   const isWaitingForOtp = Boolean(waitingStartedAt) && !['started', 'ongoing', 'arrived', 'completed', 'cancelled', 'delivered'].includes(tripStatus);
   const vehicleIcon = getTrackingVehicleIcon(trackingSnapshot, driver);
   // Ordered stops of a multi-stop ride: [{ type: 'pickup'|'stop'|'drop', address,
   // label?, status?: 'completed', etaMinutes? }]. Renders nothing for a plain A-to-B ride.
+  // Built from the ride's own stops (server data), not the booking screen's
+  // address strings in the navigation state.
+  const liveEta = rideRealtime?.eta || null;
   const rideStops = useMemo(
-    () => (Array.isArray(trackingSnapshot?.stops) ? trackingSnapshot.stops.filter(Boolean) : []),
-    [trackingSnapshot?.stops],
+    () => buildStopsTimeline({
+      stops: rideRealtime?.stops,
+      pickupAddress: rideRealtime?.pickupAddress || state.pickup,
+      dropAddress: rideRealtime?.dropAddress || state.drop,
+      liveStatus: rideRealtime?.liveStatus || tripStatus,
+    }, liveEta),
+    [rideRealtime?.stops, rideRealtime?.pickupAddress, rideRealtime?.dropAddress, rideRealtime?.liveStatus, state.pickup, state.drop, tripStatus, liveEta],
   );
 
   const stopsTimelineElement = useMemo(() => {
@@ -520,8 +535,12 @@ const RideTracking = () => {
       : tripStatus === 'arrived'
         ? 'Driver reached destination'
         : tripStatus === 'started' || tripStatus === 'ongoing'
-          ? 'Trip started'
-          : 'Captain is on the way';
+          ? (liveEta?.target === 'drop' && Number.isFinite(Number(liveEta.etaMinutes))
+            ? `Trip started · ${Math.max(1, Math.round(liveEta.etaMinutes))} min to drop`
+            : 'Trip started')
+          : liveEta?.target === 'pickup' && Number.isFinite(Number(liveEta.etaMinutes))
+            ? `Captain is ${Math.max(1, Math.round(liveEta.etaMinutes))} min away`
+            : 'Captain is on the way';
   const vehicleDetails = [driver.vehicleColor, driver.vehicleMake, driver.vehicleModel].filter(Boolean).join(' ');
   const activeRideEndpoint = '/rides/active/me';
   const latestStateRef = useRef(state);
@@ -968,6 +987,17 @@ const RideTracking = () => {
         additionalCharge: payload.additionalCharge ?? prev?.additionalCharge ?? latestState.additionalCharge ?? 0,
         recovered_cancellation_due: payload.recovered_cancellation_due ?? prev?.recovered_cancellation_due ?? latestState.recovered_cancellation_due ?? 0,
         driver: mergeDriverSnapshot(prev?.driver || latestFallbackDriver, payload.driver || {}),
+        // Multiple stops, round trip and the extra fare lines (plan §4.1-4.4).
+        stops: Array.isArray(payload.stops) ? payload.stops : (prev?.stops || []),
+        tripType: payload.tripType || prev?.tripType || 'one_way',
+        returnAt: payload.returnAt || prev?.returnAt || null,
+        tolls: Array.isArray(payload.tolls) ? payload.tolls : (prev?.tolls || []),
+        tollChargeAmount: payload.tollChargeAmount ?? prev?.tollChargeAmount ?? 0,
+        nightChargeAmount: payload.nightChargeAmount ?? prev?.nightChargeAmount ?? 0,
+        pickupAddress: payload.pickupAddress || prev?.pickupAddress || latestState.pickup || '',
+        dropAddress: payload.dropAddress || prev?.dropAddress || latestState.drop || '',
+        liveStatus: payload.liveStatus || prev?.liveStatus || '',
+        eta: prev?.eta || null,
       }));
 
       if (POST_RIDE_REDIRECT_STATUSES.has(nextStatus)) {
@@ -1093,15 +1123,44 @@ const RideTracking = () => {
       }));
     };
 
+    // Live ETA to the pickup, then to the drop (plan §4.6).
+    const onEtaUpdated = (payload) => {
+      if (!payload || String(payload.rideId || '') !== String(rideId)) {
+        return;
+      }
+      setRideRealtime((prev) => ({ ...(prev || {}), eta: payload }));
+    };
+
+    // A stop reached, or a toll added / reviewed (plan §4.1, §4.3).
+    const onStopUpdated = (payload) => {
+      if (!payload || String(payload.rideId || '') !== String(rideId) || !Array.isArray(payload.stops)) {
+        return;
+      }
+      setRideRealtime((prev) => ({ ...(prev || {}), stops: payload.stops }));
+    };
+
+    const onTollsUpdated = (payload) => {
+      if (!payload || String(payload.rideId || '') !== String(rideId) || !Array.isArray(payload.tolls)) {
+        return;
+      }
+      setRideRealtime((prev) => ({ ...(prev || {}), tolls: payload.tolls }));
+    };
+
     socketService.on('ride:state', onRideState);
     socketService.on('ride:driver-location:updated', onLocationUpdated);
     socketService.on('ride:status:updated', onStatusUpdated);
+    socketService.on('ride:eta:updated', onEtaUpdated);
+    socketService.on('ride:stop:updated', onStopUpdated);
+    socketService.on('ride:tolls:updated', onTollsUpdated);
     socketService.emit('ride:join', { rideId });
 
     return () => {
       socketService.off('ride:state', onRideState);
       socketService.off('ride:driver-location:updated', onLocationUpdated);
       socketService.off('ride:status:updated', onStatusUpdated);
+      socketService.off('ride:eta:updated', onEtaUpdated);
+      socketService.off('ride:stop:updated', onStopUpdated);
+      socketService.off('ride:tolls:updated', onTollsUpdated);
     };
   }, [rideId]);
 
@@ -1783,6 +1842,22 @@ const RideTracking = () => {
                       <div className="flex justify-between items-center text-xs">
                         <span className="font-semibold text-slate-500">Additional Charge</span>
                         <span className="font-bold text-[#0F766E]">Rs {additionalCharge}</span>
+                      </div>
+                    </div>
+                  )}
+                  {nightChargeAmount > 0 && (
+                    <div className="mt-2.5 space-y-2 pt-2.5 border-t border-slate-200/50">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold text-slate-500">Night Charge (in fare)</span>
+                        <span className="font-bold text-[#0F766E]">Rs {Math.round(nightChargeAmount)}</span>
+                      </div>
+                    </div>
+                  )}
+                  {approvedTollsAmount > 0 && (
+                    <div className="mt-2.5 space-y-2 pt-2.5 border-t border-slate-200/50">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold text-slate-500">Tolls</span>
+                        <span className="font-bold text-[#0F766E]">Rs {Math.round(approvedTollsAmount)}</span>
                       </div>
                     </div>
                   )}

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { listTollsForReview, reviewToll } from '../controllers/tollAdminController.js';
 import { authenticate } from '../../middlewares/authMiddleware.js';
 import { requireServiceAccess } from '../../../../core/roles/serviceAccess.middleware.js';
 import { requireFinancePermission } from '../../../../core/admin/requireFinancePermission.middleware.js';
@@ -241,8 +242,8 @@ adminRouter.get('/admin/wallet/drivers/negative-balance', authenticate(['admin']
 adminRouter.get('/admin/wallet/drivers/withdrawals', authenticate(['admin']), getDriverWithdrawalSummaries);
 adminRouter.get('/admin/wallet/drivers/withdrawals/request/:requestId', authenticate(['admin']), getDriverWithdrawalContextByRequestId);
 adminRouter.get('/admin/wallet/drivers/:id/withdrawals', authenticate(['admin']), getDriverWithdrawals);
-adminRouter.patch('/admin/wallet/drivers/withdrawals/:requestId/approve', authenticate(['admin']), approveDriverWithdrawalRequest);
-adminRouter.patch('/admin/wallet/drivers/withdrawals/:requestId/reject', authenticate(['admin']), rejectDriverWithdrawalRequest);
+adminRouter.patch('/admin/wallet/drivers/withdrawals/:requestId/approve', authenticate(['admin']), requireFinancePermission('WITHDRAWAL_DECIDE'), approveDriverWithdrawalRequest);
+adminRouter.patch('/admin/wallet/drivers/withdrawals/:requestId/reject', authenticate(['admin']), requireFinancePermission('WITHDRAWAL_DECIDE'), rejectDriverWithdrawalRequest);
 adminRouter.get('/admin/driver-ratings', authenticate(['admin']), getDriverRatings);
 adminRouter.get('/admin/driver-ratings/:id', authenticate(['admin']), getDriverRatingDetail);
 
@@ -308,6 +309,9 @@ adminRouter.get('/admin/ride-requests', getRideRequests);
 adminRouter.delete('/admin/ongoing-rides/:id', deleteOngoingRide);
 adminRouter.delete('/admin/ride-requests/:id', deleteTripRequest);
 adminRouter.get('/admin/trips', getIntercityTrips);
+// Tolls drivers added during trips (plan §4.3): the review queue and the decision.
+adminRouter.get('/admin/trips/tolls', listTollsForReview);
+adminRouter.patch('/admin/trips/:rideId/tolls/:tollId', reviewToll);
 
 adminRouter.get('/admin/wallet/withdrawals', getWithdrawals);
 

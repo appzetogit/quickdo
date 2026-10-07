@@ -686,6 +686,78 @@ const serializeZone = (zone) => ({
   updatedAt: zone.updatedAt,
 });
 
+/*
+ * The round-trip, night-charge and extra-km settings on a price row, as the
+ * admin form reads and writes them. Defaults are the ones that keep today's
+ * fare (see common/tripExtras.js).
+ */
+const TIME_HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+// true / 'true' / 1 / '1' from a form, JSON or a spreadsheet cell.
+const isTruthyFlag = (value) => value === true || value === 1 || ['true', '1', 'yes'].includes(String(value ?? '').trim().toLowerCase());
+
+const serializeTripExtraPricing = (item = {}) => ({
+  round_trip_return_factor: Number(item.round_trip_return_factor ?? 1),
+  round_trip_wait_free_minutes: Number(item.round_trip_wait_free_minutes ?? 60),
+  round_trip_wait_per_hour: Number(item.round_trip_wait_per_hour ?? 0),
+  night_charge: {
+    enabled: Boolean(item.night_charge?.enabled),
+    start: item.night_charge?.start || '22:00',
+    end: item.night_charge?.end || '06:00',
+    type: item.night_charge?.type === 'fixed' ? 'fixed' : 'percentage',
+    value: Number(item.night_charge?.value ?? 0),
+  },
+  extra_km_charge: {
+    enabled: Boolean(item.extra_km_charge?.enabled),
+    tolerance_type: item.extra_km_charge?.tolerance_type === 'km' ? 'km' : 'percent',
+    tolerance_value: Number(item.extra_km_charge?.tolerance_value ?? 10),
+  },
+});
+
+const nonNegativeSetting = (value, field) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new ApiError(400, `${field} must be zero or more`);
+  }
+  return number;
+};
+
+/** The same settings from an admin payload: only what was sent, validated. */
+const readTripExtraPricing = (payload = {}) => {
+  const out = {};
+  for (const field of ['round_trip_return_factor', 'round_trip_wait_free_minutes', 'round_trip_wait_per_hour']) {
+    if (payload[field] !== undefined && payload[field] !== '') {
+      out[field] = nonNegativeSetting(payload[field], field);
+    }
+  }
+  if (payload.night_charge && typeof payload.night_charge === 'object') {
+    const night = payload.night_charge;
+    const start = String(night.start ?? '22:00').trim();
+    const end = String(night.end ?? '06:00').trim();
+    if (!TIME_HHMM.test(start) || !TIME_HHMM.test(end)) {
+      throw new ApiError(400, 'night_charge start and end must be HH:MM');
+    }
+    const enabled = night.enabled === true || night.enabled === 'true' || night.enabled === 1;
+    if (enabled && start === end) {
+      throw new ApiError(400, 'night_charge start and end must differ');
+    }
+    const type = night.type === 'fixed' ? 'fixed' : 'percentage';
+    const value = nonNegativeSetting(night.value ?? 0, 'night_charge.value');
+    if (type === 'percentage' && value > 300) {
+      throw new ApiError(400, 'night_charge percentage cannot exceed 300');
+    }
+    out.night_charge = { enabled, start, end, type, value };
+  }
+  if (payload.extra_km_charge && typeof payload.extra_km_charge === 'object') {
+    const rule = payload.extra_km_charge;
+    out.extra_km_charge = {
+      enabled: rule.enabled === true || rule.enabled === 'true' || rule.enabled === 1,
+      tolerance_type: rule.tolerance_type === 'km' ? 'km' : 'percent',
+      tolerance_value: nonNegativeSetting(rule.tolerance_value ?? 10, 'extra_km_charge.tolerance_value'),
+    };
+  }
+  return out;
+};
+
 const serializeSetPrice = (item) => ({
   _id: item._id,
   id: item._id,
@@ -748,6 +820,9 @@ const serializeSetPrice = (item) => ({
   outstation_time_price: item.outstation_time_price ?? 0,
   free_waiting_before: item.free_waiting_before,
   free_waiting_after: item.free_waiting_after,
+
+  // Round trip, night charge, extra km (SOW plan §4.2, §4.4, §4.5)
+  ...serializeTripExtraPricing(item),
 
   // Settings
   enable_airport_ride: Boolean(item.enable_airport_ride),
@@ -1930,8 +2005,9 @@ export const bulkImportDrivers = async (payload = {}) => {
           serviceLocation?.name ||
           serviceLocationInput ||
           String(raw.country || '').trim(),
-        approve: raw.approve !== undefined ? Boolean(raw.approve) : true,
-        status: raw.status || (raw.approve === false ? 'pending' : 'approved'),
+        // Imported drivers go through review unless the sheet says approved (plan §4.9).
+        approve: raw.approve !== undefined ? isTruthyFlag(raw.approve) : raw.status === 'approved',
+        status: raw.status || (isTruthyFlag(raw.approve) ? 'approved' : 'pending'),
         onboarding: {
           importCountry: String(raw.country || '').trim(),
           importServiceLocation: serviceLocationInput,
@@ -3123,15 +3199,20 @@ export const createDriver = async (payload = {}, currentAdmin = null) => {
   );
   const vehicleIconType = vehicleType;
   const profilePicture = String(payload.profile_picture || payload.profilePicture || '').trim();
+  /*
+   * An admin-created driver goes through review like any other (plan §4.9),
+   * unless the admin explicitly approves them on creation (approve: true or
+   * status: 'approved' -- the "Approve now" box on the create form).
+   */
   const status = String(
-    payload.status || (payload.approve === false ? 'pending' : 'approved'),
+    payload.status || (isTruthyFlag(payload.approve) ? 'approved' : 'pending'),
   )
     .trim()
     .toLowerCase();
   const approve =
     payload.approve !== undefined
-      ? Boolean(payload.approve)
-      : !['pending', 'disapproved', 'inactive', 'rejected'].includes(status);
+      ? isTruthyFlag(payload.approve)
+      : status === 'approved';
   const serviceCategories = normalizeDriverServiceCategories(
     payload.serviceCategories ?? payload.service_categories,
     registerFor,
@@ -4560,6 +4641,7 @@ export const listSetPrices = async (queryArgs = {}, currentAdmin = null) => {
       outstation_base_distance: Number(item.outstation_base_distance ?? 0),
       outstation_price_per_distance: Number(item.outstation_price_per_distance ?? 0),
       outstation_time_price: Number(item.outstation_time_price ?? 0),
+      ...serializeTripExtraPricing(item),
       payment_type: Array.isArray(item.payment_type)
         ? item.payment_type
         : (item.payment_type ? String(item.payment_type).split(',') : ['cash', 'online', 'wallet']),
@@ -4727,6 +4809,7 @@ export const createSetPrice = async (payload, currentAdmin = null) => {
     order_number: Number(payload.order_number ?? payload.eta_sequence ?? 1),
     bill_status: Number(payload.bill_status ?? 1),
     status: payload.status || 'active',
+    ...readTripExtraPricing(payload),
   });
 
   return setPrice.toObject();
@@ -4803,6 +4886,8 @@ export const updateSetPrice = async (id, payload, currentAdmin = null) => {
       }
     }
   });
+
+  Object.assign(setPrice, readTripExtraPricing(payload));
 
   if (payload.package_vehicle_prices !== undefined) {
     setPrice.package_vehicle_prices = Array.isArray(payload.package_vehicle_prices)

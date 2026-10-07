@@ -37,6 +37,7 @@ let manualAssignExpiryInterval = null;
 let fssaiExpiryInterval = null;
 let spScheduler = null;
 let ledgerNightlyInterval = null;
+let taxiScheduledDispatchWorker = null;
 
 const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received, starting graceful shutdown`);
@@ -54,6 +55,7 @@ const gracefulShutdown = async (signal) => {
             if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
             if (spScheduler) spScheduler.stop();
             if (ledgerNightlyInterval) clearInterval(ledgerNightlyInterval);
+            if (taxiScheduledDispatchWorker) await taxiScheduledDispatchWorker.close().catch(() => {});
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -300,6 +302,23 @@ const startServer = async () => {
                     manualAssignExpiryInterval.unref?.();
                 })
                 .catch((err) => logger.error(`Manual-assign expiry failed to start: ${err.message}`));
+
+            // Taxi scheduled rides: the dispatch round at the scheduled time
+            // (plan §4.13). A delayed BullMQ job when BullMQ is on -- consumed
+            // here, where the socket server is -- else in-memory timers re-armed
+            // from the database. Each round is claimed on the ride, so a second
+            // instance or a retry cannot fire it twice; not tied to
+            // BACKGROUND_JOBS_ENABLED, like the hold sweeper.
+            import('./src/modules/taxi/services/dispatchService.js')
+                .then(async ({ startScheduledDispatchWorker, restoreScheduledDispatches }) => {
+                    if (config.bullmqEnabled && config.redisEnabled) {
+                        taxiScheduledDispatchWorker = await startScheduledDispatchWorker();
+                    }
+                    // Safe on every boot: a ride's job id is fixed, and a timer is replaced.
+                    const restored = await restoreScheduledDispatches();
+                    if (restored) logger.info(`Taxi scheduled dispatch: ${restored} ride(s) re-armed`);
+                })
+                .catch((err) => logger.error(`Taxi scheduled dispatch failed to start: ${err.message}`));
 
             if (!config.backgroundJobsEnabled) {
                 logger.warn('BACKGROUND_JOBS_ENABLED=false — skipping offer expiry and FSSAI sync (read-mostly instance)');

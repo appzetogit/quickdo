@@ -20,6 +20,7 @@ const uploadFields = upload.fields([
     { name: 'aadharPhoto', maxCount: 1 },
     { name: 'panPhoto', maxCount: 1 },
     { name: 'drivingLicensePhoto', maxCount: 1 },
+    { name: 'vehicleRcPhoto', maxCount: 1 },
     { name: 'upiQrCode', maxCount: 1 }
 ]);
 

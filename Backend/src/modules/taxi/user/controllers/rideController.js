@@ -414,6 +414,9 @@ export const quoteRide = async (req, res) => {
     transport_type,
     service_location_id,
     serviceLocationId,
+    tripType,
+    returnAt,
+    scheduledAt,
   } = req.body || {};
 
   // The trip is measured from these, exactly as the booking measures it: any
@@ -429,13 +432,19 @@ export const quoteRide = async (req, res) => {
     vehicleTypeIds: Array.isArray(vehicleTypeIds) ? vehicleTypeIds : [vehicleTypeId].filter(Boolean),
     transport_type,
     service_location_id: service_location_id || serviceLocationId,
+    // one_way (default) or round_trip; a round trip prices the return leg and
+    // the wait until returnAt (plan §4.2). scheduledAt sets the pickup time the
+    // night charge is judged on.
+    tripType,
+    returnAt,
+    scheduledAt,
   });
 
   res.json({ success: true, data: { quotes } });
 };
 
 export const createRide = async (req, res) => {
-  const { pickup, drop, stops, pickupAddress, dropAddress, fare, vehicleTypeId, vehicleTypeIds, vehicleIconType, vehicleIconUrl, paymentMethod, serviceType, intercity, promo_code, service_location_id, transport_type, scheduledAt, bookingMode, userMaxBidFare, bidStepAmount } =
+  const { pickup, drop, stops, pickupAddress, dropAddress, fare, vehicleTypeId, vehicleTypeIds, vehicleIconType, vehicleIconUrl, paymentMethod, serviceType, intercity, promo_code, service_location_id, transport_type, scheduledAt, bookingMode, userMaxBidFare, bidStepAmount, tripType, returnAt } =
     req.body;
 
   if (!pickup || !drop) {
@@ -465,6 +474,8 @@ export const createRide = async (req, res) => {
     bookingMode,
     userMaxBidFare,
     bidStepAmount,
+    tripType,
+    returnAt,
   });
 
   await startDispatchFlow(ride);

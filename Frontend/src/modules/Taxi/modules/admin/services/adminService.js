@@ -152,6 +152,11 @@ export const adminService = {
   getSafetyAlerts: ({ page = 1, limit = 25, status = 'active' } = {}) =>
     api.get(`/admin/safety/alerts?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}`),
   resolveSafetyAlert: (id, note = '') => api.patch(`/admin/safety/alerts/${id}/resolve`, { note }),
+  // Tolls drivers add during trips (SOW plan §4.3).
+  getRideTolls: ({ status = 'pending', page = 1, limit = 25 } = {}) =>
+    api.get(`/admin/trips/tolls?status=${encodeURIComponent(status)}&page=${page}&limit=${limit}`),
+  reviewRideToll: (rideId, tollId, decision, note = '') =>
+    api.patch(`/admin/trips/${rideId}/tolls/${tollId}`, { decision, note }),
   getOngoingRides: ({ page = 1, limit = 10, tab = 'all', search = '' } = {}) =>
     api.get(`/admin/ongoing-rides?page=${page}&limit=${limit}&tab=${encodeURIComponent(tab)}&search=${encodeURIComponent(search)}`),
   getRideRequests: ({ page = 1, limit = 10, tab = 'all', search = '' } = {}) =>

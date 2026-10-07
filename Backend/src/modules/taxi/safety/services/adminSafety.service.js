@@ -1,4 +1,5 @@
 import EmergencyAlert from '../models/EmergencyAlert.js';
+import { SafetyAlert } from '../../common/models/SafetyAlert.js';
 import SafetyReport from '../models/SafetyReport.js';
 import RideCheckLog from '../models/RideCheckLog.js';
 import SafetyTip from '../models/SafetyTip.js';
@@ -110,8 +111,9 @@ class AdminSafetyService {
 
   async getAnalytics() {
     const [totalAlerts, activeAlerts, totalReports, unresolvedReports] = await Promise.all([
-      EmergencyAlert.countDocuments(),
-      EmergencyAlert.countDocuments({ status: { $in: ['new', 'investigating'] } }),
+      // SOS alerts live on SafetyAlert now (sos.service.js).
+      SafetyAlert.countDocuments(),
+      SafetyAlert.countDocuments({ status: 'active' }),
       SafetyReport.countDocuments(),
       SafetyReport.countDocuments({ status: { $in: ['pending', 'investigating'] } }),
     ]);

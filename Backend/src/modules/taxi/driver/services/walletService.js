@@ -458,7 +458,10 @@ export const settleCompletedRideWallet = async ({ rideId }) => {
     const grossFare = Math.max(0, normalizeAmount(fare - recoveredDue + promoDiscountAmount, 'grossFare'));
 
     const surgeAmount = Math.max(0, normalizeAmount(ride?.pricingSnapshot?.ride_surge_amount || 0, 'surgeAmount'));
-    const commissionableFare = Math.max(0, normalizeAmount(grossFare - surgeAmount, 'commissionableFare'));
+    // Tolls are the driver's money paid out at a booth and passed through to
+    // the rider (plan §4.3): no commission is taken on them.
+    const tollAmount = Math.max(0, normalizeAmount(ride.tollChargeAmount || 0, 'tollAmount'));
+    const commissionableFare = Math.max(0, normalizeAmount(grossFare - surgeAmount - tollAmount, 'commissionableFare'));
     const commissionConfig = await resolveCommissionConfigForRide(ride, session);
     const commissionAmount = computeCommissionAmount({
       fare: commissionableFare,

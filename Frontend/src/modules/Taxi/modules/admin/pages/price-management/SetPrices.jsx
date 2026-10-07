@@ -121,6 +121,13 @@ const initialFormState = {
    outstation_base_distance: '',
    outstation_price_per_distance: '',
    outstation_time_price: '',
+   // Round trip, night charge and extra km (SOW plan §4.2, §4.4, §4.5).
+   // These defaults price exactly as before until an admin changes them.
+   round_trip_return_factor: 1,
+   round_trip_wait_free_minutes: 60,
+   round_trip_wait_per_hour: 0,
+   night_charge: { enabled: false, start: '22:00', end: '06:00', type: 'percentage', value: 0 },
+   extra_km_charge: { enabled: false, tolerance_type: 'percent', tolerance_value: 10 },
    user_cancellation_fee: '',
    user_cancellation_fee_type: 'percentage',
    driver_cancellation_fee: '',
@@ -227,6 +234,11 @@ const SetPrices = ({ mode }) => {
                max_cancellation_fee: pData.max_cancellation_fee ?? 0,
                enable_cancellation_reasons: pData.enable_cancellation_reasons ?? true,
                cancellation_policy_message: pData.cancellation_policy_message ?? '',
+               round_trip_return_factor: pData.round_trip_return_factor ?? 1,
+               round_trip_wait_free_minutes: pData.round_trip_wait_free_minutes ?? 60,
+               round_trip_wait_per_hour: pData.round_trip_wait_per_hour ?? 0,
+               night_charge: { ...initialFormState.night_charge, ...(pData.night_charge || {}) },
+               extra_km_charge: { ...initialFormState.extra_km_charge, ...(pData.extra_km_charge || {}) },
             });
          }
       } else if (mode === 'create') {
@@ -279,6 +291,11 @@ const SetPrices = ({ mode }) => {
             transport_type: normalizeTransportType(formData.transport_type),
             payment_type: normalizePaymentTypes(formData.payment_type).length ? normalizePaymentTypes(formData.payment_type) : ['cash'],
             ride_surge_amount: Number(formData.ride_surge_amount || 0),
+            round_trip_return_factor: Number(formData.round_trip_return_factor ?? 1),
+            round_trip_wait_free_minutes: Number(formData.round_trip_wait_free_minutes ?? 60),
+            round_trip_wait_per_hour: Number(formData.round_trip_wait_per_hour ?? 0),
+            night_charge: { ...formData.night_charge, value: Number(formData.night_charge?.value || 0) },
+            extra_km_charge: { ...formData.extra_km_charge, tolerance_value: Number(formData.extra_km_charge?.tolerance_value ?? 10) },
          };
 
          if (!editingId && formData.zone_id === ALL_ZONES_OPTION) {
@@ -728,6 +745,73 @@ const SetPrices = ({ mode }) => {
                                        <label className={labelClass}>Time Price in Mintue <span className="text-rose-500">*</span></label>
                                        <input type="number" min="0" required={formData.enable_outstation_ride} className={inputClass} placeholder="Enter Time Price" value={formData.outstation_time_price} onChange={e => setFormData(p => ({ ...p, outstation_time_price: e.target.value }))} />
                                     </div>
+                                 </div>
+                              </div>
+                           )}
+                        </div>
+
+                        {/* Section: Round trip, night charge, extra km (SOW plan §4.2, §4.4, §4.5) */}
+                        <div className="space-y-6 pt-6 border-t border-gray-100">
+                           <h2 className="text-base font-bold text-[#1E293B] uppercase tracking-wider">Round Trip</h2>
+                           <div className="grid grid-cols-1 md:grid-cols-3 gap-x-12 gap-y-8">
+                              <div>
+                                 <label className={labelClass}>Return Leg Factor <span className="text-gray-400">(1 = same as outbound)</span></label>
+                                 <input type="number" min="0" step="0.05" className={inputClass} value={formData.round_trip_return_factor} onChange={e => setFormData(p => ({ ...p, round_trip_return_factor: e.target.value }))} />
+                              </div>
+                              <div>
+                                 <label className={labelClass}>Free Waiting At Destination <span className="text-gray-400">(minutes)</span></label>
+                                 <input type="number" min="0" className={inputClass} value={formData.round_trip_wait_free_minutes} onChange={e => setFormData(p => ({ ...p, round_trip_wait_free_minutes: e.target.value }))} />
+                              </div>
+                              <div>
+                                 <label className={labelClass}>Waiting Charge Per Hour</label>
+                                 <input type="number" min="0" className={inputClass} value={formData.round_trip_wait_per_hour} onChange={e => setFormData(p => ({ ...p, round_trip_wait_per_hour: e.target.value }))} />
+                              </div>
+                           </div>
+
+                           <div className="flex items-center gap-2 pt-2 ml-1">
+                              <input type="checkbox" className="w-4 h-4 rounded border-gray-300 pointer-events-auto" checked={Boolean(formData.night_charge?.enabled)} onChange={e => setFormData(p => ({ ...p, night_charge: { ...p.night_charge, enabled: e.target.checked } }))} />
+                              <span className="text-[13px] font-semibold text-gray-700">Enable Night Charge <span className="text-gray-400">(separate from surge; times in IST, may run past midnight)</span></span>
+                           </div>
+                           {formData.night_charge?.enabled && (
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-x-12 gap-y-8">
+                                 <div>
+                                    <label className={labelClass}>Starts At</label>
+                                    <input type="time" required className={inputClass} value={formData.night_charge.start} onChange={e => setFormData(p => ({ ...p, night_charge: { ...p.night_charge, start: e.target.value } }))} />
+                                 </div>
+                                 <div>
+                                    <label className={labelClass}>Ends At</label>
+                                    <input type="time" required className={inputClass} value={formData.night_charge.end} onChange={e => setFormData(p => ({ ...p, night_charge: { ...p.night_charge, end: e.target.value } }))} />
+                                 </div>
+                                 <div>
+                                    <label className={labelClass}>Charge Type</label>
+                                    <select className={inputClass + " appearance-none cursor-pointer"} value={formData.night_charge.type} onChange={e => setFormData(p => ({ ...p, night_charge: { ...p.night_charge, type: e.target.value } }))}>
+                                       <option value="percentage">Percentage of fare</option>
+                                       <option value="fixed">Fixed amount</option>
+                                    </select>
+                                 </div>
+                                 <div>
+                                    <label className={labelClass}>Value</label>
+                                    <input type="number" min="0" required className={inputClass} value={formData.night_charge.value} onChange={e => setFormData(p => ({ ...p, night_charge: { ...p.night_charge, value: e.target.value } }))} />
+                                 </div>
+                              </div>
+                           )}
+
+                           <div className="flex items-center gap-2 pt-2 ml-1">
+                              <input type="checkbox" className="w-4 h-4 rounded border-gray-300 pointer-events-auto" checked={Boolean(formData.extra_km_charge?.enabled)} onChange={e => setFormData(p => ({ ...p, extra_km_charge: { ...p.extra_km_charge, enabled: e.target.checked } }))} />
+                              <span className="text-[13px] font-semibold text-gray-700">Charge Extra Kilometres <span className="text-gray-400">(GPS-traced distance beyond the quote, at the per-km price)</span></span>
+                           </div>
+                           {formData.extra_km_charge?.enabled && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
+                                 <div>
+                                    <label className={labelClass}>Tolerance Type</label>
+                                    <select className={inputClass + " appearance-none cursor-pointer"} value={formData.extra_km_charge.tolerance_type} onChange={e => setFormData(p => ({ ...p, extra_km_charge: { ...p.extra_km_charge, tolerance_type: e.target.value } }))}>
+                                       <option value="percent">Percent of quoted distance</option>
+                                       <option value="km">Kilometres</option>
+                                    </select>
+                                 </div>
+                                 <div>
+                                    <label className={labelClass}>Tolerance</label>
+                                    <input type="number" min="0" step="0.1" required className={inputClass} value={formData.extra_km_charge.tolerance_value} onChange={e => setFormData(p => ({ ...p, extra_km_charge: { ...p.extra_km_charge, tolerance_value: e.target.value } }))} />
                                  </div>
                               </div>
                            )}

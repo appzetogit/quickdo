@@ -157,6 +157,15 @@ const TransportRideSettings = () => {
                     onChange={handleChange} 
                     type="number" 
                  />
+
+                 {/* Tolls a driver adds during a trip (SOW plan §4.3) */}
+                 <InputField 
+                    label="Toll Auto-Approve Limit Per Ride (Rs, 0 = review every toll)" 
+                    name="toll_auto_approve_limit" 
+                    value={settings.toll_auto_approve_limit} 
+                    onChange={handleChange} 
+                    type="number" 
+                 />
               </div>
 
               {/* Right Column */}

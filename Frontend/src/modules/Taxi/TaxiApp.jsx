@@ -78,16 +78,12 @@ const SpiritualTrip = lazy(() => import('./modules/user/pages/cab/SpiritualTrip'
 const SpiritualTripVehicle = lazy(() => import('./modules/user/pages/cab/SpiritualTripVehicle'));
 const SpiritualTripConfirm = lazy(() => import('./modules/user/pages/cab/SpiritualTripConfirm'));
 
-const IntercityVehicle = lazy(() => import('./modules/user/pages/intercity/IntercityVehicle'));
-const IntercityDetails = lazy(() => import('./modules/user/pages/intercity/IntercityDetails'));
-const IntercityConfirm = lazy(() => import('./modules/user/pages/intercity/IntercityConfirm'));
 
 
 // Phase 5 — Onboarding
 const Onboarding = lazy(() => import('./modules/user/pages/auth/Onboarding'));
 
 // New Feature Pages
-const IntercityHome = lazy(() => import('./modules/user/pages/intercity/IntercityHome'));
 
 
 // Profile Settings Sub-pages
@@ -204,6 +200,7 @@ const AdminGodsEye = lazy(() => import('./modules/admin/pages/geo/GodsEye'));
 const AdminFinance = lazy(() => import('./modules/admin/pages/finance/Finance'));
 const AdminFareConfig = lazy(() => import('./modules/admin/pages/finance/FareConfiguration'));
 const AdminSafetyCenter = lazy(() => import('./modules/admin/pages/safety/SafetyCenter'));
+const AdminTollApprovals = lazy(() => import('./modules/admin/pages/operations/TollApprovals'));
 const AdminSafetySettings = lazy(() => import('./modules/admin/pages/safety/SafetySettings'));
 const AdminCMSBuilder = lazy(() => import('./modules/admin/pages/cms/CMSBuilder'));
 const AdminHeaderFooter = lazy(() => import('./modules/admin/pages/cms/HeaderFooter'));
@@ -575,10 +572,9 @@ function TaxiApp() {
               <Route path="ride/detail/:id" element={<RideDetail />} />
 
               {/* New Service Routes — Real pages replacing ComingSoon */}
-              <Route path="intercity" element={<IntercityHome />} />
-              <Route path="intercity/vehicle" element={<IntercityVehicle />} />
-              <Route path="intercity/details" element={<IntercityDetails />} />
-              <Route path="intercity/confirm" element={<IntercityConfirm />} />
+              {/* Intercity is part of the normal ride flow now -- one way or
+                  round trip at outstation rates (SOW plan §4.2, decision D3). */}
+              <Route path="intercity/*" element={<Navigate to="/taxi/ride/select-location?rideType=outstation" replace />} />
               <Route path="cab" element={<CabHome />} />
               <Route path="cab/airport" element={<AirportCab />} />
               <Route
@@ -669,19 +665,7 @@ function TaxiApp() {
               <Route path="user/safety/trip-sharing" element={<UserTripSharing />} />
               <Route path="user/safety/tips" element={<UserSafetyTips />} />
 
-              <Route path="user/intercity" element={<IntercityHome />} />
-              <Route
-                path="user/intercity/vehicle"
-                element={<IntercityVehicle />}
-              />
-              <Route
-                path="user/intercity/details"
-                element={<IntercityDetails />}
-              />
-              <Route
-                path="user/intercity/confirm"
-                element={<IntercityConfirm />}
-              />
+              <Route path="user/intercity/*" element={<Navigate to="/taxi/user/ride/select-location?rideType=outstation" replace />} />
               <Route path="user/cab" element={<Navigate to="/taxi/user/ride/select-location" replace />} />
               {/* <Route path="user/cab" element={<CabHome />} />
                 <Route path="user/cab/airport" element={<AirportCab />} />
@@ -821,6 +805,7 @@ function TaxiApp() {
               <Route path="chat" element={<AdminChat />} />
               <Route path="trips" element={<AdminTrips />} />
               <Route path="ongoing" element={<AdminOngoing />} />
+              <Route path="tolls" element={<AdminTollApprovals />} />
               <Route path="wallet/payment" element={<AdminWalletPayment />} />
               <Route path="users" element={<AdminUserList />} />
               <Route path="users/create" element={<AdminUserCreate />} />

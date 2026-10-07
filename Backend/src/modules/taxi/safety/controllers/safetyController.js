@@ -1,264 +1,78 @@
 import { asyncHandler } from '../../../../utils/asyncHandler.js';
-import { SafetyAlert } from '../../common/models/SafetyAlert.js';
-import { Driver } from '../../driver/models/Driver.js';
-import { Ride } from '../../user/models/Ride.js';
-import { User } from '../../user/models/User.js';
-import { emitToAdmins } from '../../services/dispatchService.js';
+import {
+  listSos,
+  recordSosLocation,
+  resolveSos,
+  triggerSos,
+} from '../services/sos.service.js';
+import { getPublicTripView } from '../services/tripShare.service.js';
 
-const cleanString = (value = '') => String(value || '').trim();
-
-const normalizeCoordinates = (value) => {
-  if (Array.isArray(value) && value.length >= 2) {
-    const [lng, lat] = value;
-    if (Number.isFinite(Number(lng)) && Number.isFinite(Number(lat))) {
-      return [Number(lng), Number(lat)];
-    }
-  }
-
-  const nestedCoordinates = value?.coordinates;
-  if (Array.isArray(nestedCoordinates) && nestedCoordinates.length >= 2) {
-    const [lng, lat] = nestedCoordinates;
-    if (Number.isFinite(Number(lng)) && Number.isFinite(Number(lat))) {
-      return [Number(lng), Number(lat)];
-    }
-  }
-
-  const lat = Number(value?.lat ?? value?.latitude);
-  const lng = Number(value?.lng ?? value?.longitude ?? value?.lon);
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return [Number(lng), Number(lat)];
-  }
-
-  return null;
-};
-
-const serializeSafetyAlert = (alert = {}) => {
-  const coordinates = Array.isArray(alert?.location?.coordinates) ? alert.location.coordinates : [];
-  const [lng, lat] = coordinates;
-
-  return {
-    id: String(alert?._id || ''),
-    incidentType: cleanString(alert?.incidentType || 'sos').toLowerCase(),
-    status: cleanString(alert?.status || 'active').toLowerCase(),
-    sourceApp: cleanString(alert?.sourceApp || '').toLowerCase(),
-    serviceType: cleanString(alert?.serviceType || 'general').toLowerCase(),
-    riderName: cleanString(alert?.riderName),
-    riderPhone: cleanString(alert?.riderPhone),
-    driverName: cleanString(alert?.driverName),
-    driverPhone: cleanString(alert?.driverPhone),
-    vehicleLabel: cleanString(alert?.vehicleLabel),
-    tripCode: cleanString(alert?.tripCode),
-    pickupAddress: cleanString(alert?.pickupAddress),
-    dropAddress: cleanString(alert?.dropAddress),
-    locationLabel: cleanString(alert?.locationLabel),
-    location:
-      Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
-        ? {
-            lat: Number(lat),
-            lng: Number(lng),
-            coordinates: [Number(lng), Number(lat)],
-          }
-        : null,
-    notes: cleanString(alert?.notes),
-    createdAt: alert?.createdAt || null,
-    updatedAt: alert?.updatedAt || null,
-    resolvedAt: alert?.resolvedAt || null,
-    rideId: alert?.rideId ? String(alert.rideId?._id || alert.rideId) : '',
-    deliveryId: alert?.deliveryId ? String(alert.deliveryId?._id || alert.deliveryId) : '',
-    userId: alert?.userId ? String(alert.userId?._id || alert.userId) : '',
-    driverId: alert?.driverId ? String(alert.driverId?._id || alert.driverId) : '',
-    logs: Array.isArray(alert?.logs)
-      ? alert.logs.map((log) => ({
-          id: String(log?._id || ''),
-          actorRole: cleanString(log?.actorRole || 'system').toLowerCase(),
-          message: cleanString(log?.message),
-          createdAt: log?.createdAt || null,
-        }))
-      : [],
-  };
-};
-
-const readRide = async (rideId) => {
-  if (!rideId) {
-    return null;
-  }
-
-  return Ride.findById(rideId)
-    .populate('userId', 'name phone')
-    .populate('driverId', 'name phone vehicle')
-    .lean();
-};
-
-const deriveServiceType = ({ requestedServiceType, ride }) => {
-  const direct = cleanString(requestedServiceType).toLowerCase();
-  if (['ride', 'intercity', 'general'].includes(direct)) {
-    return direct;
-  }
-
-  const rideType = cleanString(ride?.serviceType || ride?.type).toLowerCase();
-  if (['ride', 'intercity'].includes(rideType)) {
-    return rideType;
-  }
-
-  return 'general';
-};
-
-const createAlertRecord = async ({
-  sourceApp,
-  authId,
-  rideId,
-  serviceType,
-  location,
-  locationLabel,
-  pickupAddress,
-  dropAddress,
-  notes,
-  tripCode,
-  vehicleLabel,
-}) => {
-  const ride = await readRide(rideId);
-  const actorUser = sourceApp === 'user'
-    ? await User.findById(authId).select('name phone').lean()
-    : ride?.userId || null;
-  const actorDriver = sourceApp === 'driver'
-    ? await Driver.findById(authId).select('name phone vehicle').lean()
-    : ride?.driverId || null;
-  const coords =
-    normalizeCoordinates(location)
-    || normalizeCoordinates(ride?.pickupLocation);
-
-  const created = await SafetyAlert.create({
-    sourceApp,
-    serviceType: deriveServiceType({ requestedServiceType: serviceType, ride }),
-    userId: sourceApp === 'user' ? authId : actorUser?._id || null,
-    driverId: sourceApp === 'driver' ? authId : actorDriver?._id || null,
-    rideId: ride?._id || rideId || null,
-    riderName: cleanString(actorUser?.name),
-    riderPhone: cleanString(actorUser?.phone),
-    driverName: cleanString(actorDriver?.name),
-    driverPhone: cleanString(actorDriver?.phone),
-    vehicleLabel: cleanString(vehicleLabel) || cleanString(actorDriver?.vehicle),
-    tripCode:
-      cleanString(tripCode)
-      || cleanString(ride?.bookingId)
-      || cleanString(ride?._id),
-    pickupAddress:
-      cleanString(pickupAddress)
-      || cleanString(ride?.pickupAddress),
-    dropAddress:
-      cleanString(dropAddress)
-      || cleanString(ride?.dropAddress),
-    locationLabel:
-      cleanString(locationLabel)
-      || cleanString(ride?.pickupAddress),
-    location: coords ? { type: 'Point', coordinates: coords } : undefined,
-    notes: cleanString(notes),
-    logs: [
-      {
-        actorRole: 'system',
-        message: `SOS triggered from ${sourceApp} app`,
-      },
-    ],
-  });
-
-  return SafetyAlert.findById(created._id).lean();
-};
+/*
+ * The SOS endpoints. All of them go through safety/services/sos.service.js,
+ * which saves the alert, tells the admins (socket + FCM), texts the person's
+ * contacts the live trip link, and records their position until resolved.
+ */
+const readTrigger = (req) => ({
+  rideId: req.body?.rideId || req.body?.trip_id,
+  serviceType: req.body?.serviceType,
+  location: req.body?.location
+    || (req.body?.latitude !== undefined ? { lat: req.body.latitude, lng: req.body.longitude } : null),
+  locationLabel: req.body?.locationLabel,
+  pickupAddress: req.body?.pickupAddress,
+  dropAddress: req.body?.dropAddress,
+  notes: req.body?.notes,
+  tripCode: req.body?.tripCode,
+  vehicleLabel: req.body?.vehicleLabel,
+});
 
 export const triggerUserSosAlert = asyncHandler(async (req, res) => {
-  const alert = await createAlertRecord({
-    sourceApp: 'user',
-    authId: req.auth.sub,
-    rideId: cleanString(req.body?.rideId),
-    serviceType: req.body?.serviceType,
-    location: req.body?.location,
-    locationLabel: req.body?.locationLabel,
-    pickupAddress: req.body?.pickupAddress,
-    dropAddress: req.body?.dropAddress,
-    notes: req.body?.notes,
-    tripCode: req.body?.tripCode,
-    vehicleLabel: req.body?.vehicleLabel,
-  });
-
-  const payload = serializeSafetyAlert(alert);
-  emitToAdmins('new_sos', payload);
-  emitToAdmins('safety:alert:new', payload);
-
+  const payload = await triggerSos({ sourceApp: 'user', actorId: req.auth.sub, ...readTrigger(req) });
   res.json({ success: true, data: payload });
 });
 
 export const triggerDriverSosAlert = asyncHandler(async (req, res) => {
-  const alert = await createAlertRecord({
-    sourceApp: 'driver',
-    authId: req.auth.sub,
-    rideId: cleanString(req.body?.rideId),
-    serviceType: req.body?.serviceType,
-    location: req.body?.location,
-    locationLabel: req.body?.locationLabel,
-    pickupAddress: req.body?.pickupAddress,
-    dropAddress: req.body?.dropAddress,
-    notes: req.body?.notes,
-    tripCode: req.body?.tripCode,
-    vehicleLabel: req.body?.vehicleLabel,
-  });
-
-  const payload = serializeSafetyAlert(alert);
-  emitToAdmins('new_sos', payload);
-  emitToAdmins('safety:alert:new', payload);
-
+  const payload = await triggerSos({ sourceApp: 'driver', actorId: req.auth.sub, ...readTrigger(req) });
   res.json({ success: true, data: payload });
+});
+
+/** POST /users/sos/:alertId/location and /drivers/sos/:alertId/location -- every 10 s while open. */
+export const updateUserSosLocation = asyncHandler(async (req, res) => {
+  const result = await recordSosLocation({
+    alertId: req.params.alertId,
+    sourceApp: 'user',
+    actorId: req.auth.sub,
+    coordinates: req.body?.location || req.body,
+  });
+  res.json({ success: true, data: result });
+});
+
+export const updateDriverSosLocation = asyncHandler(async (req, res) => {
+  const result = await recordSosLocation({
+    alertId: req.params.alertId,
+    sourceApp: 'driver',
+    actorId: req.auth.sub,
+    coordinates: req.body?.location || req.body,
+  });
+  res.json({ success: true, data: result });
 });
 
 export const listSafetyAlerts = asyncHandler(async (req, res) => {
-  const status = cleanString(req.query?.status || 'active').toLowerCase();
-  const page = Math.max(1, Number(req.query?.page || 1));
-  const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 25)));
-  const query = {};
-
-  if (status && status !== 'all') {
-    query.status = status;
-  }
-
-  const [results, total] = await Promise.all([
-    SafetyAlert.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-    SafetyAlert.countDocuments(query),
-  ]);
-
-  res.json({
-    success: true,
-    data: {
-      results: results.map(serializeSafetyAlert),
-      paginator: {
-        current_page: page,
-        last_page: Math.max(1, Math.ceil(total / limit)),
-        total,
-      },
-    },
-  });
+  const data = await listSos({ status: req.query?.status, page: req.query?.page, limit: req.query?.limit });
+  res.json({ success: true, data });
 });
 
 export const resolveSafetyAlert = asyncHandler(async (req, res) => {
-  const alert = await SafetyAlert.findById(req.params.id);
-
-  if (!alert) {
-    res.status(404).json({
-      success: false,
-      message: 'Safety alert not found',
-    });
-    return;
-  }
-
-  alert.status = 'resolved';
-  alert.resolvedAt = new Date();
-  alert.resolvedByAdminId = cleanString(req.auth?.sub);
-  alert.logs.push({
-    actorRole: 'admin',
-    message: cleanString(req.body?.note) || 'Incident marked as resolved by admin',
-  });
-
-  await alert.save();
-
-  const payload = serializeSafetyAlert(alert.toObject());
-  emitToAdmins('safety:alert:updated', payload);
-
+  const payload = await resolveSos({ alertId: req.params.id, adminId: req.auth?.sub, note: req.body?.note });
   res.json({ success: true, data: payload });
+});
+
+/**
+ * GET /public/trip/:token -- the page behind a shared trip link (plan §4.8).
+ * No sign-in. Only live status, position, the driver's first name and the
+ * vehicle number.
+ */
+export const getPublicTrip = asyncHandler(async (req, res) => {
+  const data = await getPublicTripView(req.params.token);
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, data });
 });

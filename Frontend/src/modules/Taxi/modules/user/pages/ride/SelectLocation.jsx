@@ -130,6 +130,13 @@ const SelectLocation = () => {
   const [pickupCoords, setPickupCoords] = useState(() => routeState.pickupCoords || savedPickupCoords || null);
   const [dropCoords, setDropCoords] = useState(() => routeState.dropCoords || null);
   const [stops, setStops] = useState(() => routeState.stops || []);          // array of stop strings
+  // [lng, lat] of each stop, by index -- the server prices and stores only
+  // stops it has a coordinate for (SOW plan §4.1).
+  const [stopCoords, setStopCoords] = useState(() => (
+    Array.isArray(routeState.stopPoints)
+      ? routeState.stopPoints.map((point) => (point ? [Number(point.lng), Number(point.lat)] : null))
+      : []
+  ));
   const [confirmedPickup, setConfirmedPickup] = useState(() => routeState.pickup || savedPickupLabel || '');
   const [confirmedDrop, setConfirmedDrop] = useState(() => routeState.drop || '');
   const [confirmedStops, setConfirmedStops] = useState(() => routeState.stops || []);
@@ -592,11 +599,26 @@ const SelectLocation = () => {
       lon: resolvedPickupCoords[0],
     });
 
+    // Each stop with its coordinate, in order: what the quote prices and the
+    // booking stores.
+    const stopPoints = [];
+    for (let index = 0; index < stops.length; index += 1) {
+      const label = String(stops[index] || '').trim();
+      if (!label) continue;
+      const coords = stopCoords[index] || await resolveCoords(label, null);
+      if (Array.isArray(coords) && coords.length === 2) {
+        stopPoints.push({ address: label, lat: Number(coords[1]), lng: Number(coords[0]) });
+      }
+    }
+
     navigate(`${routePrefix}/ride/select-vehicle`, {
       state: {
         pickup: finalPickup,
         drop: finalDrop,
         stops: stops.filter(s => s.trim().length > 0),
+        stopPoints,
+        // Round trip chosen from the old outstation entry (plan §4.2, D3).
+        tripType: routeState.tripType || searchParams.get('tripType') || undefined,
         pickupCoords: resolvedPickupCoords,
         dropCoords: resolvedDropCoords,
         service_location_id: serviceLocationId,
@@ -635,6 +657,7 @@ const SelectLocation = () => {
       handleConfirmNavigate(finalAddress, selectedCoords);
     } else if (typeof activeInput === 'number') {
       updateStop(activeInput, finalAddress);
+      setStopCoordAt(activeInput, selectedCoords);
       setConfirmedStops(prev => {
         const next = [...prev];
         next[activeInput] = finalAddress;
@@ -691,12 +714,23 @@ const SelectLocation = () => {
   // Remove a stop by index
   const removeStop = (idx) => {
     setStops(prev => prev.filter((_, i) => i !== idx));
+    setStopCoords(prev => prev.filter((_, i) => i !== idx));
     setActiveInput('drop');
   };
 
-  // Update a stop value
+  // Update a stop value. Typing a new address drops the old coordinate until
+  // a suggestion or the map pin sets the new one.
   const updateStop = (idx, val) => {
     setStops(prev => prev.map((s, i) => i === idx ? val : s));
+    setStopCoordAt(idx, null);
+  };
+
+  const setStopCoordAt = (idx, coords) => {
+    setStopCoords(prev => {
+      const next = [...prev];
+      next[idx] = coords;
+      return next;
+    });
   };
 
   // When a suggestion is tapped
@@ -725,6 +759,7 @@ const SelectLocation = () => {
       handleConfirmNavigate(finalTitle, resolvedCoords);
     } else if (typeof activeInput === 'number') {
       updateStop(activeInput, finalTitle);
+      setStopCoordAt(activeInput, resolvedCoords);
       setConfirmedStops(prev => {
         const next = [...prev];
         next[activeInput] = finalTitle;
