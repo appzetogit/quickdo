@@ -60,6 +60,7 @@ router.post('/:id/self/start', authenticate, isVendor, startSelfJob);
 router.post('/:id/self/reached', authenticate, isVendor, vendorReachedLocation);
 router.post('/:id/self/visit/verify', authenticate, isVendor, verifySelfVisit);
 router.post('/:id/self/complete', authenticate, isVendor, completeSelfJob);
+router.post('/:id/self/photos', authenticate, isVendor, require('../../controllers/bookingControllers/workPhotoController').uploadVendorPhotos);
 router.post('/:id/self/payment/collect', authenticate, isVendor, collectSelfCash);
 
 // Payment Route

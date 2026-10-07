@@ -39,6 +39,9 @@ const getAllCategories = async (req, res) => {
         homeBadge: cat.homeBadge,
         hasSaleBadge: cat.hasSaleBadge,
         showOnHome: cat.showOnHome,
+        isConsultancy: !!cat.isConsultancy,
+        consultancyMessage: cat.consultancyMessage,
+        requireWorkPhotos: cat.requireWorkPhotos !== false,
         homeOrder: cat.homeOrder,
         description: cat.description,
         imageUrl: cat.imageUrl,
@@ -87,6 +90,9 @@ const getCategoryById = async (req, res) => {
         homeBadge: category.homeBadge,
         hasSaleBadge: category.hasSaleBadge,
         showOnHome: category.showOnHome,
+        isConsultancy: !!category.isConsultancy,
+        consultancyMessage: category.consultancyMessage,
+        requireWorkPhotos: category.requireWorkPhotos !== false,
         homeOrder: category.homeOrder,
         description: category.description,
         imageUrl: category.imageUrl,
@@ -193,6 +199,9 @@ const createCategory = async (req, res) => {
       homeBadge: homeBadge?.trim() || null,
       hasSaleBadge: Boolean(hasSaleBadge),
       showOnHome: showOnHome !== false,
+      isConsultancy: Boolean(req.body.isConsultancy),
+      ...(req.body.consultancyMessage ? { consultancyMessage: String(req.body.consultancyMessage).trim() } : {}),
+      requireWorkPhotos: req.body.requireWorkPhotos !== false,
       homeOrder: Number(homeOrder) || 0,
       description: description?.trim() || null,
       imageUrl: imageUrl || null,
@@ -215,6 +224,9 @@ const createCategory = async (req, res) => {
         homeBadge: category.homeBadge,
         hasSaleBadge: category.hasSaleBadge,
         showOnHome: category.showOnHome,
+        isConsultancy: !!category.isConsultancy,
+        consultancyMessage: category.consultancyMessage,
+        requireWorkPhotos: category.requireWorkPhotos !== false,
         homeOrder: category.homeOrder,
         description: category.description,
         imageUrl: category.imageUrl,
@@ -326,6 +338,9 @@ const updateCategory = async (req, res) => {
     if (homeBadge !== undefined) category.homeBadge = homeBadge?.trim() || null;
     if (hasSaleBadge !== undefined) category.hasSaleBadge = Boolean(hasSaleBadge);
     if (showOnHome !== undefined) category.showOnHome = showOnHome !== false;
+    if (req.body.isConsultancy !== undefined) category.isConsultancy = Boolean(req.body.isConsultancy);
+    if (req.body.consultancyMessage !== undefined) category.consultancyMessage = String(req.body.consultancyMessage || '').trim();
+    if (req.body.requireWorkPhotos !== undefined) category.requireWorkPhotos = Boolean(req.body.requireWorkPhotos);
     if (homeOrder !== undefined) category.homeOrder = Number(homeOrder) || 0;
     if (description !== undefined) category.description = description?.trim() || null;
     if (imageUrl !== undefined) category.imageUrl = imageUrl || null;
@@ -352,6 +367,9 @@ const updateCategory = async (req, res) => {
         homeBadge: category.homeBadge,
         hasSaleBadge: category.hasSaleBadge,
         showOnHome: category.showOnHome,
+        isConsultancy: !!category.isConsultancy,
+        consultancyMessage: category.consultancyMessage,
+        requireWorkPhotos: category.requireWorkPhotos !== false,
         homeOrder: category.homeOrder,
         description: category.description,
         imageUrl: category.imageUrl,

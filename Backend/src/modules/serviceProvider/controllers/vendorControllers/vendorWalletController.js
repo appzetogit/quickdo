@@ -7,6 +7,7 @@ const Worker = require('../../models/Worker');
 const { uploadPaymentScreenshot } = require('../../utils/cloudinaryUpload');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { effectiveCashLimit } = require('../../utils/cashLimit');
+const { withdrawalBankDetails } = require('../../utils/providerOnboarding');
 
 /**
  * Get vendor wallet with ledger balance
@@ -305,10 +306,15 @@ const requestWithdrawal = async (req, res) => {
         abort({ insufficient: true, availableEarnings, pendingAmount });
       }
 
+      // The request's bank details (validated) or, when none are sent, the ones
+      // saved on the profile via PUT /vendors/bank-details (plan §3.3).
+      const payout = withdrawalBankDetails(bankDetails, vendor.bankDetails);
+      if (payout.error) abort({ bankError: payout.error });
+
       const [created] = await Withdrawal.create([{
         vendorId,
         amount,
-        bankDetails,
+        bankDetails: payout.value,
         adminNotes: notes,
         status: 'pending'
       }], { session });
@@ -318,6 +324,9 @@ const requestWithdrawal = async (req, res) => {
 
     if (outcome.notFound) {
       return res.status(404).json({ success: false, message: 'Vendor not found' });
+    }
+    if (outcome.bankError) {
+      return res.status(400).json({ success: false, message: outcome.bankError });
     }
     if (outcome.insufficient) {
       return res.status(400).json({

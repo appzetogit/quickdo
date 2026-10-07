@@ -7,6 +7,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { adminBookingService } from '@sp/services/adminBookingService';
 import { getDashboardStats } from '@sp/services/adminDashboardService';
+import BookingDetailModal from '../../components/BookingDetailModal';
 
 const BookingStatsCard = ({ title, count, icon: Icon, colorClass, bgClass }) => (
   <div className={`p-3 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between ${bgClass}`}>
@@ -24,6 +25,7 @@ const BookingStatsCard = ({ title, count, icon: Icon, colorClass, bgClass }) => 
 const Bookings = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [detailId, setDetailId] = useState(null);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -218,7 +220,7 @@ const Bookings = () => {
                 </tr>
               ) : (
                 bookings.map((booking) => (
-                  <tr key={booking._id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={booking._id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => setDetailId(booking._id)} title="View details and work photos">
                     <td className="px-4 py-3">
                       <span className="font-bold text-gray-900 text-xs">#{booking.bookingNumber || booking._id.slice(-6).toUpperCase()}</span>
                     </td>
@@ -288,6 +290,7 @@ const Bookings = () => {
           </div>
         )}
       </div>
+      <BookingDetailModal bookingId={detailId} onClose={() => setDetailId(null)} />
     </motion.div>
   );
 };

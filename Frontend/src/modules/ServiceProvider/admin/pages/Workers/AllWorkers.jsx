@@ -4,6 +4,7 @@ import { FiCheck, FiX, FiEye, FiSearch, FiFilter, FiDownload, FiLoader, FiDollar
 import { toast } from 'react-hot-toast';
 import CardShell from '../UserCategories/components/CardShell';
 import Modal from '../UserCategories/components/Modal';
+import ProviderOnboardingPanel from '../../components/ProviderOnboardingPanel';
 import adminWorkerService from '@sp/services/adminWorkerService';
 
 const AllWorkers = () => {
@@ -88,7 +89,7 @@ const AllWorkers = () => {
       }
     } catch (error) {
       console.error('Error approving worker:', error);
-      toast.error('Failed to approve worker. Please try again.');
+      toast.error(error?.response?.data?.message || 'Failed to approve worker. Please try again.');
     }
   };
 
@@ -469,6 +470,10 @@ const AllWorkers = () => {
               ) : (
                 <div className="text-sm text-purple-700 italic">No active subscription found for this worker.</div>
               )}
+            </div>
+
+            <div className="pt-4 border-t border-gray-200">
+              <ProviderOnboardingPanel role="worker" providerId={selectedWorker.id} />
             </div>
 
             <div>

@@ -31,6 +31,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
     homeBadge: "",
     hasSaleBadge: false,
     showOnHome: true,
+    isConsultancy: false,
+    requireWorkPhotos: true,
   });
   const [uploadingIcon, setUploadingIcon] = useState(false);
   const [showReorderModal, setShowReorderModal] = useState(false);
@@ -62,6 +64,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
             homeBadge: cat.homeBadge || "",
             hasSaleBadge: cat.hasSaleBadge || false,
             showOnHome: cat.showOnHome !== false,
+            isConsultancy: Boolean(cat.isConsultancy),
+            requireWorkPhotos: cat.requireWorkPhotos !== false,
           }));
 
           // Update catalog with fetched categories
@@ -89,6 +93,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
         homeBadge: "",
         hasSaleBadge: false,
         showOnHome: true,
+        isConsultancy: false,
+        requireWorkPhotos: true,
       });
       return;
     }
@@ -100,6 +106,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
       homeBadge: safe.homeBadge || "",
       hasSaleBadge: Boolean(safe.hasSaleBadge),
       showOnHome: safe.showOnHome !== false,
+      isConsultancy: Boolean(editing.isConsultancy),
+      requireWorkPhotos: editing.requireWorkPhotos !== false,
     });
   }, [editing]);
 
@@ -114,6 +122,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
       homeBadge: "",
       hasSaleBadge: false,
       showOnHome: true,
+      isConsultancy: false,
+      requireWorkPhotos: true,
     });
     setIsModalOpen(false);
   };
@@ -166,6 +176,9 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
         homeBadge: homeBadge || null,
         hasSaleBadge,
         showOnHome,
+        // Quote-based category (plan §3.4) and before/after work photos (§3.5)
+        isConsultancy: Boolean(form.isConsultancy),
+        requireWorkPhotos: form.requireWorkPhotos !== false,
         homeOrder,
         cityIds: selectedCity ? [selectedCity] : [],
       };
@@ -193,6 +206,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
             homeBadge: response.category.homeBadge || "",
             hasSaleBadge: response.category.hasSaleBadge || false,
             showOnHome: response.category.showOnHome !== false,
+            isConsultancy: Boolean(response.category.isConsultancy),
+            requireWorkPhotos: response.category.requireWorkPhotos !== false,
             homeOrder: response.category.homeOrder || 0,
           };
         } else {
@@ -210,6 +225,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
             homeBadge: response.category.homeBadge || "",
             hasSaleBadge: response.category.hasSaleBadge || false,
             showOnHome: response.category.showOnHome !== false,
+            isConsultancy: Boolean(response.category.isConsultancy),
+            requireWorkPhotos: response.category.requireWorkPhotos !== false,
             homeOrder: response.category.homeOrder || 0,
           };
         } else {
@@ -227,6 +244,8 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
             homeBadge: response.category.homeBadge || "",
             hasSaleBadge: response.category.hasSaleBadge || false,
             showOnHome: response.category.showOnHome !== false,
+            isConsultancy: Boolean(response.category.isConsultancy),
+            requireWorkPhotos: response.category.requireWorkPhotos !== false,
             homeOrder: response.category.homeOrder || 0,
           };
         } else {
@@ -637,6 +656,32 @@ const CategoriesPage = ({ catalog, setCatalog, selectedCity }) => {
             />
             <label htmlFor="showOnHome" className="text-base font-semibold text-gray-800">
               Show this category on home
+            </label>
+          </div>
+
+          <div className="flex items-center gap-3 pt-2">
+            <input
+              id="isConsultancy"
+              type="checkbox"
+              checked={Boolean(form.isConsultancy)}
+              onChange={(e) => setForm((p) => ({ ...p, isConsultancy: e.target.checked }))}
+              className="h-4 w-4"
+            />
+            <label htmlFor="isConsultancy" className="text-base font-semibold text-gray-800">
+              Consultancy (customers request quotes instead of booking a fixed price)
+            </label>
+          </div>
+
+          <div className="flex items-center gap-3 pt-2">
+            <input
+              id="requireWorkPhotos"
+              type="checkbox"
+              checked={form.requireWorkPhotos !== false}
+              onChange={(e) => setForm((p) => ({ ...p, requireWorkPhotos: e.target.checked }))}
+              className="h-4 w-4"
+            />
+            <label htmlFor="requireWorkPhotos" className="text-base font-semibold text-gray-800">
+              Require before/after work photos
             </label>
           </div>
 

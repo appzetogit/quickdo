@@ -29,7 +29,15 @@ const AdminSettings = () => {
     subscriptionPrice: 1000,
     subscriptionPlatformFee: 100,
     subscriptionRemainderLabel: 'subscription_remainder',
-    commissionThreshold: 1000
+    commissionThreshold: 1000,
+    // Provider onboarding & booking features (plan §3.3-3.4)
+    requireVendorSubscription: false,
+    vendorSubscriptionGraceUntil: '',
+    vendorRequiredVerifications: ['aadhaar', 'pan', 'address'],
+    workerRequiredVerifications: ['aadhaar', 'address'],
+    preferredProviderTimeoutSec: 120,
+    quoteRequestExpiryHours: 48,
+    quoteValidityHours: 72
   });
 
   // Billing Configuration State
@@ -140,7 +148,14 @@ const AdminSettings = () => {
             subscriptionPrice: res.settings.subscriptionPrice ?? 1000,
             subscriptionPlatformFee: res.settings.subscriptionPlatformFee ?? 100,
             subscriptionRemainderLabel: res.settings.subscriptionRemainderLabel || 'subscription_remainder',
-            commissionThreshold: res.settings.commissionThreshold ?? 1000
+            commissionThreshold: res.settings.commissionThreshold ?? 1000,
+            requireVendorSubscription: !!res.settings.requireVendorSubscription,
+            vendorSubscriptionGraceUntil: res.settings.vendorSubscriptionGraceUntil ? String(res.settings.vendorSubscriptionGraceUntil).slice(0, 10) : '',
+            vendorRequiredVerifications: res.settings.vendorRequiredVerifications || ['aadhaar', 'pan', 'address'],
+            workerRequiredVerifications: res.settings.workerRequiredVerifications || ['aadhaar', 'address'],
+            preferredProviderTimeoutSec: res.settings.preferredProviderTimeoutSec ?? 120,
+            quoteRequestExpiryHours: res.settings.quoteRequestExpiryHours ?? 48,
+            quoteValidityHours: res.settings.quoteValidityHours ?? 72
           });
           // Load billing settings
           setBillingSettings({
@@ -225,6 +240,13 @@ const AdminSettings = () => {
   const handleFinancialTextChange = (e) => {
     const { name, value } = e.target;
     setFinancialSettings(prev => ({ ...prev, [name]: value }));
+  };
+
+  const toggleRequiredVerification = (key, item) => {
+    setFinancialSettings(prev => {
+      const list = prev[key] || [];
+      return { ...prev, [key]: list.includes(item) ? list.filter(i => i !== item) : [...list, item] };
+    });
   };
 
   const handleProfileChange = (e) => {
@@ -728,6 +750,55 @@ const AdminSettings = () => {
                             min="0"
                             className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
                           <p className="text-[10px] text-gray-400 mt-1">Bookings above this pay commission (Commission Rules) on the whole amount</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pt-4 border-t border-gray-100 md:col-span-2">
+                      <h4 className="text-xs font-bold text-gray-700 uppercase mb-3">Provider Onboarding &amp; Eligibility</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                            <input type="checkbox" checked={!!financialSettings.requireVendorSubscription}
+                              onChange={(e) => setFinancialSettings(prev => ({ ...prev, requireVendorSubscription: e.target.checked }))} />
+                            Require an active subscription for vendors
+                          </label>
+                          <p className="text-[10px] text-gray-400 mt-1">Off: vendors get jobs without a subscription. Workers always need one.</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Vendor Subscription Grace Until</label>
+                          <input type="date" name="vendorSubscriptionGraceUntil" value={financialSettings.vendorSubscriptionGraceUntil || ''} onChange={handleFinancialTextChange}
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">The vendor gate starts after this date (empty = immediately when switched on)</p>
+                        </div>
+                        {[['vendorRequiredVerifications', 'Vendor approval requires'], ['workerRequiredVerifications', 'Worker approval requires']].map(([key, label]) => (
+                          <div key={key}>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{label}</label>
+                            <div className="flex flex-wrap gap-3">
+                              {['aadhaar', 'pan', 'gst', 'address', 'background'].map(item => (
+                                <label key={item} className="flex items-center gap-1.5 text-sm text-gray-700 capitalize">
+                                  <input type="checkbox" checked={(financialSettings[key] || []).includes(item)} onChange={() => toggleRequiredVerification(key, item)} />
+                                  {item}
+                                </label>
+                              ))}
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-1">Checklist items that must be verified before approval</p>
+                          </div>
+                        ))}
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Preferred Provider Timeout (Secs)</label>
+                          <input type="number" name="preferredProviderTimeoutSec" value={financialSettings.preferredProviderTimeoutSec} onChange={handleFinancialChange} min="10"
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">How long a customer-chosen {providerLabel.toLowerCase()} has before the booking goes to everyone nearby</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Quote Request Open For (Hours)</label>
+                          <input type="number" name="quoteRequestExpiryHours" value={financialSettings.quoteRequestExpiryHours} onChange={handleFinancialChange} min="1"
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Default Quote Validity (Hours)</label>
+                          <input type="number" name="quoteValidityHours" value={financialSettings.quoteValidityHours} onChange={handleFinancialChange} min="1"
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
                         </div>
                       </div>
                     </div>

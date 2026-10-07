@@ -35,5 +35,9 @@ router.delete('/vendors/:id', authenticate, isAdmin, deleteVendor); // New
 router.get('/vendors/:id/bookings', authenticate, isAdmin, getVendorBookings);
 router.get('/vendors/:id/earnings', authenticate, isAdmin, getVendorEarnings);
 
+// Verification checklist (plan §3.3)
+const { setVendorVerification } = require('../../controllers/adminControllers/adminVerificationController');
+router.put('/vendors/:id/verification/:item', authenticate, isAdmin, setVendorVerification);
+
 module.exports = router;
 

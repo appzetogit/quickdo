@@ -6,6 +6,7 @@ const { BOOKING_STATUS, PAYMENT_STATUS } = require('../../utils/constants');
 const { resolveCommission, round2 } = require('../../utils/commission');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { effectiveCashLimit } = require('../../utils/cashLimit');
+const { parseIncomingPhotos, addWorkPhotos, workPhotosRequired, normalizeWorkPhotos } = require('../../utils/workPhotos');
 const { createNotification } = require('../notificationControllers/notificationController');
 const { sendNotificationToUser, sendNotificationToVendor, sendNotificationToWorker } = require('../../services/firebaseAdmin');
 
@@ -244,6 +245,9 @@ const acceptBooking = async (req, res) => {
 
     // Booking successfully accepted by THIS vendor
     const booking = updatedBooking;
+    if (booking.preferredOffer?.providerId && String(booking.preferredOffer.providerId) === String(vendorId)) {
+      await Booking.updateOne({ _id: booking._id }, { $set: { 'preferredOffer.status': 'accepted' } });
+    }
 
     // Update vendor availability to ON_JOB
     const Vendor = require('../../models/Vendor');
@@ -971,6 +975,13 @@ const verifySelfVisit = async (req, res) => {
     if (booking.status !== BOOKING_STATUS.JOURNEY_STARTED) return res.status(400).json({ success: false, message: 'Journey not started' });
     if (booking.visitOtp !== otp) return res.status(400).json({ success: false, message: 'Invalid OTP' });
 
+    // Before-work photos (plan §3.5), inline or via POST /:id/self/photos.
+    const beforeIncoming = parseIncomingPhotos(req.body.beforePhotos, { uploadedBy: vendorId, lat: location?.lat, lng: location?.lng });
+    if (beforeIncoming.length) addWorkPhotos(booking, 'before', beforeIncoming);
+    if (!normalizeWorkPhotos(booking.workPhotos).before.length && await workPhotosRequired(booking)) {
+      return res.status(400).json({ success: false, code: 'BEFORE_PHOTOS_REQUIRED', message: 'Upload at least one before-work photo to start the job' });
+    }
+
     booking.status = BOOKING_STATUS.VISITED;
     booking.visitedAt = new Date();
     booking.startedAt = new Date();
@@ -1031,7 +1042,7 @@ const completeSelfJob = async (req, res) => {
   try {
     const vendorId = req.user.id;
     const { id } = req.params;
-    const { workPhotos, workDoneDetails, billDetails } = req.body;
+    const { workPhotos, workDoneDetails, billDetails, afterPhotos } = req.body;
 
     const booking = await Booking.findOne({ _id: id, vendorId });
     if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
@@ -1039,6 +1050,13 @@ const completeSelfJob = async (req, res) => {
     // Status guard
     if (booking.status !== BOOKING_STATUS.VISITED && booking.status !== BOOKING_STATUS.IN_PROGRESS) {
       return res.status(400).json({ success: false, message: 'Cannot complete from current status' });
+    }
+
+    // After-work photos (plan §3.5): afterPhotos or the legacy workPhotos array.
+    const afterIncoming = parseIncomingPhotos(afterPhotos || (Array.isArray(workPhotos) ? workPhotos : null), { uploadedBy: vendorId, lat: req.body.lat, lng: req.body.lng });
+    if (afterIncoming.length) addWorkPhotos(booking, 'after', afterIncoming);
+    if (!normalizeWorkPhotos(booking.workPhotos).after.length && await workPhotosRequired(booking)) {
+      return res.status(400).json({ success: false, code: 'AFTER_PHOTOS_REQUIRED', message: 'Upload at least one after-work photo to complete the job' });
     }
 
     // Prevent duplicate bills
@@ -1211,7 +1229,6 @@ const completeSelfJob = async (req, res) => {
     const payOtp = booking.paymentOtp || Math.floor(1000 + Math.random() * 9000).toString();
     booking.paymentOtp = payOtp;
 
-    if (workPhotos) booking.workPhotos = workPhotos;
 
     // Store bill summary in workDoneDetails for frontend display
     booking.workDoneDetails = {

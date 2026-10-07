@@ -5,6 +5,7 @@ const { BOOKING_STATUS, PAYMENT_STATUS } = require('../../utils/constants');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { effectiveCashLimit } = require('../../utils/cashLimit');
 const { billSplit } = require('../../utils/commission');
+const { parseIncomingPhotos, addWorkPhotos, workPhotosRequired, normalizeWorkPhotos } = require('../../utils/workPhotos');
 
 /**
  * Get assigned jobs for worker
@@ -450,6 +451,14 @@ const verifyVisit = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid OTP' });
     }
 
+    // Before-work photos (plan §3.5): sent here as beforePhotos or uploaded
+    // earlier via POST /jobs/:id/photos. Required unless the category opts out.
+    const beforeIncoming = parseIncomingPhotos(req.body.beforePhotos, { uploadedBy: workerId, lat: location?.lat, lng: location?.lng });
+    if (beforeIncoming.length) addWorkPhotos(booking, 'before', beforeIncoming);
+    if (!normalizeWorkPhotos(booking.workPhotos).before.length && await workPhotosRequired(booking)) {
+      return res.status(400).json({ success: false, code: 'BEFORE_PHOTOS_REQUIRED', message: 'Upload at least one before-work photo to start the job' });
+    }
+
     // Update status
     booking.status = BOOKING_STATUS.VISITED;
     booking.visitedAt = new Date();
@@ -511,7 +520,7 @@ const completeJob = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { id } = req.params;
-    const { workPhotos, workDoneDetails } = req.body;
+    const { workPhotos, workDoneDetails, afterPhotos } = req.body;
 
     const booking = await Booking.findOne({ _id: id, workerId });
 
@@ -529,6 +538,14 @@ const completeJob = async (req, res) => {
       });
     }
 
+    // After-work photos (plan §3.5): afterPhotos, or the legacy flat workPhotos
+    // array (treated as 'after'), or uploaded earlier via POST /jobs/:id/photos.
+    const afterIncoming = parseIncomingPhotos(afterPhotos || (Array.isArray(workPhotos) ? workPhotos : null), { uploadedBy: workerId, lat: req.body.lat, lng: req.body.lng });
+    if (afterIncoming.length) addWorkPhotos(booking, 'after', afterIncoming);
+    if (!normalizeWorkPhotos(booking.workPhotos).after.length && await workPhotosRequired(booking)) {
+      return res.status(400).json({ success: false, code: 'AFTER_PHOTOS_REQUIRED', message: 'Upload at least one after-work photo to complete the job' });
+    }
+
     // Update booking
     booking.status = BOOKING_STATUS.WORK_DONE;
 
@@ -536,9 +553,6 @@ const completeJob = async (req, res) => {
     const payOtp = booking.paymentOtp || Math.floor(1000 + Math.random() * 9000).toString();
     booking.paymentOtp = payOtp;
 
-    if (workPhotos && Array.isArray(workPhotos)) {
-      booking.workPhotos = workPhotos;
-    }
     if (workDoneDetails) {
       booking.workDoneDetails = workDoneDetails;
     }
@@ -909,6 +923,9 @@ const respondToJob = async (req, res) => {
       booking.bookingModel = 'worker'; // Ensure model is set
       booking.workerAcceptedAt = new Date();
       booking.workerResponse = 'ACCEPTED';
+      if (booking.preferredOffer?.providerId && String(booking.preferredOffer.providerId) === String(workerId)) {
+        booking.preferredOffer.status = 'accepted';
+      }
 
       const { createNotification } = require('../notificationControllers/notificationController');
 

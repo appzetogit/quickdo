@@ -6,5 +6,6 @@ const { getDashboardStats } = require('../../controllers/workerControllers/worke
 
 // Routes
 router.get('/stats', authenticate, isWorker, getDashboardStats);
+router.get('/dashboard/earnings', authenticate, isWorker, require('../../controllers/workerControllers/workerDashboardController').getEarningsBreakdown);
 
 module.exports = router;

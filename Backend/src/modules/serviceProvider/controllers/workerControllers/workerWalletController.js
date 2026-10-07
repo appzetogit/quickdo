@@ -4,6 +4,7 @@ const Booking = require('../../models/Booking');
 const { createOrder, verifyPayment } = require('../../services/razorpayService');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { effectiveCashLimit } = require('../../utils/cashLimit');
+const { withdrawalBankDetails } = require('../../utils/providerOnboarding');
 const { confirmGatewayPayment } = require('../../utils/confirmGatewayPayment');
 const { claimPaymentReceipt, releasePaymentReceipt } = require('../../utils/paymentReceipt');
 const PlatformEarning = require('../../models/PlatformEarning');
@@ -187,11 +188,15 @@ const requestWithdrawal = async (req, res) => {
 
       if (existingPending) abort({ alreadyPending: true });
 
+      // Provided (validated) or saved profile bank details (plan §3.3).
+      const payout = withdrawalBankDetails(bankDetails, worker.bankDetails);
+      if (payout.error) abort({ bankError: payout.error });
+
       // Create withdrawal request
       const [created] = await Withdrawal.create([{
         workerId,
         amount: withdrawAmount,
-        bankDetails: bankDetails || worker.bankDetails, // Use provided or saved bank details
+        bankDetails: payout.value,
         status: 'pending',
         requestDate: new Date()
       }], { session });
@@ -201,6 +206,9 @@ const requestWithdrawal = async (req, res) => {
 
     if (outcome.notFound) {
       return res.status(404).json({ success: false, message: 'Worker not found' });
+    }
+    if (outcome.bankError) {
+      return res.status(400).json({ success: false, message: outcome.bankError });
     }
     if (outcome.insufficient) {
       return res.status(400).json({ success: false, message: 'Insufficient balance' });

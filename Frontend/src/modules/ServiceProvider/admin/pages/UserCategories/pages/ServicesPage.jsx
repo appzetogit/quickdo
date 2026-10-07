@@ -182,9 +182,23 @@ const ServicesPage = ({ catalog, setCatalog, selectedCity }) => {
     gstPercentage: 18,
     discountPrice: "",
     pricingUnit: "",
-    categoryId: ""
+    categoryId: "",
+    addOns: []
   });
   const [saving, setSaving] = useState(false);
+
+  // Add-ons the customer can pick when booking (plan §3.4)
+  const addOnPayload = () => (form.addOns || [])
+    .filter(a => String(a.name || '').trim())
+    .map(a => ({
+      ...(a._id ? { _id: a._id } : {}),
+      name: String(a.name).trim(),
+      price: Number(a.price) || 0,
+      gstPercentage: a.gstPercentage === '' || a.gstPercentage === null || a.gstPercentage === undefined ? null : Number(a.gstPercentage),
+      maxQuantity: Math.max(1, Number(a.maxQuantity) || 1),
+      isActive: a.isActive !== false
+    }));
+  const updateAddOn = (i, patch) => setForm(prev => ({ ...prev, addOns: prev.addOns.map((a, j) => (j === i ? { ...a, ...patch } : a)) }));
 
   // Form Actions
   const resetForm = () => {
@@ -204,7 +218,8 @@ const ServicesPage = ({ catalog, setCatalog, selectedCity }) => {
       gstPercentage: 18,
       discountPrice: "",
       pricingUnit: "",
-      categoryId: defaultCat
+      categoryId: defaultCat,
+      addOns: []
     });
     setIsModalOpen(false);
   };
@@ -217,7 +232,8 @@ const ServicesPage = ({ catalog, setCatalog, selectedCity }) => {
       gstPercentage: service.gstPercentage || 18,
       discountPrice: service.discountPrice || "",
       pricingUnit: service.pricingUnit || "",
-      categoryId: service.categoryId?._id || service.categoryId || ""
+      categoryId: service.categoryId?._id || service.categoryId || "",
+      addOns: (service.addOns || []).map(a => ({ ...a, gstPercentage: a.gstPercentage ?? '' }))
     });
     setIsModalOpen(true);
   };
@@ -250,7 +266,7 @@ const ServicesPage = ({ catalog, setCatalog, selectedCity }) => {
         setSaving(true);
         let successCount = 0;
         const creations = categoryIds.map(catId => 
-          serviceService.create({ ...data, categoryId: String(catId), brandId: activeBrandId })
+          serviceService.create({ ...data, addOns: addOnPayload(), categoryId: String(catId), brandId: activeBrandId })
         );
         
         const results = await Promise.all(creations);
@@ -280,6 +296,7 @@ const ServicesPage = ({ catalog, setCatalog, selectedCity }) => {
       if (editingId) {
         const response = await serviceService.update(editingId, {
           ...result.data,
+          addOns: addOnPayload(),
           brandId: activeBrandId
         });
         if (response.success) {
@@ -294,6 +311,7 @@ const ServicesPage = ({ catalog, setCatalog, selectedCity }) => {
       } else {
         const response = await serviceService.create({
           ...result.data,
+          addOns: addOnPayload(),
           brandId: activeBrandId
         });
         if (response.success) {
@@ -617,6 +635,34 @@ const ServicesPage = ({ catalog, setCatalog, selectedCity }) => {
                 placeholder="e.g. per sq ft, per visit"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-bold text-gray-700">Add-ons (optional)</label>
+              <button type="button" onClick={() => setForm(prev => ({ ...prev, addOns: [...(prev.addOns || []), { name: '', price: '', gstPercentage: '', maxQuantity: 1, isActive: true }] }))}
+                className="text-xs font-semibold text-primary-600 hover:underline">+ Add add-on</button>
+            </div>
+            {(form.addOns || []).length === 0 && <p className="text-xs text-gray-400">Extras customers can pick when booking, priced on top of the service.</p>}
+            <div className="space-y-2">
+              {(form.addOns || []).map((a, i) => (
+                <div key={a._id || i} className="grid grid-cols-12 gap-2 items-center">
+                  <input value={a.name} onChange={e => updateAddOn(i, { name: e.target.value })} placeholder="Name"
+                    className="col-span-4 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" />
+                  <input type="number" min="0" value={a.price} onChange={e => updateAddOn(i, { price: e.target.value })} placeholder="Price ₹"
+                    className="col-span-2 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" />
+                  <input type="number" min="0" max="100" value={a.gstPercentage} onChange={e => updateAddOn(i, { gstPercentage: e.target.value })} placeholder="GST %"
+                    className="col-span-2 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" title="Empty = service GST" />
+                  <input type="number" min="1" value={a.maxQuantity} onChange={e => updateAddOn(i, { maxQuantity: e.target.value })} placeholder="Max qty"
+                    className="col-span-2 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" title="Max quantity" />
+                  <label className="col-span-1 flex items-center justify-center" title="Active">
+                    <input type="checkbox" checked={a.isActive !== false} onChange={e => updateAddOn(i, { isActive: e.target.checked })} />
+                  </label>
+                  <button type="button" onClick={() => setForm(prev => ({ ...prev, addOns: prev.addOns.filter((_, j) => j !== i) }))}
+                    className="col-span-1 text-red-500 text-sm" title="Remove">✕</button>
+                </div>
+              ))}
             </div>
           </div>
 

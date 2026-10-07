@@ -20,6 +20,9 @@ router.use('/public/cities', require('./public-routes/city.routes.js'));
 
 // ─── User ──────────────────────────────────────────────────────────────────
 router.use('/users/auth', require('./user-routes/auth.routes'));
+// Provider selection and the quote flow (plan §3.4)
+router.use('/users/providers', require('../controllers/userControllers/providerSearchController').buildRouter());
+router.use('/users/quotes', require('../controllers/bookingControllers/quoteController').buildUserRouter());
 router.use('/users', require('./user-routes/profile.routes'));
 router.use('/user/wallet', require('./user-routes/userWallet.routes'));
 router.use('/users/bookings', require('./user-routes/booking.routes'));
@@ -32,7 +35,10 @@ router.use('/scrap', require('./scrap.routes'));
 // ─── Vendor ────────────────────────────────────────────────────────────────
 router.use('/vendors/auth', require('./vendor-routes/auth.routes'));
 router.use('/vendors/subscription', require('./vendor-routes/subscription.routes'));
+router.use('/vendors/quotes', require('../controllers/bookingControllers/quoteController').buildProviderRouter('vendor'));
 router.use('/vendors', require('./vendor-routes/profile.routes'));
+// Onboarding: GST/PAN/certifications, bank details, email OTP, availability (plan §3.3)
+router.use('/vendors', require('../controllers/providerControllers/providerOnboardingController').buildRouter('vendor'));
 router.use('/vendors', require('./vendor-routes/settings.routes'));
 router.use('/vendors', require('./vendor-routes/wallet.routes'));
 router.use('/vendors', require('./vendor-routes/dashboard.routes'));
@@ -45,7 +51,9 @@ router.use('/vendors/catalog', require('./vendor-routes/catalog.routes'));
 
 // ─── Worker ────────────────────────────────────────────────────────────────
 router.use('/workers/auth', require('./worker-routes/auth.routes'));
+router.use('/workers/quotes', require('../controllers/bookingControllers/quoteController').buildProviderRouter('worker'));
 router.use('/workers', require('./worker-routes/profile.routes'));
+router.use('/workers', require('../controllers/providerControllers/providerOnboardingController').buildRouter('worker'));
 router.use('/workers', require('./worker-routes/job.routes'));
 router.use('/workers', require('./worker-routes/dashboard.routes'));
 router.use('/workers/wallet', require('./worker-routes/wallet.routes'));

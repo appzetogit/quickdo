@@ -14,6 +14,34 @@ const { createNotification } = require('../notificationControllers/notificationC
 const { sendNotificationToUser, sendNotificationToVendor, sendNotificationToWorker } = require('../../services/firebaseAdmin');
 
 /**
+ * Add-ons from the service catalogue (plan §3.4). `requested` is
+ * [{ addOnId, quantity }] (or bare ids). Unknown/inactive add-ons are refused.
+ * Returns { items, base, gst, totalWithGst } or { error }.
+ */
+const resolveAddOns = (service, requested) => {
+  const empty = { items: [], base: 0, gst: 0, totalWithGst: 0 };
+  if (requested === undefined || requested === null) return empty;
+  if (!Array.isArray(requested)) return { error: 'addOns must be an array' };
+  if (!requested.length) return empty;
+  const catalogue = (service.addOns || []).filter((a) => a.isActive !== false);
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const items = [];
+  for (const r of requested) {
+    const id = String(r?.addOnId || r?._id || r || '');
+    const a = catalogue.find((x) => String(x._id) === id);
+    if (!a) return { error: `Add-on ${id} is not available for this service` };
+    if (items.some((i) => String(i.addOnId) === id)) return { error: `Add-on ${a.name} is listed twice` };
+    const quantity = Math.max(1, Math.floor(Number(r?.quantity) || 1));
+    if (quantity > (a.maxQuantity || 1)) return { error: `Add-on ${a.name}: at most ${a.maxQuantity || 1}` };
+    const gstPercentage = a.gstPercentage ?? service.gstPercentage ?? 0;
+    items.push({ addOnId: a._id, name: a.name, price: a.price, quantity, gstPercentage, total: round2(a.price * quantity) });
+  }
+  const base = round2(items.reduce((s, i) => s + i.total, 0));
+  const gst = round2(items.reduce((s, i) => s + (i.total * i.gstPercentage) / 100, 0));
+  return { items, base, gst, totalWithGst: round2(base + gst) };
+};
+
+/**
  * Create a new booking
  */
 const createBooking = async (req, res) => {
@@ -56,7 +84,10 @@ const createBooking = async (req, res) => {
       // Consultancy Fields
       isConsultancyRequest,
       requirementText,
-      requirementImages
+      requirementImages,
+      // Plan §3.4: customer-chosen provider and add-ons
+      preferredProviderId,
+      addOns: reqAddOns
     } = req.body;
 
     let visitingCharges = reqVisitingCharges ?? reqVisitationFee;
@@ -83,7 +114,7 @@ const createBooking = async (req, res) => {
 
     // 1. Parallel Fetching: Service and User
     const [service, user] = await Promise.all([
-      Service.findById(serviceId).select('title basePrice discountPrice description images iconUrl categoryId category categoryIds').lean(),
+      Service.findById(serviceId).select('title basePrice discountPrice description images iconUrl categoryId category categoryIds addOns gstPercentage').lean(),
       User.findById(userId).select('name phone wallet plans')
     ]);
 
@@ -105,6 +136,13 @@ const createBooking = async (req, res) => {
     const categoryId = service.categoryId || service.categoryIds?.[0];
     const category = categoryId ? await Category.findById(categoryId).select('title icon image slug').lean() : null;
 
+    // Add-ons picked from the service's catalogue (plan §3.4). Priced on the
+    // server from the catalogue, never from the request.
+    const pickedAddOns = resolveAddOns(service, reqAddOns);
+    if (pickedAddOns.error) {
+      return res.status(400).json({ success: false, message: pickedAddOns.error });
+    }
+
     // Calculate total value from booked items or fallback to service base price
     if (totalServiceValue === 0) {
       totalServiceValue = service.basePrice || 500;
@@ -116,7 +154,7 @@ const createBooking = async (req, res) => {
     // --- MOVE SEARCH UP HERE ---
     // Load Global Settings for Flow Control
     const Settings = require('../../models/Settings');
-    const globalSettings = await Settings.findOne({ type: 'global' }).select('searchRadius bookingModel').lean();
+    const globalSettings = await Settings.findOne({ type: 'global' }).select('searchRadius bookingModel preferredProviderTimeoutSec').lean();
     const bookingModel = globalSettings?.bookingModel || 'worker';
     const searchRadius = globalSettings?.searchRadius || 10;
 
@@ -135,19 +173,24 @@ const createBooking = async (req, res) => {
       console.log('Geocoded address for partner search:', bookingLocation);
     }
 
+    // Providers who are off at the booked slot are skipped (plan §3.3).
+    const { bookingSlot } = require('../../services/providerEligibility');
+    const slot = bookingSlot({ bookingType, scheduledDate, timeSlot, scheduledTime });
+
     let nearbyPartners = [];
     if (bookingModel === 'worker') {
       nearbyPartners = await findNearbyWorkers(
         bookingLocation,
         searchRadius,
-        { service: category?.title || (service ? service.category : 'General') }
+        { service: category?.title || (service ? service.category : 'General'), ...(category ? { categoryId: category._id } : {}), slot }
       );
     } else {
       console.log('[CreateBooking] Legacy Vendor Mode Active. Searching Vendors...');
       const vendorFilters = {
-        ...(category ? { service: category.title } : {}),
+        ...(category ? { service: category.title, categoryId: category._id } : {}),
         checkCashLimit: paymentMethod === 'cash',
-        city: address.city
+        city: address.city,
+        slot
       };
       nearbyPartners = await findNearbyVendors(bookingLocation, searchRadius, vendorFilters);
     }
@@ -162,6 +205,17 @@ const createBooking = async (req, res) => {
     });
 
     console.log(`[CreateBooking] Found ${nearbyPartners.length} nearby ${bookingModel}s for booking`);
+
+    // Customer-chosen provider (plan §3.4): offered alone first (wave 0) if they
+    // are among the eligible providers; otherwise the booking goes straight to
+    // the normal waves and the response says the preference was not available.
+    let preferredPartner = null;
+    let preferredStatus = null;
+    if (preferredProviderId) {
+      preferredPartner = nearbyPartners.find((p) => String(p._id) === String(preferredProviderId)) || null;
+      preferredStatus = preferredPartner ? 'offered' : 'unavailable';
+    }
+    const preferredTimeoutMs = Math.max(10, Number(globalSettings?.preferredProviderTimeoutSec) || 120) * 1000;
     // Store in a shared variable for background tasks
     const foundPartners = nearbyPartners;
     // --- END SEARCH BLOCK ---
@@ -217,7 +271,7 @@ const createBooking = async (req, res) => {
           discount = basePrice; // Full discount
           tax = 0;
           visitingCharges = 0;
-          finalAmount = pendingPenalty; // User only pays penalty
+          finalAmount = pendingPenalty + pickedAddOns.totalWithGst; // User pays penalty + add-ons (not plan-covered)
 
           bookingStatus = BOOKING_STATUS.SEARCHING;
           bookingPaymentStatus = finalAmount > 0 ? PAYMENT_STATUS.PENDING : PAYMENT_STATUS.PLAN_COVERED;
@@ -268,6 +322,14 @@ const createBooking = async (req, res) => {
      * catalogue price of what is booked plus its GST (visiting charges and any
      * penalty on top), and no component may be negative.
      */
+    // Add-ons go on top of whatever the app priced (its breakdown never includes
+    // them), and into basePrice/tax so the bill generated later carries them.
+    if (!usePlanBenefits && pickedAddOns.items.length) {
+      basePrice = (Number(basePrice) || 0) + pickedAddOns.base;
+      tax = (Number(tax) || 0) + pickedAddOns.gst;
+      finalAmount = (Number(finalAmount) || 0) + pickedAddOns.totalWithGst;
+    }
+
     if (!usePlanBenefits) {
       const nonNegative = (v) => Math.max(0, Number(v) || 0);
       visitingCharges = nonNegative(visitingCharges);
@@ -290,7 +352,7 @@ const createBooking = async (req, res) => {
         const gst = nonNegative(c.gstPercentage ?? 0);
         return sum + base * l.qty * (1 + gst / 100);
       }, 0);
-      const minimum = Math.round((floor + visitingCharges + pendingPenalty) * 100) / 100;
+      const minimum = Math.round((floor + pickedAddOns.totalWithGst + visitingCharges + pendingPenalty) * 100) / 100;
       if (!(finalAmount >= minimum)) {
         console.warn(`[CreateBooking] Client total ${finalAmount} below catalogue minimum ${minimum} for user ${userId}; charging the minimum.`);
         finalAmount = minimum;
@@ -371,6 +433,17 @@ const createBooking = async (req, res) => {
       description: service.description,
       serviceImages: service.images || [],
       bookedItems: formattedBookedItems,
+      addOns: pickedAddOns.items,
+      addOnsTotal: pickedAddOns.totalWithGst,
+      ...(preferredStatus ? {
+        preferredOffer: {
+          providerType: bookingModel,
+          providerId: preferredProviderId,
+          offeredAt: preferredPartner ? new Date() : null,
+          expiresAt: preferredPartner ? new Date(Date.now() + preferredTimeoutMs) : null,
+          status: preferredStatus
+        }
+      } : {}),
       basePrice,
       discount,
       promoCode: reqPromoCode || null,
@@ -450,6 +523,9 @@ const createBooking = async (req, res) => {
         categoryIcon: booking.categoryIcon,
         brandName: booking.brandName,
         brandIcon: booking.brandIcon,
+        addOns: booking.addOns,
+        addOnsTotal: booking.addOnsTotal,
+        preferredOffer: booking.preferredOffer?.status ? booking.preferredOffer : null,
       }
     });
 
@@ -488,26 +564,35 @@ const createBooking = async (req, res) => {
         // WAVE-BASED ALERTING: Sort by distance and only notify first wave
         const sortedPartners = foundPartners.sort((a, b) => (a.distance || 0) - (b.distance || 0));
 
-        // Wave 1: First 3 partners
+        // Wave 1: First 3 partners -- or, with a preferred provider (plan §3.4),
+        // "wave 0": that provider alone, and the rest wait in potential* for the
+        // scheduler to start wave 1 when the preferred offer times out.
         const WAVE_1_COUNT = 3;
-        const wave1Partners = sortedPartners.slice(0, WAVE_1_COUNT);
+        const waveSource = preferredPartner
+          ? sortedPartners.filter((p) => String(p._id) !== String(preferredPartner._id))
+          : sortedPartners;
+        const wave1Partners = preferredPartner ? [preferredPartner] : sortedPartners.slice(0, WAVE_1_COUNT);
 
         // Store potential partners in booking
         if (bookingModel === 'worker') {
-          bookingForBackground.potentialWorkers = sortedPartners.map(v => ({
+          bookingForBackground.potentialWorkers = waveSource.map(v => ({
             workerId: v._id,
             distance: v.distance || 0
           }));
         } else {
-          bookingForBackground.potentialVendors = sortedPartners.map(v => ({
+          bookingForBackground.potentialVendors = waveSource.map(v => ({
             vendorId: v._id,
             distance: v.distance || 0
           }));
         }
 
-        bookingForBackground.currentWave = 1;
+        bookingForBackground.currentWave = preferredPartner ? 0 : 1;
         bookingForBackground.waveStartedAt = new Date();
         bookingForBackground.notifiedPartners = wave1Partners.map(v => v._id);
+        if (preferredPartner) {
+          const field = bookingModel === 'worker' ? 'notifiedWorkers' : 'notifiedVendors';
+          bookingForBackground[field] = [preferredPartner._id];
+        }
         await bookingForBackground.save();
 
         if (wave1Partners.length > 0) {
@@ -520,7 +605,7 @@ const createBooking = async (req, res) => {
             vendorId: bookingModel === 'vendor' ? partner._id : null,
             workerId: bookingModel === 'worker' ? partner._id : null,
             status: 'PENDING',
-            wave: 1,
+            wave: preferredPartner ? 0 : 1,
             distance: partner.distance || null,
             sentAt: new Date(),
             expiresAt: new Date(Date.now() + 60 * 60 * 1000) // Expires in 1 hour
@@ -818,6 +903,8 @@ const getBookingById = async (req, res) => {
 
     // Convert to object to attach bill
     const bookingData = booking;
+    // Before/after work photos, whichever shape is stored (plan §3.5).
+    bookingData.workPhotos = require('../../utils/workPhotos').normalizeWorkPhotos(booking.workPhotos);
     if (bill) {
       bookingData.bill = bill;
     }
@@ -832,6 +919,29 @@ const getBookingById = async (req, res) => {
       success: false,
       message: 'Failed to fetch booking. Please try again.'
     });
+  }
+};
+
+/**
+ * GET /users/bookings/:id/invoice -- customer invoice PDF (plan §3.4).
+ * Available once the work is done (work_done) or the booking is completed.
+ */
+const getBookingInvoice = async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ _id: req.params.id, userId: req.user.id }).populate('userId', 'name phone email');
+    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+    const { INVOICEABLE, bookingInvoicePdf } = require('../../services/invoiceService');
+    if (!INVOICEABLE.includes(booking.status)) {
+      return res.status(400).json({ success: false, message: 'The invoice is available once the work is completed' });
+    }
+    const { data, pdf } = await bookingInvoicePdf(booking);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${data.invoiceNumber}.pdf"`);
+    res.setHeader('Content-Length', pdf.length);
+    return res.status(200).end(pdf);
+  } catch (error) {
+    console.error('Get invoice error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to generate invoice' });
   }
 };
 
@@ -1404,6 +1514,8 @@ const getUserRatings = async (req, res) => {
 };
 
 module.exports = {
+  getBookingInvoice,
+  resolveAddOns,
   createBooking,
   getUserBookings,
   getBookingById,

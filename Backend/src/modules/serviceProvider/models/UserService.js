@@ -50,6 +50,16 @@ const userServiceSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  // Optional extras the customer can pick when booking (plan §3.4), priced on
+  // top of the service. GST defaults to the service's gstPercentage.
+  addOns: [{
+    name: { type: String, required: true, trim: true },
+    description: { type: String, trim: true, default: '' },
+    price: { type: Number, required: true, min: 0 },
+    gstPercentage: { type: Number, min: 0, max: 100, default: null },
+    maxQuantity: { type: Number, min: 1, default: 1 },
+    isActive: { type: Boolean, default: true }
+  }],
   status: {
     type: String,
     enum: Object.values(SERVICE_STATUS),

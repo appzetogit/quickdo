@@ -46,6 +46,12 @@ const categorySchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Before/after work photos are required at job start/completion (plan §3.5)
+  // unless switched off for this category.
+  requireWorkPhotos: {
+    type: Boolean,
+    default: true
+  },
   consultancyMessage: {
     type: String,
     default: 'This service requires a personalized quote. Share your requirements and images for a custom estimate.'

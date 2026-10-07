@@ -1,4 +1,17 @@
 const axios = require('axios');
+const {
+  vendorSubscriptionGateActive,
+  subscriptionQuery,
+  filterAvailable
+} = require('./providerEligibility');
+
+// Settings the assignment queries need, read once per search.
+const loadAssignmentSettings = async () => {
+  const Settings = require('../models/Settings');
+  return (await Settings.findOne({ type: 'global' })
+    .select('searchRadius requireVendorSubscription vendorSubscriptionGraceUntil')
+    .lean()) || {};
+};
 
 /**
  * Location Service
@@ -70,14 +83,18 @@ const _buildVendorQuery = (filters = {}) => {
   delete queryFilters.checkCashLimit;
   delete queryFilters.service;
   delete queryFilters.city;
+  delete queryFilters.slot;
+  delete queryFilters.requireSubscription;
+  delete queryFilters.categoryId;
 
   const baseQuery = {
     approvalStatus: VENDOR_STATUS.APPROVED,
     isActive: true,
-    // Vendors subscribe like workers do (SOW §8): only an active, unexpired
-    // subscription gets a vendor offered jobs. Same gate as findNearbyWorkers.
-    'subscription.isActive': true,
-    'subscription.expiryDate': { $gt: new Date() },
+    // Vendors subscribe like workers do (SOW §8), but the gate only applies once
+    // Settings.requireVendorSubscription is on and its grace date has passed
+    // (providerEligibility.vendorSubscriptionGateActive). Callers resolve that and
+    // pass filters.requireSubscription.
+    ...(filters.requireSubscription ? subscriptionQuery() : {}),
     ...queryFilters
   };
 
@@ -85,10 +102,14 @@ const _buildVendorQuery = (filters = {}) => {
     baseQuery['address.city'] = { $regex: new RegExp(filters.city, 'i') };
   }
 
-  if (serviceCategory) {
+  if (serviceCategory || filters.categoryId) {
     baseQuery.$or = [
-      { categories: { $in: [serviceCategory] } },
-      { service: { $in: [serviceCategory] } }
+      ...(serviceCategory ? [
+        { categories: { $in: [serviceCategory] } },
+        { service: { $in: [serviceCategory] } }
+      ] : []),
+      // Category ObjectIds (plan §3.3), for providers saved since categoryIds existed.
+      ...(filters.categoryId ? [{ categoryIds: filters.categoryId }] : [])
     ];
   }
 
@@ -107,7 +128,8 @@ const _buildVendorQuery = (filters = {}) => {
  * One settings read for the whole candidate list (utils/cashLimit.js).
  */
 const withinCashLimit = async (vendors, filters = {}) => {
-  let kept = vendors;
+  // Availability calendar (plan §3.3): skip vendors who are off at the booked slot.
+  let kept = filters.slot ? await filterAvailable(vendors, 'vendor', filters.slot) : vendors;
   if (filters.checkCashLimit && vendors.length) {
     const { effectiveCashLimits } = require('../utils/cashLimit');
     const limits = await effectiveCashLimits(vendors);
@@ -121,7 +143,6 @@ const withinCashLimit = async (vendors, filters = {}) => {
  */
 const findNearbyVendors = async (centerLocation, radiusKm = 10, filters = {}) => {
   const Vendor = require('../models/Vendor');
-  const Settings = require('../models/Settings');
   const { VENDOR_STATUS } = require('../utils/constants');
   const { getNearbyVendorsFromCache, isRedisConnected } = require('./redisService');
 
@@ -134,10 +155,11 @@ const findNearbyVendors = async (centerLocation, radiusKm = 10, filters = {}) =>
   }
 
   try {
+    const globalSettings = await loadAssignmentSettings();
     // Fetch default radius from settings
-    if (radiusKm === 10) {
-      const globalSettings = await Settings.findOne({ type: 'global' }).select('searchRadius').lean();
-      if (globalSettings?.searchRadius) radiusKm = globalSettings.searchRadius;
+    if (radiusKm === 10 && globalSettings.searchRadius) radiusKm = globalSettings.searchRadius;
+    if (filters.requireSubscription === undefined) {
+      filters = { ...filters, requireSubscription: vendorSubscriptionGateActive(globalSettings) };
     }
 
     const baseQuery = _buildVendorQuery(filters);
@@ -306,6 +328,9 @@ const getDistanceMatrix = async (origins, destinations) => {
 const findVendorsByCity = async (city, filters = {}) => {
   try {
     const Vendor = require('../models/Vendor');
+    if (filters.requireSubscription === undefined) {
+      filters = { ...filters, requireSubscription: vendorSubscriptionGateActive(await loadAssignmentSettings()) };
+    }
     const baseQuery = _buildVendorQuery({ ...filters, city });
 
     console.log(`[LocationService] City search query: ${JSON.stringify(baseQuery)}`);
@@ -327,7 +352,6 @@ const findVendorsByCity = async (city, filters = {}) => {
  */
 const findNearbyWorkers = async (centerLocation, radiusKm = 10, filters = {}) => {
   const Worker = require('../models/Worker');
-  const Settings = require('../models/Settings');
 
   if (!centerLocation || typeof centerLocation.lat !== 'number' || typeof centerLocation.lng !== 'number') {
     return [];
@@ -336,7 +360,7 @@ const findNearbyWorkers = async (centerLocation, radiusKm = 10, filters = {}) =>
   try {
     // Fetch default radius from settings
     if (radiusKm === 10) {
-      const globalSettings = await Settings.findOne({ type: 'global' }).select('searchRadius').lean();
+      const globalSettings = await loadAssignmentSettings();
       if (globalSettings?.searchRadius) radiusKm = globalSettings.searchRadius;
     }
 
@@ -348,16 +372,30 @@ const findNearbyWorkers = async (centerLocation, radiusKm = 10, filters = {}) =>
       isActive: true,
       status: 'ONLINE', // Manual duty switch (ensures off-duty workers aren't disturbed)
       // isOnline is NOT checked here so FCM can wake up killed apps if duty is ONLINE
-      'subscription.isActive': true,
-      'subscription.expiryDate': { $gt: new Date() }
+      ...subscriptionQuery()
     };
 
-    if (serviceCategory) {
+    if (serviceCategory && filters.categoryId) {
+      baseQuery.$or = [{ serviceCategories: { $in: [serviceCategory] } }, { categoryIds: filters.categoryId }];
+    } else if (serviceCategory) {
       baseQuery.serviceCategories = { $in: [serviceCategory] };
+    } else if (filters.categoryId) {
+      baseQuery.categoryIds = filters.categoryId;
     }
+    if (filters.excludeIds?.length) {
+      baseQuery._id = { $nin: filters.excludeIds };
+    }
+
+    // A worker's own serviceRadiusKm (plan §3.3) overrides the global radius, so
+    // the geo query has to reach as far as the widest personal radius; the
+    // per-worker cut happens below.
+    const widest = await Worker.findOne({ ...baseQuery, serviceRadiusKm: { $gt: radiusKm } })
+      .sort({ serviceRadiusKm: -1 }).select('serviceRadiusKm').lean();
+    const queryRadiusKm = Math.max(radiusKm, widest?.serviceRadiusKm || 0);
 
     console.log(`[LocationService] Searching workers with query: ${JSON.stringify(baseQuery)}`);
 
+    const fields = 'name phone profilePhoto serviceCategories rating totalJobs location geoLocation subscription serviceRadiusKm fcmTokens fcmTokenMobile';
     // Use 2dsphere query
     let nearbyWorkers = await Worker.find({
       ...baseQuery,
@@ -367,22 +405,26 @@ const findNearbyWorkers = async (centerLocation, radiusKm = 10, filters = {}) =>
             type: 'Point',
             coordinates: [centerLocation.lng, centerLocation.lat]
           },
-          $maxDistance: radiusKm * 1000
+          $maxDistance: queryRadiusKm * 1000
         }
       }
-    }).select('name phone profilePhoto serviceCategories rating totalJobs location geoLocation subscription fcmTokens fcmTokenMobile').limit(50);
+    }).select(fields).limit(50);
 
     // Fallback: If no workers within 2dsphere radius, find any active online approved workers
     if (nearbyWorkers.length === 0) {
       console.log('[LocationService] ⚠️ No 2dsphere GPS workers found. Running fallback search for approved online workers...');
       nearbyWorkers = await Worker.find(baseQuery)
-        .select('name phone profilePhoto serviceCategories rating totalJobs location geoLocation subscription fcmTokens fcmTokenMobile')
+        .select(fields)
         .limit(10);
     }
 
+    const hasGps = (w) => Array.isArray(w.geoLocation?.coordinates) &&
+      !(w.geoLocation.coordinates[0] === 0 && w.geoLocation.coordinates[1] === 0);
+
     // Calculate distance and format
-    return nearbyWorkers.map(worker => {
+    let result = nearbyWorkers.map(worker => {
       const workerObj = worker.toObject();
+      workerObj.hasGps = hasGps(worker);
       if (worker.geoLocation && worker.geoLocation.coordinates) {
         workerObj.distance = calculateDistance(centerLocation, {
           lat: worker.geoLocation.coordinates[1],
@@ -392,7 +434,14 @@ const findNearbyWorkers = async (centerLocation, radiusKm = 10, filters = {}) =>
         workerObj.distance = null;
       }
       return workerObj;
-    });
+    })
+      // Personal service radius. Workers without a GPS fix stay in, as before
+      // (the fallback above exists for them).
+      .filter((w) => !w.hasGps || w.distance === null || w.distance <= (w.serviceRadiusKm || radiusKm));
+
+    // Availability calendar: skip workers who are off at the booked slot.
+    if (filters.slot) result = await filterAvailable(result, 'worker', filters.slot);
+    return result;
 
   } catch (error) {
     console.error('Find nearby workers error:', error);

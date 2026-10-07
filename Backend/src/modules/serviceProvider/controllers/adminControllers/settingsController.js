@@ -39,6 +39,49 @@ const overlayMaster = async (settings, app = null) => {
   }
 };
 
+const VERIFICATION_ITEMS = ['aadhaar', 'pan', 'gst', 'address', 'background'];
+
+/*
+ * Settings added for vendor/worker onboarding and the booking features
+ * (plan §3.3–3.4). With settings === null it only validates. Returns
+ * { error } or { changed }.
+ */
+const applyProviderSettings = (settings, body = {}) => {
+  let changed = false;
+  const set = (key, value) => {
+    if (settings) settings[key] = value;
+    changed = true;
+  };
+  if (body.requireVendorSubscription !== undefined) {
+    set('requireVendorSubscription', body.requireVendorSubscription === true || body.requireVendorSubscription === 'true');
+  }
+  if (body.vendorSubscriptionGraceUntil !== undefined) {
+    const raw = body.vendorSubscriptionGraceUntil;
+    if (raw === null || raw === '') {
+      set('vendorSubscriptionGraceUntil', null);
+    } else {
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return { error: 'vendorSubscriptionGraceUntil must be a date' };
+      set('vendorSubscriptionGraceUntil', d);
+    }
+  }
+  for (const key of ['vendorRequiredVerifications', 'workerRequiredVerifications']) {
+    if (body[key] === undefined) continue;
+    if (!Array.isArray(body[key]) || body[key].some((i) => !VERIFICATION_ITEMS.includes(i))) {
+      return { error: `${key} must be a list drawn from: ${VERIFICATION_ITEMS.join(', ')}` };
+    }
+    set(key, [...new Set(body[key])]);
+  }
+  for (const [key, min] of [['preferredProviderTimeoutSec', 10], ['quoteRequestExpiryHours', 1], ['quoteValidityHours', 1]]) {
+    if (body[key] === undefined) continue;
+    const n = Number(body[key]);
+    if (!Number.isFinite(n) || n < min) return { error: `${key} must be a number of ${min} or more` };
+    set(key, n);
+  }
+  return { changed };
+};
+exports.VERIFICATION_ITEMS = VERIFICATION_ITEMS;
+
 // Get Global Settings
 exports.getSettings = async (req, res, next) => {
   try {
@@ -111,6 +154,10 @@ exports.updateSettings = async (req, res, next) => {
     }
     if (nextFee > nextPrice) {
       return res.status(400).json({ success: false, message: 'Subscription platform fee cannot exceed the subscription price' });
+    }
+    const providerSettingsError = applyProviderSettings(null, req.body).error;
+    if (providerSettingsError) {
+      return res.status(400).json({ success: false, message: providerSettingsError });
     }
 
     let settings = await Settings.findOne({ type: 'global' });
@@ -194,6 +241,14 @@ exports.updateSettings = async (req, res, next) => {
 
       await settings.save();
     }
+
+    // SP onboarding / booking settings (plan §3.3–3.4), validated separately so
+    // the long field list above stays as it was.
+    const extra = applyProviderSettings(settings, req.body);
+    if (extra.error) {
+      return res.status(400).json({ success: false, message: extra.error });
+    }
+    if (extra.changed) await settings.save();
 
     // Propagate vendorCashLimit to all existing vendors AND workers if it was changed
     if (vendorCashLimit !== undefined) {

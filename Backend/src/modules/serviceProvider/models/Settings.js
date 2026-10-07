@@ -64,6 +64,47 @@ const settingsSchema = new mongoose.Schema({
     default: 1000,
     min: 0
   },
+  // Vendor subscription gate (SOW §8). Vendors only need an active subscription
+  // to be offered jobs when this is on AND the grace date has passed. Off by
+  // default so switching bookingModel to 'vendor' does not starve every vendor
+  // before they have had a chance to subscribe. Workers are always gated.
+  requireVendorSubscription: {
+    type: Boolean,
+    default: false
+  },
+  vendorSubscriptionGraceUntil: {
+    type: Date,
+    default: null
+  },
+  // Verification checklist items that must be 'verified' before an admin can
+  // approve a provider (plan §3.3). Allowed: aadhaar, pan, gst, address, background.
+  vendorRequiredVerifications: {
+    type: [String],
+    default: ['aadhaar', 'pan', 'address']
+  },
+  workerRequiredVerifications: {
+    type: [String],
+    default: ['aadhaar', 'address']
+  },
+  // Customer-chosen provider (plan §3.4): seconds the preferred provider has to
+  // accept before the booking falls back to the automatic waves.
+  preferredProviderTimeoutSec: {
+    type: Number,
+    default: 120,
+    min: 10
+  },
+  // Quote flow (plan §3.4): how long a quote request stays open for providers,
+  // and the default validity of a submitted quote.
+  quoteRequestExpiryHours: {
+    type: Number,
+    default: 48,
+    min: 1
+  },
+  quoteValidityHours: {
+    type: Number,
+    default: 72,
+    min: 1
+  },
   tdsPercentage: {
     type: Number,
     default: 1, // 1% default TDS u/s 194-O

@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { WORKER_STATUS } = require('../utils/constants');
+const { providerProfileFields } = require('./providerProfileFields');
 
 const workerSchema = new mongoose.Schema({
   name: {
@@ -63,13 +64,19 @@ const workerSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
-  // Same shape as Withdrawal.bankDetails, so a saved account copies straight across.
-  bankDetails: {
-    accountNumber: String,
-    ifscCode: String,
-    accountHolderName: String,
-    bankName: String,
-    upiId: String
+  // bankDetails, gst, experienceYears, certifications, categoryIds and the
+  // verification checklist live in providerProfileFields (shared with Vendor).
+  ...providerProfileFields(),
+  pan: {
+    number: { type: String, trim: true, uppercase: true, default: null },
+    document: { type: String, default: null }
+  },
+  // Personal working radius (plan §3.3). null = the global Settings.searchRadius.
+  serviceRadiusKm: {
+    type: Number,
+    min: 1,
+    max: 200,
+    default: null
   },
   status: {
     type: String,

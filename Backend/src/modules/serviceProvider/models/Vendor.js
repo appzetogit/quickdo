@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { VENDOR_STATUS } = require('../utils/constants');
+const { providerProfileFields } = require('./providerProfileFields');
 
 const vendorSchema = new mongoose.Schema({
   name: {
@@ -74,6 +75,9 @@ const vendorSchema = new mongoose.Schema({
       required: [true, 'Please upload PAN document']
     }
   },
+  // gst, bankDetails, experienceYears, certifications, categoryIds and the
+  // verification checklist (plan §3.3), shared with Worker.
+  ...providerProfileFields(),
   otherDocuments: [{
     type: String // Cloudinary URLs
   }],

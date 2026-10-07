@@ -90,6 +90,10 @@ const notificationSchema = new mongoose.Schema({
       'vendor_settlement_request',
       'vendor_cash_limit_exceeded',
       'subscription_expiring',  // services/subscriptionReminder.js
+      'quote_requested',        // quote flow (plan §3.4)
+      'quote_received',
+      'quote_accepted',
+      'quote_rejected',
 
       'general'
     ],

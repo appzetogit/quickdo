@@ -53,6 +53,7 @@ const addReviewValidation = [
 router.get('/ratings', authenticate, isUser, getUserRatings);
 router.post('/', authenticate, isUser, createBookingValidation, createBooking);
 router.get('/', authenticate, isUser, getUserBookings);
+router.get('/:id/invoice', authenticate, isUser, require('../../controllers/bookingControllers/userBookingController').getBookingInvoice);
 router.get('/:id', authenticate, isUser, getBookingById);
 router.post('/:id/cancel', authenticate, isUser, cancelBookingValidation, cancelBooking);
 router.put('/:id/reschedule', authenticate, isUser, rescheduleBookingValidation, rescheduleBooking);

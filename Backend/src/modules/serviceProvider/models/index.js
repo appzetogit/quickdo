@@ -41,3 +41,5 @@ require('./Worker');
 require('./SpPaymentReceipt');
 require('./WorkerSubscriptionPlan');
 require('./CommissionRule');
+require('./Availability');
+require('./Quote');

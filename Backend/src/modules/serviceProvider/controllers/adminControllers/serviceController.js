@@ -3,6 +3,24 @@ const Brand = require('../../models/Brand');
 const { validationResult } = require('express-validator');
 const { SERVICE_STATUS } = require('../../utils/constants');
 
+// Add-ons a customer can pick when booking (plan §3.4). Returns { value } or { error }.
+const cleanAddOns = (input) => {
+  if (input === undefined) return { value: undefined };
+  if (!Array.isArray(input)) return { error: 'addOns must be an array' };
+  const value = [];
+  for (const a of input) {
+    const name = String(a?.name || '').trim();
+    const price = Number(a?.price);
+    if (!name) return { error: 'every add-on needs a name' };
+    if (!Number.isFinite(price) || price < 0) return { error: `add-on "${name}" needs a price of 0 or more` };
+    const gst = a.gstPercentage === undefined || a.gstPercentage === null || a.gstPercentage === '' ? null : Number(a.gstPercentage);
+    if (gst !== null && (!Number.isFinite(gst) || gst < 0 || gst > 100)) return { error: `add-on "${name}" GST must be 0-100` };
+    const maxQuantity = Math.max(1, Math.floor(Number(a.maxQuantity) || 1));
+    value.push({ ...(a._id ? { _id: a._id } : {}), name, description: String(a.description || '').trim(), price, gstPercentage: gst, maxQuantity, isActive: a.isActive !== false });
+  }
+  return { value };
+};
+
 /**
  * Get all services (with filter by brandId)
  * GET /api/admin/services
@@ -91,6 +109,9 @@ const createService = async (req, res) => {
       iconUrl
     } = req.body;
 
+    const addOns = cleanAddOns(req.body.addOns);
+    if (addOns.error) return res.status(400).json({ success: false, message: addOns.error });
+
     // Verify brand exists
     const brand = await Brand.findById(brandId);
     if (!brand) {
@@ -111,7 +132,8 @@ const createService = async (req, res) => {
       pricingUnit,
       description,
       status: status || SERVICE_STATUS.ACTIVE,
-      iconUrl
+      iconUrl,
+      ...(addOns.value ? { addOns: addOns.value } : {})
     });
 
     res.status(201).json({
@@ -174,6 +196,9 @@ const updateService = async (req, res) => {
     if (updates.status) service.status = updates.status;
     if (updates.iconUrl !== undefined) service.iconUrl = updates.iconUrl;
     if (updates.brandId) service.brandId = updates.brandId;
+    const addOns = cleanAddOns(updates.addOns);
+    if (addOns.error) return res.status(400).json({ success: false, message: addOns.error });
+    if (addOns.value) service.addOns = addOns.value;
 
     // Slugs are auto-updated if title changes via pre-save hook? 
     // Wait, the pre-save hook only runs if slug is empty or we explicitly modify it?

@@ -4,6 +4,7 @@ import { FiCheck, FiX, FiEye, FiSearch, FiFilter, FiDownload, FiLoader, FiPower,
 import { toast } from 'react-hot-toast';
 import CardShell from '../UserCategories/components/CardShell';
 import Modal from '../UserCategories/components/Modal';
+import ProviderOnboardingPanel from '../../components/ProviderOnboardingPanel';
 import adminVendorService from '@sp/services/adminVendorService';
 
 const AllVendors = () => {
@@ -87,7 +88,8 @@ const AllVendors = () => {
       }
     } catch (error) {
       console.error('Error approving vendor:', error);
-      toast.error('Failed to approve vendor. Please try again.');
+      // e.g. "Verify these items before approving: pan, address"
+      toast.error(error?.response?.data?.message || 'Failed to approve vendor. Please try again.');
     }
   };
 
@@ -436,6 +438,10 @@ const AllVendors = () => {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="pt-4 border-t border-gray-200">
+              <ProviderOnboardingPanel role="vendor" providerId={selectedVendor.id} />
             </div>
 
             {selectedVendor.approvalStatus === 'pending' && (

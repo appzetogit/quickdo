@@ -43,4 +43,8 @@ router.delete('/workers/:id', authenticate, isAdmin, deleteWorker); // New
 router.get('/workers/:id/jobs', authenticate, isAdmin, getWorkerJobs);
 router.get('/workers/:id/earnings', authenticate, isAdmin, getWorkerEarnings);
 
+// Verification checklist (plan §3.3)
+const { setWorkerVerification } = require('../../controllers/adminControllers/adminVerificationController');
+router.put('/workers/:id/verification/:item', authenticate, isAdmin, setWorkerVerification);
+
 module.exports = router;

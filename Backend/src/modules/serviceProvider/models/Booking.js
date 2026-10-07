@@ -60,6 +60,15 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     default: 1
   },
+  // Customer-chosen provider (plan §3.4). While currentWave is 0 only this
+  // provider has the offer; the scheduler moves on to wave 1 when expiresAt passes.
+  preferredOffer: {
+    providerType: { type: String, enum: ['vendor', 'worker', null], default: null },
+    providerId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    offeredAt: { type: Date, default: null },
+    expiresAt: { type: Date, default: null },
+    status: { type: String, enum: ['offered', 'accepted', 'timed_out', 'unavailable', null], default: null }
+  },
   waveStartedAt: {
     type: Date,
     default: null
@@ -75,7 +84,9 @@ const bookingSchema = new mongoose.Schema({
   serviceId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SPUserService',
-    required: [true, 'Service is required'],
+    // A consultancy quote request (plan §3.4) may be for a category with no
+    // catalogue service.
+    required: [function () { return !this.isConsultancyRequest; }, 'Service is required'],
     index: true
   },
   categoryId: {
@@ -168,6 +179,19 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Add-ons the customer picked at booking time from the service's addOns
+  // (plan §3.4). Priced into basePrice/tax/finalAmount at creation, so the bill
+  // carries them; separate from extraCharges, which the provider adds at billing.
+  addOns: [{
+    _id: false,
+    addOnId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    name: { type: String, required: true },
+    price: { type: Number, required: true, min: 0 },
+    quantity: { type: Number, default: 1, min: 1 },
+    gstPercentage: { type: Number, default: 0, min: 0 },
+    total: { type: Number, required: true, min: 0 } // price * quantity, before GST
+  }],
+  addOnsTotal: { type: Number, default: 0, min: 0 }, // incl. GST
   // Total Value of the Booking (set after bill generation)
   finalAmount: {
     type: Number,
@@ -309,6 +333,9 @@ const bookingSchema = new mongoose.Schema({
   requirementImages: [{
     type: String
   }],
+  // Quote flow (plan §3.4)
+  quoteExpiresAt: { type: Date, default: null },
+  acceptedQuoteId: { type: mongoose.Schema.Types.ObjectId, ref: 'SPQuote', default: null },
   status: {
     type: String,
     enum: Object.values(BOOKING_STATUS),
@@ -354,9 +381,15 @@ const bookingSchema = new mongoose.Schema({
   // ==========================================
   // 9. WORK COMPLETION
   // ==========================================
-  workPhotos: [{
-    type: String
-  }],
+  // Work-verification photos (plan §3.5): { before: [photo], after: [photo] },
+  // photo = { url, uploadedAt, uploadedBy, lat, lng }. Mixed because bookings made
+  // before this change hold a flat array of URL strings; utils/workPhotos.js
+  // normalizes both shapes on read (old photos count as 'after'), and
+  // scripts/sp-migrate-work-photos.js rewrites them.
+  workPhotos: {
+    type: mongoose.Schema.Types.Mixed,
+    default: undefined
+  },
   visitLocation: {
     lat: Number,
     lng: Number,
@@ -429,10 +462,51 @@ const bookingSchema = new mongoose.Schema({
   // 13. NOTES
   // ==========================================
   vendorNotes: { type: String, default: null },
+  // Customer invoice (plan §3.4): number assigned on first download/email.
+  invoiceNumber: { type: String, default: null },
+  invoiceEmailedAt: { type: Date, default: null },
   workerNotes: { type: String, default: null }
 
 }, {
   timestamps: true
+});
+
+// Responses always carry workPhotos as { before, after }, whichever shape is
+// stored (plan §3.5; old bookings hold a flat array, read as 'after').
+const normalizeWorkPhotosOut = (doc, ret) => {
+  ret.workPhotos = require('../utils/workPhotos').normalizeWorkPhotos(ret.workPhotos);
+  return ret;
+};
+bookingSchema.set('toJSON', { transform: normalizeWorkPhotosOut });
+bookingSchema.set('toObject', { transform: normalizeWorkPhotosOut });
+
+// Email the customer invoice once a booking turns 'completed' (plan §3.4).
+// Completion happens in several controllers (cash collection, online payment,
+// vendor/worker flows), so it is caught here rather than in each one. The send
+// is deferred and re-checks the stored status, so a rolled-back transaction
+// sends nothing; invoiceEmailedAt makes it once-only.
+const scheduleInvoice = (id) => {
+  try { require('../services/invoiceService').scheduleInvoiceEmail(id); } catch (e) { console.error('[invoice] schedule failed:', e.message); }
+};
+bookingSchema.pre('save', function (next) {
+  this.$locals.becameCompleted = this.isModified('status') && this.status === BOOKING_STATUS.COMPLETED;
+  next();
+});
+bookingSchema.post('save', function (doc) {
+  if (doc.$locals?.becameCompleted) scheduleInvoice(doc._id);
+});
+const setsCompleted = (update) => {
+  if (!update) return false;
+  const status = update.$set?.status ?? update.status;
+  return status === BOOKING_STATUS.COMPLETED;
+};
+bookingSchema.post('findOneAndUpdate', function (doc) {
+  if (doc && setsCompleted(this.getUpdate())) scheduleInvoice(doc._id);
+});
+bookingSchema.post('updateOne', async function () {
+  if (!setsCompleted(this.getUpdate())) return;
+  const id = this.getFilter()?._id;
+  if (id && (typeof id === 'string' || id._bsontype || id instanceof mongoose.Types.ObjectId)) scheduleInvoice(id);
 });
 
 // Generate unique booking number

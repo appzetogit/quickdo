@@ -69,6 +69,8 @@ class BookingScheduler {
       const hadWork = await this.processWaves();
       // Subscription expiry reminders ride on this tick; throttled to hourly inside.
       require('./subscriptionReminder').maybeSendSubscriptionReminders();
+      // Lapsed quote requests / quotes (plan §3.4); throttled inside.
+      require('../controllers/bookingControllers/quoteController').expireQuotes().catch((e) => console.error('[BookingScheduler] quote expiry:', e.message));
       // Adaptive interval: if idle, slow down; if active, stay fast
       this.scheduleNext(hadWork ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS);
     }, intervalMs);
@@ -116,10 +118,12 @@ class BookingScheduler {
           waveStartedAt: { $ne: null },
           $or: [
             { potentialVendors: { $exists: true, $not: { $size: 0 } } },
-            { potentialWorkers: { $exists: true, $not: { $size: 0 } } }
+            { potentialWorkers: { $exists: true, $not: { $size: 0 } } },
+            // A preferred-provider offer with nobody behind it still has to time out.
+            { currentWave: 0 }
           ]
         },
-        '_id currentWave waveStartedAt potentialVendors potentialWorkers notifiedVendors notifiedWorkers bookingNumber createdAt userId expiresAt bookingModel'
+        '_id currentWave waveStartedAt potentialVendors potentialWorkers notifiedVendors notifiedWorkers bookingNumber createdAt userId expiresAt bookingModel preferredOffer'
       ).lean();
 
       if (activeBookings.length === 0) {
@@ -134,7 +138,7 @@ class BookingScheduler {
         activeBookings.map(async (booking) => {
           try {
             const bookingModel = booking.bookingModel || 'vendor';
-            const currentWave = booking.currentWave || 1;
+            const currentWave = booking.currentWave ?? 1; // 0 = preferred-provider wave
             const waveConfig = WAVE_CONFIG[currentWave] || WAVE_CONFIG[4];
             const startTime = new Date(booking.createdAt || booking.waveStartedAt).getTime();
             const totalElapsed = now - startTime;
@@ -181,7 +185,13 @@ class BookingScheduler {
             }
 
             const waveElapsed = now - new Date(booking.waveStartedAt).getTime();
-            if (waveConfig.duration === 0 || waveElapsed < waveConfig.duration) return;
+            // Wave 0 = the customer's preferred provider alone (plan §3.4). It lasts
+            // until preferredOffer.expiresAt, then wave 1 starts as usual.
+            if (currentWave === 0) {
+              const until = booking.preferredOffer?.expiresAt ? new Date(booking.preferredOffer.expiresAt).getTime() : 0;
+              if (now < until) return;
+              await Booking.updateOne({ _id: booking._id, currentWave: 0 }, { $set: { 'preferredOffer.status': 'timed_out' } });
+            } else if (waveConfig.duration === 0 || waveElapsed < waveConfig.duration) return;
 
             const nextWave = currentWave + 1;
             const { start, end } = getVendorRange(nextWave);

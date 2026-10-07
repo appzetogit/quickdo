@@ -47,6 +47,7 @@ router.post('/jobs/:id/start', authenticate, isWorker, startJob);
 router.post('/jobs/:id/reached', authenticate, isWorker, workerReachedLocation);
 router.post('/jobs/:id/visit/verify', authenticate, isWorker, verifyVisit);
 router.post('/jobs/:id/complete', authenticate, isWorker, completeJob);
+router.post('/jobs/:id/photos', authenticate, isWorker, require('../../controllers/bookingControllers/workPhotoController').uploadWorkerPhotos);
 router.post('/jobs/:id/payment/collect', authenticate, isWorker, collectCash);
 router.post('/jobs/:id/notes', authenticate, isWorker, addNotesValidation, addWorkerNotes);
 

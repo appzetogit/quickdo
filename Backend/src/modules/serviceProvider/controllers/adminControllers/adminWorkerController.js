@@ -3,6 +3,8 @@ const Booking = require('../../models/Booking');
 const { validationResult } = require('express-validator');
 const { WORKER_STATUS, BOOKING_STATUS, VENDOR_STATUS } = require('../../utils/constants');
 const { createNotification } = require('../notificationControllers/notificationController');
+const { approvalGate, onboardingDetails } = require('./adminVerificationController');
+const { maskedBankDetails } = require('../../utils/providerOnboarding');
 
 /**
  * Get all workers with filters and pagination
@@ -110,7 +112,8 @@ const getWorkerDetails = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        worker,
+        worker: { ...worker.toObject(), bankDetails: maskedBankDetails(worker.bankDetails) },
+        onboarding: await onboardingDetails(worker, 'worker'),
         stats: jobStats[0] || {
           totalJobs: 0,
           completedJobs: 0,
@@ -142,6 +145,10 @@ const approveWorker = async (req, res) => {
         message: 'Worker not found'
       });
     }
+
+    // Verification checklist (plan §3.3): required items must be verified first.
+    const gate = await approvalGate(worker, 'worker');
+    if (gate) return res.status(400).json(gate);
 
     worker.approvalStatus = 'approved';
     worker.isActive = true;

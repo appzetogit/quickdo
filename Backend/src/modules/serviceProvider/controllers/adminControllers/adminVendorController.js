@@ -4,6 +4,8 @@ const VendorBill = require('../../models/VendorBill');
 const { validationResult } = require('express-validator');
 const { VENDOR_STATUS, BOOKING_STATUS, PAYMENT_STATUS } = require('../../utils/constants');
 const { createNotification } = require('../notificationControllers/notificationController');
+const { approvalGate, onboardingDetails } = require('./adminVerificationController');
+const { maskedBankDetails } = require('../../utils/providerOnboarding');
 
 /**
  * Get all vendors with filters and pagination
@@ -116,7 +118,8 @@ const getVendorDetails = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        vendor,
+        vendor: { ...vendor.toObject(), bankDetails: maskedBankDetails(vendor.bankDetails) },
+        onboarding: await onboardingDetails(vendor, 'vendor'),
         stats: bookingStats[0] || {
           totalBookings: 0,
           completedBookings: 0,
@@ -148,6 +151,10 @@ const approveVendor = async (req, res) => {
         message: 'Vendor not found'
       });
     }
+
+    // Verification checklist (plan §3.3): required items must be verified first.
+    const gate = await approvalGate(vendor, 'vendor');
+    if (gate) return res.status(400).json(gate);
 
     vendor.approvalStatus = VENDOR_STATUS.APPROVED;
     vendor.approvalDate = new Date();

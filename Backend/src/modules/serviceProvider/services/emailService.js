@@ -401,7 +401,43 @@ const sendDuesPaymentApprovedEmail = async (vendor, amount, balanceAfter) => {
   } catch (error) { console.error(error); }
 };
 
+/**
+ * Customer invoice with the PDF attached (services/invoiceService.js), sent for
+ * every completed booking.
+ */
+const sendInvoiceEmail = async (email, data, pdfBuffer) => {
+  try {
+    if (!emailCredentials().user || !emailCredentials().pass) {
+      console.log(`[EMAIL SERVICE] Invoice ${data.invoiceNumber} for ${email} (email not configured)`);
+      return { success: true, skipped: true };
+    }
+    const transporter = createTransporter();
+    const content = `
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2>Your invoice</h2>
+        <p>Thank you for booking <strong>${data.service?.name || 'your service'}</strong>. Your invoice is attached.</p>
+      </div>
+      <div class="card" style="background-color: white;">
+        <div class="data-row"><span class="data-label">Invoice No.</span><span class="data-value">${data.invoiceNumber}</span></div>
+        <div class="data-row"><span class="data-label">Booking</span><span class="data-value">${data.bookingNumber}</span></div>
+        <div class="total-row"><span class="total-label">Total</span><span class="total-value">₹${Number(data.total || 0).toFixed(2)}</span></div>
+      </div>`;
+    await transporter.sendMail({
+      from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
+      to: email,
+      subject: `Invoice ${data.invoiceNumber} for booking ${data.bookingNumber}`,
+      html: emailWrapper(content, 'Invoice', `Invoice ${data.invoiceNumber}`),
+      attachments: [{ filename: `${data.invoiceNumber}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }]
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Invoice email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
+  sendInvoiceEmail,
   // exported so tests can assert the transport really is reused, not rebuilt per send
   _createTransporter: createTransporter,
   sendOTPEmail,
