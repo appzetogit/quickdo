@@ -34,8 +34,9 @@ log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 
 if [ -z "${MONGODB_URI:-}${MONGO_URI:-}" ] && [ -f "$ENV_FILE" ]; then
   # Only the two variables we need -- don't source the whole .env into the shell.
-  MONGODB_URI="$(grep -E '^MONGODB_URI=' "$ENV_FILE" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
-  MONGO_URI="$(grep -E '^MONGO_URI=' "$ENV_FILE" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+  # `|| true`: with pipefail, a variable absent from .env would otherwise kill the script.
+  MONGODB_URI="$( (grep -E '^MONGODB_URI=' "$ENV_FILE" || true) | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+  MONGO_URI="$( (grep -E '^MONGO_URI=' "$ENV_FILE" || true) | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
 fi
 URI="${MONGO_URI:-${MONGODB_URI:-}}"
 if [ -z "$URI" ]; then
