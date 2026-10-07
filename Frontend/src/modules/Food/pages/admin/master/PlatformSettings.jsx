@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { platformSettingsAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
-import { Loader2, Building2, FileText, ScrollText, PlugZap, Wallet, CheckCircle2, ExternalLink, ImagePlus } from "lucide-react"
+import { Loader2, Building2, FileText, ScrollText, PlugZap, Wallet, CheckCircle2, ExternalLink, ImagePlus, Globe } from "lucide-react"
 import { legalHtmlToPlainText, plainTextToLegalHtml } from "@food/utils/legalContentFormat"
 import CashLimitSettings from "./CashLimitSettings"
 import AppLegalPages from "./AppLegalPages"
+import GlobalPlatformSettings from "./GlobalPlatformSettings"
 
 /**
  * Master settings: what every service shares, set once for the whole platform
@@ -22,6 +23,7 @@ const TABS = [
   { key: "appTerms", label: "App terms", icon: ScrollText },
   { key: "integrations", label: "Payments & messages", icon: PlugZap },
   { key: "money", label: "Money rules", icon: Wallet },
+  { key: "global", label: "Global platform", icon: Globe },
 ]
 
 const LEGAL = [
@@ -506,6 +508,8 @@ export default function PlatformSettings() {
 
         {tab === "money" ? (
           <CashLimitSettings />
+        ) : tab === "global" ? (
+          <GlobalPlatformSettings />
 
         ) : tab === "appTerms" ? (
           <AppLegalPages />

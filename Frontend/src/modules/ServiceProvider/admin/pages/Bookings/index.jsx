@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useSearchParams } from 'react-router-dom';
 import {
   FiSearch, FiCalendar, FiDownload, FiMoreVertical,
   FiClock, FiCheckCircle, FiBox, FiTruck, FiXCircle, FiRefreshCw, FiShoppingBag
@@ -25,10 +26,12 @@ const BookingStatsCard = ({ title, count, icon: Icon, colorClass, bgClass }) => 
 const Bookings = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [detailId, setDetailId] = useState(null);
+  // Master > All Orders links here with ?booking=<id> (opens it) or ?search=<number>.
+  const [params] = useSearchParams();
+  const [detailId, setDetailId] = useState(params.get('booking') || null);
 
   // Filters
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(params.get('search') || '');
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');

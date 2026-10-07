@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { ApiError } from '../../utils/ApiError.js';
 import { decideAdminAccess } from '../admin/adminAccessPolicy.js';
+import { subscriptionIncome } from '../analytics/subscriptions.service.js';
 
 /**
  * Platform P&L (Master > Report Management > Platform Earnings).
@@ -27,8 +28,13 @@ import { decideAdminAccess } from '../admin/adminAccessPolicy.js';
  * government. Orders are counted by the day they were placed (rides by the day
  * they completed, bills by the day they were paid), in India time.
  *
- * Not included yet: subscription income (Quick seller plans, Services worker
- * plans) and wallet top-ups, which are not per-order money.
+ * Subscriptions are reported beside the services (`subscriptions`) and counted
+ * in the total: Services worker and vendor plans (only the platform-fee part of
+ * each payment), Quick seller subscription payments, and Taxi customer ride plans
+ * bought from the wallet (core/analytics/subscriptions.service.js). Each is shown
+ * under the same Reports permission as its service.
+ *
+ * Not included: wallet top-ups, which are not income.
  */
 
 const TZ = 'Asia/Kolkata';
@@ -255,6 +261,16 @@ export async function platformPnl(admin, query = {}) {
   const services = await Promise.all(
     keys.map(async (key) => ({ key, label: SERVICES[key].label, unit: SERVICES[key].unit, ...roundResult(await LOADERS[key](range)) })),
   );
+  const subVerticals = keys.map((k) => SERVICES[k].service).filter((v) => v !== 'food');
+  const subs = subVerticals.length ? await subscriptionIncome(range, subVerticals, { daily: true }) : {};
+  const subLines = Object.entries(subs).map(([vertical, s]) => ({
+    key: vertical, label: s.label, collected: s.collected, amount: round(s.platformIncome), daily: s.daily || [],
+  }));
+  const subscriptions = {
+    net: round(subLines.reduce((a, l) => a + l.amount, 0)),
+    collected: round(subLines.reduce((a, l) => a + l.collected, 0)),
+    lines: subLines.map(({ daily, ...l }) => l),
+  };
 
   // Every day in the range, so the chart has no gaps on quiet days.
   const days = [];
@@ -269,6 +285,13 @@ export async function platformPnl(admin, query = {}) {
       byDay[d.date].total = round(byDay[d.date].total + d.net);
     }
   }
+  for (const l of subLines) {
+    for (const d of l.daily) {
+      if (!byDay[d.date] || !d.net) continue;
+      byDay[d.date].byService.subscriptions = round((byDay[d.date].byService.subscriptions || 0) + d.net);
+      byDay[d.date].total = round(byDay[d.date].total + d.net);
+    }
+  }
 
   return {
     range: { from: range.from, to: range.to },
@@ -277,8 +300,10 @@ export async function platformPnl(admin, query = {}) {
       gross: round(services.reduce((a, s) => a + s.gross, 0)),
       gst: round(services.reduce((a, s) => a + (s.gst || 0), 0)),
       partners: round(services.reduce((a, s) => a + s.partners, 0)),
-      net: round(services.reduce((a, s) => a + s.net, 0)),
+      net: round(services.reduce((a, s) => a + s.net, 0) + subscriptions.net),
+      subscriptions: subscriptions.net,
     },
+    subscriptions,
     daily: days.map((d) => byDay[d]),
   };
 }

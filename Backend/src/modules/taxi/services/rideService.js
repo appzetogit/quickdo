@@ -1350,6 +1350,8 @@ export const createRideRecord = async ({
     return_trip_fare: fareQuote.returnTripFare,
     round_trip_waiting_charge: fareQuote.roundTripWaitingCharge,
     night_charge_amount: fareQuote.nightCharge,
+    service_tax_percent: Number(fareQuote.serviceTaxPercent) || 0,
+    service_tax_amount: Number(fareQuote.serviceTax) || 0,
     night_charge_window: fareQuote.nightCharge > 0 ? (nightChargeSettings(pricingRule)?.label || '') : '',
     priced_distance_meters: tripTiming.tripType === 'round_trip'
       ? safeEstimatedDistanceMeters * 2

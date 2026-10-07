@@ -596,6 +596,22 @@ const rideSchema = new mongoose.Schema(
         default: null,
         min: 0,
       },
+      /*
+       * GST (service tax) on the fare, frozen at booking from the fare rule, so the
+       * GST report (core/analytics/tax.service.js) does not depend on today's rule.
+       * The fare is tax-inclusive: tax = fare * percent / (100 + percent).
+       * null on rides booked before this was recorded.
+       */
+      service_tax_percent: {
+        type: Number,
+        default: null,
+        min: 0,
+      },
+      service_tax_amount: {
+        type: Number,
+        default: null,
+        min: 0,
+      },
       surge_zone_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'TaxiZone',

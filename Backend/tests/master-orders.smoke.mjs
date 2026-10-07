@@ -49,7 +49,7 @@ await check('All: every order, newest first, with counts per service', async () 
   assert.equal(r.total, 6);
   // The old MED- (pharmacy) order is a Quick order now: no Medical tab.
   // The old parcel trip is a ride now: no Parcel tab.
-  assert.deepEqual(r.counts, { food: 2, quick: 2, taxi: 2 });
+  assert.deepEqual(r.counts, { food: 2, quick: 2, taxi: 2, services: 0 });
 });
 
 await check('each tab shows only its service', async () => {

@@ -4,7 +4,9 @@ const broadcastTargetSchema = new mongoose.Schema(
     {
         ownerType: {
             type: String,
-            enum: ['USER', 'RESTAURANT', 'DELIVERY_PARTNER'],
+            // DRIVER (taxi), VENDOR and WORKER (services) came with Master broadcasts
+            // (core/notifications/platformBroadcast.service.js).
+            enum: ['USER', 'RESTAURANT', 'DELIVERY_PARTNER', 'DRIVER', 'VENDOR', 'WORKER'],
             required: true
         },
         ownerId: {
@@ -12,6 +14,11 @@ const broadcastTargetSchema = new mongoose.Schema(
             required: true
         },
         label: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        vertical: {
             type: String,
             default: '',
             trim: true
@@ -39,7 +46,9 @@ const notificationBroadcastSchema = new mongoose.Schema(
         },
         targetType: {
             type: String,
-            enum: ['ALL', 'USER', 'RESTAURANT', 'DELIVERY', 'CUSTOM'],
+            // TAXI_DRIVER / SP_WORKER / SP_VENDOR: one role across the platform;
+            // SEGMENT: Master broadcasts addressed by roles + zone + vertical + activity.
+            enum: ['ALL', 'USER', 'RESTAURANT', 'DELIVERY', 'CUSTOM', 'TAXI_DRIVER', 'SP_WORKER', 'SP_VENDOR', 'SEGMENT'],
             required: true,
             index: true
         },
@@ -65,6 +74,30 @@ const notificationBroadcastSchema = new mongoose.Schema(
         targetCount: {
             type: Number,
             default: 0
+        },
+        // --- Master broadcasts (platformBroadcast.service.js). Absent on panel ones.
+        scope: {
+            type: String,
+            enum: ['panel', 'platform'],
+            default: 'panel',
+            index: true
+        },
+        channels: {
+            type: [String],
+            default: undefined
+        },
+        segment: {
+            type: mongoose.Schema.Types.Mixed,
+            default: undefined
+        },
+        status: {
+            type: String,
+            enum: ['sending', 'sent', 'failed', null],
+            default: undefined
+        },
+        stats: {
+            type: mongoose.Schema.Types.Mixed,
+            default: undefined
         }
     },
     {

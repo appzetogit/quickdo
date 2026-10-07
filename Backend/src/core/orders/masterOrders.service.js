@@ -4,7 +4,8 @@ import { ValidationError } from '../auth/errors.js';
 /**
  * Master > Orders: every order on the platform, in one list.
  *
- * Food (food_orders), Quick (qc_orders) and Taxi (rides) live in separate collections with
+ * Food (food_orders), Quick (qc_orders), Taxi (rides) and Services (sp_bookings)
+ * live in separate collections with
  * separate admin screens. This reads them side by side and hands back one row
  * shape, so the Master panel can show them together, per tab, and assign a
  * rider to a Food / Quick order without leaving the page (the assign
@@ -14,13 +15,19 @@ import { ValidationError } from '../auth/errors.js';
  * rules (refunds, ledgers, stock) this list does not duplicate.
  */
 
-export const MASTER_ORDER_TABS = ['all', 'food', 'quick', 'taxi'];
+export const MASTER_ORDER_TABS = ['all', 'food', 'quick', 'taxi', 'services'];
 
 /** Order states, grouped the way the filter offers them. */
 const ORDER_STATUS_GROUPS = {
     active: ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup', 'picked_up', 'reached_drop'],
     delivered: ['delivered', 'completed'],
     cancelled: { $regex: '^cancel' },
+};
+/** Services booking states (modules/serviceProvider/utils/constants.js BOOKING_STATUS). */
+const BOOKING_STATUS_GROUPS = {
+    active: { $in: ['searching', 'quote_requested', 'requested', 'awaiting_payment', 'pending', 'confirmed', 'accepted', 'assigned', 'journey_started', 'visited', 'in_progress', 'work_done'] },
+    delivered: 'completed',
+    cancelled: { $in: ['cancelled', 'rejected', 'no_vendors'] },
 };
 const RIDE_STATUS_GROUPS = {
     active: { $in: ['searching', 'accepted', 'arriving', 'started', 'arrived'] },
@@ -43,6 +50,7 @@ const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const filtersFor = (tab, { status, search }) => {
     const orderStatus = status && ORDER_STATUS_GROUPS[status];
     const rideStatus = status && RIDE_STATUS_GROUPS[status];
+    const bookingStatus = status && BOOKING_STATUS_GROUPS[status];
     const term = String(search || '').trim().slice(0, 40);
     const idMatch = term
         ? { $or: [{ order_id: { $regex: escapeRegex(term), $options: 'i' } }, { orderId: { $regex: escapeRegex(term), $options: 'i' } }] }
@@ -64,6 +72,13 @@ const filtersFor = (tab, { status, search }) => {
         quick: ['all', 'quick'].includes(tab) ? withStatus({}) : null,
         // Every ride, including the old parcel trips (parcel delivery was removed).
         taxi: ['all', 'taxi'].includes(tab) ? rideBase() : null,
+        // Service bookings, searched by booking number.
+        services: ['all', 'services'].includes(tab)
+            ? {
+                ...(bookingStatus ? { status: bookingStatus } : {}),
+                ...(term ? { bookingNumber: { $regex: escapeRegex(term), $options: 'i' } } : {}),
+            }
+            : null,
     };
     // An order-number search never matches a ride (rides have no order number).
     if (term && !mongoose.Types.ObjectId.isValid(term)) { out.taxi = null; }
@@ -148,6 +163,37 @@ const rideRow = (r, maps) => {
     };
 };
 
+const bookingRow = (b, maps) => {
+    const user = maps.spUsers.get(String(b.userId || ''));
+    const vendor = maps.vendors.get(String(b.vendorId || ''));
+    const worker = maps.workers.get(String(b.workerId || ''));
+    return {
+        _id: String(b._id),
+        orderId: b.bookingNumber || `BK-${String(b._id).slice(-8).toUpperCase()}`,
+        source: 'services',
+        vertical: 'serviceProvider',
+        orderStatus: b.status || '',
+        status: b.status || '',
+        customerName: pickName(user, 'name') || 'Customer',
+        customerPhone: user?.phone || '',
+        storeName: pickName(vendor, 'businessName', 'name'),
+        riderName: pickName(worker, 'name'),
+        riderPhone: worker?.phone || '',
+        serviceName: b.serviceName || '',
+        scheduledDate: b.scheduledDate || null,
+        scheduledTime: b.scheduledTime || '',
+        total: Number(b.finalAmount) || 0,
+        paymentMethod: b.paymentMethod || '',
+        paymentStatus: b.paymentStatus || '',
+        address: [b.address?.addressLine1, b.address?.city].filter(Boolean).join(', '),
+        dispatch: null,
+        statusHistory: [],
+        // Services keeps its own admin (status changes, refunds, reassignment).
+        detailLink: `/admin/sp/bookings?booking=${String(b._id)}`,
+        createdAt: b.createdAt,
+    };
+};
+
 /** An order still being worked on: deleting it would strand its rider, store and customer. */
 const ORDER_IN_PROGRESS = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup', 'picked_up', 'reached_drop'];
 const RIDE_IN_PROGRESS = ['searching', 'accepted', 'ongoing', 'arriving', 'started', 'arrived'];
@@ -176,6 +222,9 @@ export async function deleteMasterOrder({ source, id, adminId = '' } = {}) {
         return removeRideFromTrips(id, adminId);
     }
 
+    if (source === 'services') {
+        throw new ValidationError('Service bookings are cancelled and removed from the Services admin.');
+    }
     const isQc = source === 'quick';
     if (!isQc && source !== 'food') throw new ValidationError(`Unknown order type: ${source}`);
     const order = await (isQc ? QcOrder : FoodOrder).findById(id).select('orderStatus').lean();
@@ -207,6 +256,7 @@ export async function listMasterOrders(query = {}) {
         food: { model: FoodOrder },
         quick: { model: QcOrder },
         taxi: { model: Ride },
+        services: { collection: 'sp_bookings' },
     };
     const filters = filtersFor(tab, { status, search });
 
@@ -214,7 +264,9 @@ export async function listMasterOrders(query = {}) {
     const need = page * limit;
     const results = await Promise.all(Object.entries(filters).map(async ([key, filter]) => {
         if (!filter) return [key, { rows: [], total: 0 }];
-        const coll = sources[key].model.collection;
+        const coll = sources[key].model
+            ? sources[key].model.collection
+            : mongoose.connection.db.collection(sources[key].collection);
         const [rows, total] = await Promise.all([
             coll.find(filter).sort({ createdAt: -1 }).limit(need).toArray(),
             coll.countDocuments(filter),
@@ -232,7 +284,7 @@ export async function listMasterOrders(query = {}) {
     const pick = (keys, field) => merged.filter((m) => keys.includes(m.key)).map((m) => m.row[field]);
     const foodRows = merged.filter((m) => m.key === 'food');
     const qcRows = merged.filter((m) => m.key === 'quick');
-    const [foodUsers, qcUsers, foodStores, qcStores, foodRiders, qcRiders, taxiUsers, drivers] = await Promise.all([
+    const [foodUsers, qcUsers, foodStores, qcStores, foodRiders, qcRiders, taxiUsers, drivers, spUsers, vendors, workers] = await Promise.all([
         byIds('users', foodRows.map((m) => m.row.userId), { name: 1, phone: 1 }),
         byIds('qc_users', qcRows.map((m) => m.row.userId), { name: 1, phone: 1 }),
         byIds('food_restaurants', foodRows.map((m) => m.row.restaurantId), { restaurantName: 1 }),
@@ -241,10 +293,14 @@ export async function listMasterOrders(query = {}) {
         byIds('qc_delivery_partners', qcRows.map((m) => m.row.dispatch?.deliveryPartnerId), { name: 1, phone: 1 }),
         byIds('users', pick(['taxi'], 'userId'), { name: 1, phone: 1 }),
         byIds('taxidrivers', pick(['taxi'], 'driverId'), { name: 1, phone: 1 }),
+        byIds('sp_users', pick(['services'], 'userId'), { name: 1, phone: 1 }),
+        byIds('sp_vendors', pick(['services'], 'vendorId'), { businessName: 1, name: 1 }),
+        byIds('sp_workers', pick(['services'], 'workerId'), { name: 1, phone: 1 }),
     ]);
 
     const orders = merged.map(({ key, row }) => {
         if (key === 'taxi') return rideRow(row, { taxiUsers, drivers });
+        if (key === 'services') return bookingRow(row, { spUsers, vendors, workers });
         const food = key === 'food';
         return orderRow(row, key, {
             users: food ? foodUsers : qcUsers,

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 import {
-  Bike, ChevronLeft, ChevronRight, Layers, Loader2, RefreshCw, Search, ShoppingBasket, Trash2, UtensilsCrossed,
+  Bike, ChevronLeft, ChevronRight, ExternalLink, Layers, Loader2, RefreshCw, Search, ShoppingBasket, Trash2, UtensilsCrossed, Wrench,
 } from "lucide-react"
 import { platformSettingsAPI } from "@food/api"
+import { SERVICE_PROVIDER_ENABLED } from "@/config/features"
 import AssignRiderButton from "@food/components/admin/orders/manual-assign/AssignRiderButton"
 import ManualAssignStatus from "@food/components/admin/orders/manual-assign/ManualAssignStatus"
 import { canAssignRider, isManualPending } from "@food/components/admin/orders/manual-assign/manualAssignUtils"
@@ -15,7 +16,8 @@ import { canAssignRider, isManualPending } from "@food/components/admin/orders/m
  * Food and Quick Commerce orders can be handed to a rider from here
  * (the same assign window as each service's own order screen; the call goes to
  * that service's admin API). Taxi trips are dispatched by the ride
- * engine and are listed read-only.
+ * engine and are listed read-only. Services bookings are listed with a link to
+ * the booking in the Services admin, which owns their status and refunds.
  */
 
 const TABS = [
@@ -23,12 +25,14 @@ const TABS = [
   { key: "food", label: "Food", icon: UtensilsCrossed },
   { key: "quick", label: "Quick Commerce", icon: ShoppingBasket },
   { key: "taxi", label: "Taxi", icon: Bike },
+  ...(SERVICE_PROVIDER_ENABLED ? [{ key: "services", label: "Services", icon: Wrench }] : []),
 ]
 
 const SOURCE_STYLE = {
   food: { label: "Food", cls: "bg-orange-50 text-orange-700 border-orange-200" },
   quick: { label: "Quick", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   taxi: { label: "Taxi", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  services: { label: "Services", cls: "bg-sky-50 text-sky-700 border-sky-200" },
 }
 
 const STATUSES = [
@@ -69,6 +73,7 @@ const IN_PROGRESS = new Set(["created", "confirmed", "preparing", "ready_for_pic
 const canDelete = (o) => {
   const s = String(o.status || "").toLowerCase()
   if (IN_PROGRESS.has(s)) return false
+  if (o.vertical === "serviceProvider") return false
   if (o.vertical === "taxi") return true
   return s !== "delivered" && String(o.paymentStatus || "").toLowerCase() !== "paid"
 }
@@ -266,7 +271,7 @@ export default function MasterOrders() {
                   <tr><td colSpan={8} className="px-4 py-12 text-center text-neutral-500">No orders here.</td></tr>
                 ) : orders.map((o) => {
                   const src = SOURCE_STYLE[o.source] || SOURCE_STYLE.food
-                  const assignable = o.vertical !== "taxi"
+                  const assignable = o.vertical === "food" || o.vertical === "quickCommerce"
                   return (
                     <tr key={`${o.source}-${o._id}`} className="align-top">
                       <td className="px-4 py-3">
@@ -281,7 +286,10 @@ export default function MasterOrders() {
                         <div className="text-xs text-neutral-500">{o.customerPhone}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-neutral-900">{o.storeName || (o.vertical === "taxi" ? "Trip" : "-")}</div>
+                        <div className="text-neutral-900">{o.storeName || (o.vertical === "taxi" ? "Trip" : o.serviceName || "-")}</div>
+                        {o.vertical === "serviceProvider" && o.serviceName && o.storeName && (
+                          <div className="text-xs text-neutral-600">{o.serviceName}</div>
+                        )}
                         <div className="max-w-[260px] truncate text-xs text-neutral-500" title={o.address}>{o.address}</div>
                       </td>
                       <td className="px-4 py-3">
@@ -298,7 +306,11 @@ export default function MasterOrders() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {!assignable ? (
+                        {o.vertical === "serviceProvider" ? (
+                          <Link to={o.detailLink || "/admin/sp/bookings"} className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline">
+                            Open in Services <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        ) : !assignable ? (
                           <span className="text-xs text-neutral-400">Ride dispatch</span>
                         ) : (
                           <div className="flex flex-col items-start gap-1.5">

@@ -278,14 +278,16 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
 export const getBroadcastNotifications = async ({ page = 1, limit = 10 } = {}) => {
     const { skip, ...meta } = paginationMeta({ page, limit });
 
+    // Master broadcasts (scope 'platform') are listed on Master > Broadcasts.
+    const panelOnly = { scope: { $ne: 'platform' } };
     const [items, total] = await Promise.all([
-        BroadcastNotification.find({})
+        BroadcastNotification.find(panelOnly)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(meta.limit)
             .populate('createdBy', 'name email')
             .lean(),
-        BroadcastNotification.countDocuments({})
+        BroadcastNotification.countDocuments(panelOnly)
     ]);
 
     return {
