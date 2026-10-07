@@ -11,6 +11,8 @@ const AUTH = {
   ADMIN_LOGIN: "/food/auth/admin/login",
   RESTAURANT_REQUEST_OTP: "/food/auth/restaurant/request-otp",
   RESTAURANT_VERIFY_OTP: "/food/auth/restaurant/verify-otp",
+  RESTAURANT_EMAIL_REQUEST_OTP: "/food/auth/restaurant/email/request-otp",
+  RESTAURANT_EMAIL_VERIFY_OTP: "/food/auth/restaurant/email/verify-otp",
   DELIVERY_REQUEST_OTP: "/food/auth/delivery/request-otp",
   DELIVERY_VERIFY_OTP: "/food/auth/delivery/verify-otp",
   REFRESH_TOKEN: "/food/auth/refresh-token",
@@ -298,6 +300,24 @@ export function requestRestaurantOtp(phone) {
     return Promise.reject(new Error("Phone must be at least 8 digits"));
   }
   return apiClient.post(AUTH.RESTAURANT_REQUEST_OTP, { phone: normalized });
+}
+
+/** Restaurant owner email sign-in: emails a 6-digit code if an outlet uses this address. */
+export function requestRestaurantEmailOtp(email) {
+  const value = String(email || "").trim().toLowerCase();
+  if (!value) return Promise.reject(new Error("Email is required"));
+  return apiClient.post(AUTH.RESTAURANT_EMAIL_REQUEST_OTP, { email: value });
+}
+
+export function verifyRestaurantEmailOtp(email, otp, fcmToken = null, platform = "web") {
+  const value = String(email || "").trim().toLowerCase();
+  const code = String(otp || "").replace(/\D/g, "").slice(0, 6);
+  if (!value || code.length !== 6) return Promise.reject(new Error("Email and 6-digit code are required"));
+  return apiClient.post(AUTH.RESTAURANT_EMAIL_VERIFY_OTP, {
+    email: value,
+    otp: code,
+    ...(fcmToken ? { fcmToken, platform } : {}),
+  });
 }
 
 export function verifyRestaurantOtp(phone, otp, fcmToken = null, platform = "web") {

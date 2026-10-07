@@ -649,9 +649,6 @@ export const registerRestaurant = async (payload, files) => {
         panNumber,
         nameOnPan,
         gstRegistered,
-        gstNumber,
-        gstLegalName,
-        gstAddress,
         fssaiNumber,
         fssaiExpiry,
         accountNumber,
@@ -668,6 +665,33 @@ export const registerRestaurant = async (payload, files) => {
 
     if (!ownerPhone) {
         throw new ValidationError('Owner phone is required to register a restaurant');
+    }
+
+    /*
+     * GSTIN check (SOW plan 6.4). A number whose check character does not
+     * match is a typo, so it is refused here rather than discovered at admin
+     * review. When a verification provider is configured, the legal name and
+     * address on record fill any field the applicant left blank, and anything
+     * that disagrees is recorded as a mismatch for the reviewer -- never
+     * silently overwritten. A provider outage does not block the signup.
+     */
+    let gstNumber = payload.gstNumber ? String(payload.gstNumber).trim().toUpperCase() : payload.gstNumber;
+    let gstLegalName = payload.gstLegalName;
+    let gstAddress = payload.gstAddress;
+    let gstVerification;
+    if (gstRegistered && gstNumber) {
+        const { verifyGstin } = await import('../../../../core/gst/gstVerification.service.js');
+        gstVerification = await verifyGstin(gstNumber, {
+            legalName: gstLegalName,
+            address: gstAddress,
+            panNumber: payload.panNumber,
+            state: payload.state,
+        });
+        if (gstVerification.status === 'invalid') {
+            throw new ValidationError(`Invalid GSTIN: ${gstVerification.reason}`);
+        }
+        if (!String(gstLegalName || '').trim() && gstVerification.legalName) gstLegalName = gstVerification.legalName;
+        if (!String(gstAddress || '').trim() && gstVerification.address) gstAddress = gstVerification.address;
     }
 
     const { digits: ownerPhoneDigits, last10: ownerPhoneLast10 } = normalizePhone(ownerPhone);
@@ -834,6 +858,7 @@ export const registerRestaurant = async (payload, files) => {
             gstNumber,
             gstLegalName,
             gstAddress,
+            ...(gstVerification ? { gstVerification } : {}),
             // priceIncludesGst is deliberately not taken from the application.
             // Whether menu prices include GST is set by the admin
             // (admin.service updateRestaurantById); a new restaurant starts on
@@ -974,7 +999,7 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     }
 
     const currentRestaurant = await FoodRestaurant.findById(restaurantId)
-        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status')
+        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status gstNumber')
         .lean();
 
     if (!currentRestaurant) {
@@ -1278,6 +1303,22 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     }
     if (body.gstNumber !== undefined) {
         update.gstNumber = String(body.gstNumber || '').trim().toUpperCase();
+        // A changed GSTIN is re-checked (SOW plan 6.4): a typo is refused, and
+        // the stored verification follows the new number so admin review never
+        // shows a result for a GSTIN the restaurant no longer uses.
+        if (update.gstNumber && update.gstNumber !== String(currentRestaurant.gstNumber || '').trim().toUpperCase()) {
+            const { verifyGstin } = await import('../../../../core/gst/gstVerification.service.js');
+            const verification = await verifyGstin(update.gstNumber, {
+                legalName: body.gstLegalName,
+                address: body.gstAddress,
+            });
+            if (verification.status === 'invalid') {
+                throw new ValidationError(`Invalid GSTIN: ${verification.reason}`);
+            }
+            update.gstVerification = verification;
+        } else if (!update.gstNumber) {
+            update.gstVerification = null;
+        }
     }
     if (body.gstLegalName !== undefined) {
         update.gstLegalName = String(body.gstLegalName || '').trim();
@@ -1860,7 +1901,7 @@ export const listApprovedRestaurants = async (query = {}) => {
  */
 export const PUBLIC_RESTAURANT_EXCLUDE = Object.freeze({
     panNumber: 0, nameOnPan: 0, panImage: 0,
-    gstNumber: 0, gstLegalName: 0, gstAddress: 0, gstImage: 0,
+    gstNumber: 0, gstLegalName: 0, gstAddress: 0, gstImage: 0, gstVerification: 0,
     fssaiImage: 0, fssaiExpiry: 0,
     accountNumber: 0, ifscCode: 0, accountHolderName: 0, accountType: 0,
     upiId: 0, upiQrImage: 0,

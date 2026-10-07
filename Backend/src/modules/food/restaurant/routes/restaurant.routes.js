@@ -85,6 +85,16 @@ import {
 } from '../controllers/restaurantMedia.controller.js';
 
 import { cacheResponse, invalidateCache } from '../../../../middleware/cache.js';
+import { sensitiveActionRateLimiter } from '../../../../middleware/rateLimit.js';
+import {
+    getSalesAnalyticsController,
+    downloadReportController,
+    listSettlementStatementsController,
+    getSettlementStatementController,
+    downloadSettlementStatementController,
+} from '../controllers/restaurantReports.controller.js';
+import { verifyGstinPublicController } from '../controllers/gstVerification.controller.js';
+import { generateBulkMenuTemplate } from '../services/bulkUpload.service.js';
 
 const router = express.Router();
 
@@ -100,13 +110,34 @@ const uploadFields = upload.fields([
     { name: 'panImage', maxCount: 1 },
     { name: 'gstImage', maxCount: 1 },
     { name: 'fssaiImage', maxCount: 1 },
-    { name: 'menuImages', maxCount: 10 }
+    { name: 'menuImages', maxCount: 10 },
+    // Optional menu sheet (the bulk-upload .xlsx) at onboarding, SOW plan 6.6.
+    { name: 'menuSheet', maxCount: 1 }
 ]);
 
 router.post('/register', uploadFields, registerRestaurantController);
 // Open to not-yet-registered restaurants (the signup form uploads here), so it
 // is rate-limited: anonymous callers could fill storage without a bound.
 router.post('/upload-attachment', uploadAttachmentLimiter, upload.single('file'), uploadRestaurantAttachmentController);
+
+// GSTIN check for the onboarding form and GST settings (SOW plan 6.4). Open to
+// not-yet-registered restaurants, so rate limited; it returns only what the
+// GST register itself publishes for that number.
+router.post('/gst/verify', sensitiveActionRateLimiter, verifyGstinPublicController);
+
+// The empty bulk-menu sheet, for the optional onboarding menu step (6.6) --
+// the signed-in route below pre-fills a restaurant's own menu instead.
+router.get('/bulk-upload/template/blank', async (req, res, next) => {
+    try {
+        const workbook = await generateBulkMenuTemplate(null);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename=Menu_Template.xlsx');
+        await workbook.xlsx.write(res);
+        return res.status(200).end();
+    } catch (err) {
+        return next(err);
+    }
+});
 
 // Public: approved restaurants list (for user app)
 /*
@@ -188,6 +219,12 @@ router.put('/outlet-timings', authMiddleware, requireRestaurant, upsertCurrentRe
 router.get('/finance', authMiddleware, requireRestaurant, getRestaurantFinanceController);
 router.post('/withdraw', authMiddleware, requireRestaurant, createWithdrawalRequestController);
 router.get('/withdrawals', authMiddleware, requireRestaurant, listMyWithdrawalsController);
+// Analytics, reports and settlement statements (SOW plan 6.1-6.3).
+router.get('/analytics/sales', authMiddleware, requireRestaurant, getSalesAnalyticsController);
+router.get('/reports', authMiddleware, requireRestaurant, downloadReportController);
+router.get('/settlements', authMiddleware, requireRestaurant, listSettlementStatementsController);
+router.get('/settlements/:cycleId', authMiddleware, requireRestaurant, getSettlementStatementController);
+router.get('/settlements/:cycleId/download', authMiddleware, requireRestaurant, downloadSettlementStatementController);
 router.post(
     '/profile/profile-image',
     authMiddleware,

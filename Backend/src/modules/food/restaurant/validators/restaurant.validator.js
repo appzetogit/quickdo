@@ -123,7 +123,10 @@ const restaurantRegisterSchema = z.object({
     panImage: z.string().optional(),
     gstImage: z.string().optional(),
     fssaiImage: z.string().optional(),
-    menuImages: z.string().optional() // can be a stringified array
+    menuImages: z.string().optional(), // can be a stringified array
+    // Optional first dishes typed during onboarding, as a JSON array string
+    // (SOW plan 6.6); parsed and bounded by onboardingMenu.service.js.
+    firstItems: z.string().max(50000).optional()
 });
 
 export const validateRestaurantRegisterDto = (body) => {

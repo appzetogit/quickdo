@@ -6,6 +6,7 @@ import {
 import { toast } from "sonner"
 import { adminAPI, restaurantAPI } from "@food/api"
 import { PLACEHOLDER_200, PLACEHOLDER_96, placeholderInitials } from "@food/utils/imagePlaceholder"
+import GstVerificationPanel from "@food/components/admin/restaurants/GstVerificationPanel"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -1036,6 +1037,20 @@ export default function JoiningRequest() {
                                   {r.gstRegistered != null ? (r.gstRegistered ? "Yes" : "No") : (r?.onboarding?.step3?.gst?.isRegistered ? "Yes" : "No")}
                                 </p>
                               </div>
+                              {r.gstNumber && (
+                                <GstVerificationPanel
+                                  restaurantId={r._id || r.id}
+                                  verification={r.gstVerification}
+                                  onUpdated={(data) =>
+                                    setRestaurantDetails((prev) => ({
+                                      ...(prev || r),
+                                      gstVerification: data.verification,
+                                      ...(data.filled?.gstLegalName ? { gstLegalName: data.filled.gstLegalName } : {}),
+                                      ...(data.filled?.gstAddress ? { gstAddress: data.filled.gstAddress } : {}),
+                                    }))
+                                  }
+                                />
+                              )}
                               {(r.gstNumber || r?.onboarding?.step3?.gst?.gstNumber) && (
                                 <div>
                                   <p className="text-xs text-slate-500 mb-1">GST Number</p>

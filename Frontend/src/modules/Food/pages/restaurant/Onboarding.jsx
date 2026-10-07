@@ -659,6 +659,54 @@ export default function RestaurantOnboarding() {
     accountType: "",
   })
 
+  // GSTIN check result for the number typed in step 3 (SOW plan 6.4).
+  const [gstCheck, setGstCheck] = useState(null)
+  const [gstChecking, setGstChecking] = useState(false)
+  // Optional step 4: first dishes typed here and/or a filled menu sheet, both
+  // imported by the server's bulk-upload path once the restaurant exists.
+  const [menuStep, setMenuStep] = useState({
+    items: [{ name: "", price: "", category: "", foodType: "Veg" }],
+    sheet: null,
+  })
+  const menuSheetInputRef = useRef(null)
+
+  useEffect(() => {
+    const gstin = String(step3.gstNumber || "").trim().toUpperCase()
+    if (!step3.gstRegistered || !GST_NUMBER_REGEX.test(gstin)) {
+      setGstChecking(false)
+      return undefined
+    }
+    if (gstCheck?.gstin === gstin) return undefined
+    let alive = true
+    const timer = setTimeout(async () => {
+      setGstChecking(true)
+      try {
+        const res = await restaurantAPI.verifyGstin({
+          gstin,
+          legalName: step3.gstLegalName || undefined,
+          panNumber: step3.panNumber || undefined,
+        })
+        const result = res?.data?.data
+        if (!alive || !result) return
+        setGstCheck(result)
+        // Fill only what the applicant has not typed; never overwrite.
+        if (result.legalName || result.address) {
+          setStep3((prev) => ({
+            ...prev,
+            gstLegalName: prev.gstLegalName?.trim() ? prev.gstLegalName : String(result.legalName || "").replace(/[^A-Za-z ]/g, "").trim(),
+            gstAddress: prev.gstAddress?.trim() ? prev.gstAddress : (result.address || ""),
+          }))
+        }
+      } catch {
+        if (alive) setGstCheck(null)
+      } finally {
+        if (alive) setGstChecking(false)
+      }
+    }, 500)
+    return () => { alive = false; clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step3.gstNumber, step3.gstRegistered])
+
   const previewUrlCacheRef = useRef(new Map())
   const locationSearchInputRef = useRef(null)
   const placesAutocompleteRef = useRef(null)
@@ -891,7 +939,7 @@ export default function RestaurantOnboarding() {
     const stepParam = searchParams.get("step")
     if (stepParam) {
       const stepNum = parseInt(stepParam, 10)
-      if (stepNum >= 1 && stepNum <= 3) {
+      if (stepNum >= 1 && stepNum <= 4) {
         setStep(stepNum)
       }
     }
@@ -1001,7 +1049,7 @@ export default function RestaurantOnboarding() {
           // Only set step from localStorage if URL doesn't have a step parameter
           if (localData.currentStep && !stepParam) {
             const restoredStep = Number(localData.currentStep) || 1
-            setStep(Math.min(3, Math.max(1, restoredStep)))
+            setStep(Math.min(4, Math.max(1, restoredStep)))
           }
         }
       } finally {
@@ -1413,6 +1461,8 @@ export default function RestaurantOnboarding() {
         errors.push("GST number is required when GST registered")
       } else if (!GST_NUMBER_REGEX.test(step3.gstNumber.trim().toUpperCase())) {
         errors.push("GST number must be a valid 15-character GSTIN")
+      } else if (gstCheck?.gstin === step3.gstNumber.trim().toUpperCase() && gstCheck.status === "invalid") {
+        errors.push(gstCheck.reason || "This GSTIN is not valid. Please check it.")
       }
       if (!step3.gstLegalName?.trim()) {
         errors.push("GST legal name is required when GST registered")
@@ -1484,6 +1534,8 @@ export default function RestaurantOnboarding() {
       validationErrors = validateStep2()
     } else if (step === 3) {
       validationErrors = validateStep3()
+    } else if (step === 4) {
+      validationErrors = validateStep4()
     }
 
     if (validationErrors.length > 0) {
@@ -1504,6 +1556,9 @@ export default function RestaurantOnboarding() {
         setStep(3)
         window.scrollTo({ top: 0, behavior: "instant" })
       } else if (step === 3) {
+        setStep(4)
+        window.scrollTo({ top: 0, behavior: "instant" })
+      } else if (step === 4) {
         await submitRegistration()
       }
     } catch (err) {
@@ -2789,6 +2844,30 @@ export default function RestaurantOnboarding() {
               className="bg-white text-sm"
               placeholder="GST number (15 characters)"
             />
+            {gstChecking && <p className="text-xs text-gray-500">Checking GSTIN…</p>}
+            {!gstChecking && gstCheck && gstCheck.gstin === (step3.gstNumber || "").toUpperCase() && (
+              <div className={`text-xs rounded-md px-3 py-2 border ${
+                gstCheck.status === "invalid" || gstCheck.status === "not_found" || gstCheck.status === "inactive"
+                  ? "bg-red-50 border-red-200 text-red-700"
+                  : gstCheck.mismatches?.length
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-green-50 border-green-200 text-green-700"
+              }`}>
+                <p className="font-semibold">
+                  {gstCheck.status === "verified" && "GSTIN verified with the GST register"}
+                  {gstCheck.status === "offline_valid" && `GSTIN format and check digit are valid${gstCheck.stateName ? ` (${gstCheck.stateName})` : ""}`}
+                  {gstCheck.status === "invalid" && (gstCheck.reason || "This GSTIN is not valid")}
+                  {gstCheck.status === "not_found" && "No taxpayer is registered under this GSTIN"}
+                  {gstCheck.status === "inactive" && (gstCheck.reason || "This GSTIN is not active")}
+                  {gstCheck.status === "error" && "Could not reach the GST register; your GSTIN will be checked during review"}
+                </p>
+                {gstCheck.mismatches?.map((m) => (
+                  <p key={m.field} className="mt-0.5">
+                    {m.field === "legalName" ? "Legal name" : m.field === "pan" ? "PAN" : "State"} on record: {m.registered} (you entered {m.provided})
+                  </p>
+                ))}
+              </div>
+            )}
             <Input
               value={step3.gstLegalName || ""}
               onChange={(e) =>
@@ -3044,6 +3123,147 @@ export default function RestaurantOnboarding() {
     </div>
   )
 
+  const validateStep4 = () => {
+    const errors = []
+    ;(menuStep.items || []).forEach((it, i) => {
+      const hasName = String(it.name || '').trim()
+      const hasPrice = String(it.price || '').trim()
+      if (hasName && !(Number(it.price) > 0)) errors.push(`Item ${i + 1}: enter a price above 0`)
+      if (!hasName && hasPrice) errors.push(`Item ${i + 1}: enter the item name`)
+    })
+    if (menuStep.sheet && isUploadableFile(menuStep.sheet) && !/\.xlsx$/i.test(menuStep.sheet.name || '')) {
+      errors.push("The menu sheet must be an .xlsx file")
+    }
+    return errors
+  }
+
+  const updateMenuItem = (index, patch) =>
+    setMenuStep((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (i === index ? { ...it, ...patch } : it)),
+    }))
+
+  const downloadMenuTemplate = async () => {
+    try {
+      const res = await restaurantAPI.blankMenuTemplate()
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "Menu_Template.xlsx"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch {
+      toast.error("Could not download the template. Please try again.")
+    }
+  }
+
+  const emptyMenuRow = () => ({ name: "", price: "", category: "", foodType: "Veg" })
+
+  const renderStep4 = () => (
+    <div className="space-y-6">
+      <section className="bg-white p-4 sm:p-6 rounded-md space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-black">Add your first items <span className="text-sm font-normal text-gray-500">(optional)</span></h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Add a few dishes now so your menu is ready when you are approved. You can skip this and build your menu later.
+          </p>
+        </div>
+        <div className="space-y-3">
+          {menuStep.items.map((it, index) => (
+            <div key={index} className="grid grid-cols-12 gap-2 items-center">
+              <Input
+                value={it.name}
+                onChange={(e) => updateMenuItem(index, { name: e.target.value.slice(0, 120) })}
+                className="bg-white text-sm col-span-12 sm:col-span-4"
+                placeholder="Item name"
+              />
+              <Input
+                value={it.price}
+                inputMode="decimal"
+                onChange={(e) => updateMenuItem(index, { price: e.target.value.replace(/[^0-9.]/g, "").slice(0, 8) })}
+                className="bg-white text-sm col-span-4 sm:col-span-2"
+                placeholder="Price"
+              />
+              <Input
+                value={it.category}
+                onChange={(e) => updateMenuItem(index, { category: e.target.value.slice(0, 60) })}
+                className="bg-white text-sm col-span-8 sm:col-span-3"
+                placeholder="Category (e.g. Starters)"
+              />
+              <button
+                type="button"
+                onClick={() => updateMenuItem(index, { foodType: it.foodType === "Veg" ? "Non-Veg" : "Veg" })}
+                className={`col-span-8 sm:col-span-2 h-9 rounded-md text-xs font-semibold border ${it.foodType === "Veg" ? "border-green-600 text-green-700 bg-green-50" : "border-red-600 text-red-700 bg-red-50"}`}
+              >
+                {it.foodType}
+              </button>
+              <button
+                type="button"
+                aria-label="Remove item"
+                onClick={() => setMenuStep((prev) => ({
+                  ...prev,
+                  items: prev.items.length > 1 ? prev.items.filter((_, i) => i !== index) : [emptyMenuRow()],
+                }))}
+                className="col-span-4 sm:col-span-1 h-9 flex items-center justify-center rounded-md text-gray-500 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          {menuStep.items.length < 25 && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full text-xs"
+              onClick={() => setMenuStep((prev) => ({ ...prev, items: [...prev.items, emptyMenuRow()] }))}
+            >
+              + Add another item
+            </Button>
+          )}
+        </div>
+      </section>
+
+      <section className="bg-white p-4 sm:p-6 rounded-md space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-black">Or upload your menu sheet <span className="text-sm font-normal text-gray-500">(optional)</span></h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Download the template, fill in one dish per row, and upload it here. Dishes are added for review with your application.
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button type="button" variant="outline" className="text-xs" onClick={downloadMenuTemplate}>
+            Download template (.xlsx)
+          </Button>
+          <Button type="button" variant="outline" className="text-xs" onClick={() => menuSheetInputRef.current?.click()}>
+            <Upload className="w-4 h-4 mr-1.5" />
+            {menuStep.sheet ? "Replace sheet" : "Upload filled sheet"}
+          </Button>
+          <input
+            ref={menuSheetInputRef}
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0] || null
+              if (file) setMenuStep((prev) => ({ ...prev, sheet: file }))
+              e.target.value = ""
+            }}
+          />
+        </div>
+        {menuStep.sheet && (
+          <div className="flex items-center justify-between text-xs bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+            <span className="truncate">{menuStep.sheet.name}</span>
+            <button type="button" onClick={() => setMenuStep((prev) => ({ ...prev, sheet: null }))} className="text-red-600 font-semibold ml-3">
+              Remove
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+
   const submitRegistration = async () => {
     setPaymentProcessing(true)
     setError('')
@@ -3138,6 +3358,18 @@ export default function RestaurantOnboarding() {
       formData.append('accountHolderName', step3.accountHolderName || '')
       formData.append('accountType', step3.accountType || '')
 
+      // Optional first items / menu sheet (step 4).
+      const firstItems = (menuStep.items || [])
+        .filter((it) => String(it.name || '').trim() && Number(it.price) > 0)
+        .map((it) => ({
+          name: String(it.name).trim(),
+          price: Number(it.price),
+          category: String(it.category || '').trim(),
+          foodType: it.foodType === 'Non-Veg' ? 'Non-Veg' : 'Veg',
+        }))
+      if (firstItems.length) formData.append('firstItems', JSON.stringify(firstItems))
+      if (isUploadableFile(menuStep.sheet)) formData.append('menuSheet', menuStep.sheet)
+
       setRegistrationProcessing(true)
 
       const loadingToast = toast.loading('Submitting your restaurant registration...', {
@@ -3150,9 +3382,19 @@ export default function RestaurantOnboarding() {
           setTimeout(() => reject(new Error('Registration request timeout after 60s')), 60000)
         )
 
-        await Promise.race([registerPromise, timeoutPromise])
+        const registerResponse = await Promise.race([registerPromise, timeoutPromise])
         toast.dismiss(loadingToast)
         setRegistrationProcessing(false)
+        const menuImport = registerResponse?.data?.data?.menuImport
+        if (menuImport) {
+          const added = (menuImport.sheet?.success || 0) + (menuImport.firstItems?.success || 0)
+          const problems = [menuImport.sheet?.error, menuImport.firstItems?.error].filter(Boolean)
+          const failedRows = (menuImport.sheet?.failed || 0) + (menuImport.firstItems?.failed || 0)
+          if (added) toast.success(`${added} menu item${added === 1 ? '' : 's'} added for review.`)
+          if (problems.length || failedRows) {
+            toast.warning(problems[0] || `${failedRows} menu row${failedRows === 1 ? '' : 's'} could not be added; you can fix them from the menu screen once approved.`)
+          }
+        }
       } catch (registrationError) {
         toast.dismiss(loadingToast)
         setRegistrationProcessing(false)
@@ -3192,6 +3434,7 @@ export default function RestaurantOnboarding() {
     if (step === 1) return renderStep1()
     if (step === 2) return renderStep2()
     if (step === 3) return renderStep3()
+    if (step === 4) return renderStep4()
     return null
   }
 
@@ -3241,7 +3484,7 @@ export default function RestaurantOnboarding() {
             )}
             <div className="flex items-center gap-3">
               <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider text-right">
-                Step {step} of 3
+                Step {step} of 4
               </div>
               <Button
                 onClick={handleLogout}
@@ -3317,12 +3560,12 @@ export default function RestaurantOnboarding() {
             </Button>
             <Button
               onClick={handleNext}
-              disabled={saving || paymentProcessing || (step === 3 && !isEditing) || Object.values(uploadingAttachments).some(Boolean)}
-              className={`text-sm bg-black text-white px-6 ${(saving || paymentProcessing || (step === 3 && !isEditing) || Object.values(uploadingAttachments).some(Boolean)) ? "opacity-50 cursor-not-allowed" : ""}`}
+              disabled={saving || paymentProcessing || (step >= 3 && !isEditing) || Object.values(uploadingAttachments).some(Boolean)}
+              className={`text-sm bg-black text-white px-6 ${(saving || paymentProcessing || (step >= 3 && !isEditing) || Object.values(uploadingAttachments).some(Boolean)) ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {Object.values(uploadingAttachments).some(Boolean) 
                 ? "Uploading..." 
-                : (step === 3 ? (paymentProcessing ? "Submitting..." : "Submit") : (saving ? "Saving..." : "Continue"))}
+                : (step === 4 ? (paymentProcessing ? "Submitting..." : "Submit") : (saving ? "Saving..." : "Continue"))}
             </Button>
           </div>
         </footer>

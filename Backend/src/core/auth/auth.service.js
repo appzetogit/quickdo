@@ -393,6 +393,16 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     };
   }
 
+  return completeRestaurantLogin(restaurantDoc, { fcmToken, platform, phone });
+};
+
+/**
+ * What a verified restaurant sign-in returns, whichever way the owner proved
+ * who they are (phone OTP here, email OTP in restaurantEmailAuth.service.js):
+ * the FCM token is remembered, an unapproved outlet gets its pending/rejected
+ * answer instead of a session, and an approved one gets tokens.
+ */
+export const completeRestaurantLogin = async (restaurantDoc, { fcmToken, platform, phone, email } = {}) => {
   // Update FCM token if provided
   if (fcmToken) {
     let isModified = false;
@@ -427,7 +437,8 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
               ? `Your restaurant registration was rejected: ${restaurantDoc.rejectionReason}`
               : "Your restaurant registration has been rejected. Please contact support.")
           : "Your restaurant registration is pending approval.",
-      phone: phone,
+      phone: phone || restaurantDoc.ownerPhone || null,
+      ...(email ? { email } : {}),
       restaurant: isRejected ? restaurantDoc : null
     };
   }

@@ -7,6 +7,7 @@ import express from 'express';
 import { AuthError } from '../../../../core/auth/errors.js';
 import * as adminController from '../controllers/admin.controller.js';
 import * as serviceRadiusController from '../../restaurant/controllers/serviceRadius.controller.js';
+import { reverifyRestaurantGstinAdminController } from '../../restaurant/controllers/gstVerification.controller.js';
 import * as foodApprovalController from '../controllers/foodApproval.controller.js';
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import { getMapSettingsController, updateMapSettingsController } from '../controllers/mapSettings.controller.js';
@@ -99,6 +100,8 @@ router.patch('/restaurants/:id/location', adminController.updateRestaurantLocati
 router.patch('/restaurants/:id/menu', adminController.updateRestaurantMenuById);
 router.patch('/restaurants/:id/approve', adminController.approveRestaurant);
 router.patch('/restaurants/:id/reject', adminController.rejectRestaurant);
+// Re-run the GSTIN check during review and store the result (SOW plan 6.4).
+router.post('/restaurants/:id/gst-verify', reverifyRestaurantGstinAdminController);
 
 // ----- Restaurant Commission -----
 router.get('/restaurant-commissions/bootstrap', adminController.getRestaurantCommissionBootstrap);

@@ -71,6 +71,11 @@ const CUSTOMER_CODE_COPY = {
         heading: 'Reset your password',
         intro: 'Use this code to reset your Quick Drop password.',
     },
+    restaurant_login: {
+        subject: 'Your restaurant sign-in code – Quick Drop',
+        heading: 'Sign in to your restaurant',
+        intro: 'Use this code to sign in to your Quick Drop restaurant dashboard.',
+    },
 };
 
 /**

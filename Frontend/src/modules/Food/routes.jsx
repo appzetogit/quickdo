@@ -53,7 +53,6 @@ function RestaurantGlobalNotificationListener() {
     location.pathname === "/food/restaurant/login" ||
     location.pathname === "/food/restaurant/auth/sign-in" ||
     location.pathname === "/food/restaurant/signup" ||
-    location.pathname === "/food/restaurant/signup-email" ||
     location.pathname === "/food/restaurant/forgot-password" ||
     location.pathname === "/food/restaurant/otp" ||
     location.pathname === "/food/restaurant/welcome" ||

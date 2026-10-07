@@ -138,6 +138,15 @@ const consumeCode = async (email, purpose, code) => {
     if (!consumed) throw new AuthError('This code was already used. Request a new one.');
 };
 
+/**
+ * The same emailed-code machinery for other sign-ins (the restaurant owner's
+ * email OTP, restaurantEmailAuth.service.js): hashed storage, expiry, attempt
+ * limit, single use, and the shared email OTP quota.
+ */
+export const issueEmailCode = (email, purpose) => issueCode(requireEmail(email), purpose);
+export const consumeEmailCode = (email, purpose, code) => consumeCode(requireEmail(email), purpose, code);
+export { requireEmail };
+
 /* ------------------------------------------------------------------------ */
 /* Register / verify / login                                                */
 /* ------------------------------------------------------------------------ */

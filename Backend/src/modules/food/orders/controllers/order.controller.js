@@ -112,6 +112,21 @@ export async function getOrderByIdUserController(req, res, next) {
     }
 }
 
+/** GET /food/orders/:orderId/invoice -- the customer's tax invoice PDF (SOW plan 6.7). */
+export async function getOrderInvoiceUserController(req, res, next) {
+    try {
+        const { getCustomerOrderInvoice } = await import('../services/orderInvoice.service.js');
+        const { filename, contentType, body } = await getCustomerOrderInvoice(req.params.orderId, req.user?.userId);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', body.length);
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).end(body);
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function getOrderDropOtpUserController(req, res, next) {
     try {
         const userId = req.user?.userId;

@@ -56,12 +56,16 @@ export default function RestaurantOTP() {
   const inputRefs = useRef([])
   const hasSubmittedRef = useRef(false)
   const otpSectionRef = useRef(null)
+  // Phone codes are 4 digits; the emailed sign-in code is 6.
+  const codeLength = authData?.method === "email" ? 6 : 4
+  const emptyCode = () => Array(codeLength).fill("")
 
   useEffect(() => {
     const stored = sessionStorage.getItem("restaurantAuthData")
     if (stored) {
       const data = JSON.parse(stored)
       setAuthData(data)
+      if (data.method === "email") setOtp(Array(6).fill(""))
       if (data.method === "email" && data.email) {
         setContactInfo(data.email)
       } else if (data.phone) {
@@ -88,7 +92,7 @@ export default function RestaurantOTP() {
   }, [navigate])
 
   useEffect(() => {
-    if (otp.every(d => d !== "") && otp.join("").length === 4 && !hasSubmittedRef.current) {
+    if (otp.every(d => d !== "") && otp.join("").length === codeLength && !hasSubmittedRef.current) {
       handleVerify(otp.join(""))
     }
   }, [otp])
@@ -121,7 +125,7 @@ export default function RestaurantOTP() {
     setOtp(newOtp)
     setError("")
 
-    if (value && index < 3) {
+    if (value && index < codeLength - 1) {
       inputRefs.current[index + 1]?.focus()
     }
   }
@@ -144,12 +148,12 @@ export default function RestaurantOTP() {
   const handlePaste = (e) => {
     e.preventDefault()
     const pastedData = e.clipboardData.getData("text")
-    const digits = pastedData.replace(/\D/g, "").slice(0, 4).split("")
+    const digits = pastedData.replace(/\D/g, "").slice(0, codeLength).split("")
     const newOtp = [...otp]
-    digits.forEach((digit, i) => { if (i < 4) newOtp[i] = digit })
+    digits.forEach((digit, i) => { if (i < codeLength) newOtp[i] = digit })
     setOtp(newOtp)
-    if (digits.length === 4) {
-      inputRefs.current[3]?.focus()
+    if (digits.length === codeLength) {
+      inputRefs.current[codeLength - 1]?.focus()
     } else {
       inputRefs.current[digits.length]?.focus()
     }
@@ -169,8 +173,8 @@ export default function RestaurantOTP() {
      * referred from the page it had already navigated to.
      */
     if (hasSubmittedRef.current) return
-    if (code.length !== 4) {
-      setError("Please enter the complete 4-digit code")
+    if (code.length !== codeLength) {
+      setError(`Please enter the complete ${codeLength}-digit code`)
       hasSubmittedRef.current = false
       return
     }
@@ -185,7 +189,9 @@ export default function RestaurantOTP() {
       const email = authData.method === "email" ? authData.email : null
       const purpose = authData.isSignUp ? "register" : "login"
 
-      const response = await restaurantAPI.verifyOTP(phone, code, purpose, null, email)
+      const response = authData.method === "email"
+        ? await restaurantAPI.verifyEmailOTP(email, code)
+        : await restaurantAPI.verifyOTP(phone, code, purpose, null, email)
       const data = response?.data?.data || response?.data
       const needsRegistration = data?.needsRegistration === true
       const normalizedPhone = data?.phone || phone
@@ -256,7 +262,7 @@ export default function RestaurantOTP() {
         return
       }
       setError(message)
-      setOtp(["", "", "", ""])
+      setOtp(emptyCode())
       hasSubmittedRef.current = false
       inputRefs.current[0]?.focus()
     } finally { setIsLoading(false) }
@@ -271,7 +277,8 @@ export default function RestaurantOTP() {
       const purpose = authData.isSignUp ? "register" : "login"
       const phone = authData.method === "phone" ? authData.phone : null
       const email = authData.method === "email" ? authData.email : null
-      await restaurantAPI.sendOTP(phone, purpose, email)
+      if (authData.method === "email") await restaurantAPI.sendEmailOTP(email)
+      else await restaurantAPI.sendOTP(phone, purpose, email)
       setResendTimer(60)
     } catch (err) { setError("Failed to resend OTP.") }
     setIsLoading(false)
@@ -279,7 +286,7 @@ export default function RestaurantOTP() {
     // reopen -- otherwise the first attempt latches it and the fresh code can
     // never be submitted.
     hasSubmittedRef.current = false
-    setOtp(["", "", "", ""])
+    setOtp(emptyCode())
     inputRefs.current[0]?.focus()
   }
 
@@ -357,7 +364,7 @@ export default function RestaurantOTP() {
               Verify Security Code
             </h2>
             <p className="text-sm font-medium text-gray-500">
-              Enter the 4-digit code sent to{" "}
+              Enter the {codeLength}-digit code sent to{" "}
               <span className="text-[#1A1A1A] dark:text-zinc-200 font-semibold">{contactInfo}</span>
             </p>
           </div>
@@ -370,7 +377,7 @@ export default function RestaurantOTP() {
                 animate={{ opacity: 1, x: 0 }}
                 className="space-y-10"
               >
-                <div ref={otpSectionRef} className="flex justify-center gap-4">
+                <div ref={otpSectionRef} className={`flex justify-center ${codeLength > 4 ? "gap-2" : "gap-4"}`}>
                   {otp.map((digit, index) => (
                     <motion.div
                       key={index}
@@ -391,7 +398,7 @@ export default function RestaurantOTP() {
                         onFocus={() => setFocusedIndex(index)}
                         onBlur={() => setFocusedIndex(null)}
                         disabled={isLoading}
-                        className={`w-16 h-16 text-center text-3xl font-black bg-[#F8F9FA] dark:bg-zinc-900 border rounded-xl text-[#1A1A1A] dark:text-white transition-all outline-none shadow-sm ${
+                        className={`${codeLength > 4 ? "w-11 h-14 text-2xl" : "w-16 h-16 text-3xl"} text-center font-black bg-[#F8F9FA] dark:bg-zinc-900 border rounded-xl text-[#1A1A1A] dark:text-white transition-all outline-none shadow-sm ${
                           focusedIndex === index ? "border-[#F38F24] ring-1 ring-[#F38F24] shadow-[#F38F24]/10" : "border-gray-200"
                         }`}
                       />

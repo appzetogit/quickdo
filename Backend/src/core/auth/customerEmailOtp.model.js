@@ -15,7 +15,8 @@ import mongoose from 'mongoose';
 const customerEmailOtpSchema = new mongoose.Schema(
     {
         email: { type: String, required: true, lowercase: true, trim: true },
-        purpose: { type: String, enum: ['verify_email', 'password_reset'], required: true },
+        // restaurant_login: the restaurant owner's email sign-in code (SOW plan 6.5).
+        purpose: { type: String, enum: ['verify_email', 'password_reset', 'restaurant_login'], required: true },
         codeHash: { type: String, required: true },
         expiresAt: { type: Date, required: true },
         attempts: { type: Number, default: 0 },

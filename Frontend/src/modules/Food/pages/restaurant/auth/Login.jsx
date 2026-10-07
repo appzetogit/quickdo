@@ -52,6 +52,10 @@ export default function RestaurantLogin() {
   })
   const [error, setError] = useState("")
   const [isSending, setIsSending] = useState(false)
+  // Existing outlets can also sign in with the owner email given at onboarding
+  // (a 6-digit code is emailed). New outlets register with their phone.
+  const [method, setMethod] = useState("phone")
+  const [email, setEmail] = useState("")
   const [keyboardInset, setKeyboardInset] = useState(0)
 
   useEffect(() => {
@@ -112,6 +116,34 @@ export default function RestaurantLogin() {
     } finally {
       setIsSending(false)
     }
+  }
+
+  const handleSendEmailOTP = async () => {
+    const value = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
+      setError("Enter a valid email address")
+      return
+    }
+    try {
+      setIsSending(true)
+      await restaurantAPI.sendEmailOTP(value)
+      sessionStorage.setItem("restaurantAuthData", JSON.stringify({
+        method: "email",
+        email: value,
+        isSignUp: false,
+        module: "restaurant",
+      }))
+      navigate("/food/restaurant/otp")
+    } catch (apiErr) {
+      setError(apiErr?.response?.data?.message || apiErr?.response?.data?.error || "Failed to send the code")
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  const switchMethod = (next) => {
+    setMethod(next)
+    setError("")
   }
 
   return (
@@ -186,11 +218,37 @@ export default function RestaurantLogin() {
               Restaurant Portal
             </h2>
             <p className="text-sm font-medium text-gray-500">
-              Signin with your registered mobile to manage your outlet.
+              {method === "email"
+                ? "Sign in with your registered owner email to manage your outlet."
+                : "Signin with your registered mobile to manage your outlet."}
             </p>
           </div>
 
           <div className="space-y-8">
+            {method === "email" ? (
+            <div className="space-y-4">
+              <label htmlFor="restaurant-login-email" className="text-xs font-bold text-gray-700 uppercase tracking-wider ml-1">
+                Owner Email
+              </label>
+              <input
+                id="restaurant-login-email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="owner@restaurant.com"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); if (error) setError("") }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSendEmailOTP() }}
+                className="w-full h-14 bg-[#F8F9FA] dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl outline-none focus:border-[#F38F24] focus:ring-1 focus:ring-[#F38F24] placeholder:text-gray-400 text-base font-semibold px-4 text-[#1A1A1A] dark:text-white"
+              />
+              {error && (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#0D2A6B] pl-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{error}</span>
+                </div>
+              )}
+            </div>
+            ) : (
             <div className="space-y-4">
               <label className="text-xs font-bold text-gray-700 uppercase tracking-wider ml-1">
                 Owner Contact Number
@@ -225,10 +283,11 @@ export default function RestaurantLogin() {
                 )}
               </AnimatePresence>
             </div>
+            )}
 
             <Button
-              onClick={handleSendOTP}
-              disabled={isSending || formData.phone.length !== 10}
+              onClick={method === "email" ? handleSendEmailOTP : handleSendOTP}
+              disabled={isSending || (method === "email" ? !email.trim() : formData.phone.length !== 10)}
               className="w-full h-14 rounded-xl font-bold text-base transition-all bg-[#1A1A1A] hover:bg-black text-white hover:shadow-lg disabled:opacity-50 disabled:bg-gray-200 disabled:text-gray-400"
             >
               {isSending ? (
@@ -240,6 +299,14 @@ export default function RestaurantLogin() {
                 "Continue Securely"
               )}
             </Button>
+
+            <button
+              type="button"
+              onClick={() => switchMethod(method === "email" ? "phone" : "email")}
+              className="w-full text-center text-sm font-semibold text-[#F38F24] hover:underline"
+            >
+              {method === "email" ? "Use mobile number instead" : "Sign in with email instead"}
+            </button>
           </div>
 
           <footer className="mt-auto pt-10 text-center">

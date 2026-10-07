@@ -31,7 +31,14 @@ export const registerRestaurantController = async (req, res, next) => {
     try {
         const validated = validateRestaurantRegisterDto(req.body);
         const restaurant = await registerRestaurant(validated, req.files);
-        return sendResponse(res, 201, 'Restaurant registered successfully', restaurant);
+        // Optional first items / menu sheet (SOW plan 6.6): imported through the
+        // bulk-upload path once the restaurant exists, never failing the signup.
+        const { importOnboardingMenu } = await import('../services/onboardingMenu.service.js');
+        const menuImport = await importOnboardingMenu(restaurant._id, {
+            menuSheet: req.files?.menuSheet?.[0],
+            firstItems: validated.firstItems,
+        });
+        return sendResponse(res, 201, 'Restaurant registered successfully', menuImport ? { ...restaurant, menuImport } : restaurant);
     } catch (error) {
         next(error);
     }

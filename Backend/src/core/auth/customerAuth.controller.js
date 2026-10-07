@@ -82,3 +82,13 @@ export const socialLinkController = handle((req) => socialAuth.linkProvider(self
 export const socialUnlinkController = handle((req) => socialAuth.unlinkProvider(selfId(req), req.params.provider), {
     message: 'Account unlinked',
 });
+
+/* Restaurant owner email sign-in (SOW plan 6.5); see restaurantEmailAuth.service.js. */
+export const requestRestaurantEmailOtpController = handle(async (req) => {
+    const { requestRestaurantEmailOtp } = await import('./restaurantEmailAuth.service.js');
+    return requestRestaurantEmailOtp(req.body || {});
+}, { message: 'If a restaurant uses this email, a sign-in code is on its way.' });
+export const verifyRestaurantEmailOtpController = handle(async (req) => {
+    const { verifyRestaurantEmailOtp } = await import('./restaurantEmailAuth.service.js');
+    return verifyRestaurantEmailOtp(req.body || {});
+}, { message: 'Code verified' });

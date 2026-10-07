@@ -145,6 +145,17 @@ const restaurantSchema = new mongoose.Schema(
     gstAddress: {
       type: String,
     },
+    /**
+     * Result of the last GSTIN check (core/gst/gstVerification.service.js):
+     * status verified | offline_valid | invalid | not_found | inactive | error,
+     * the legal name / address on record, and any mismatches with what the
+     * applicant typed. Written at registration and by admin re-checks; shown in
+     * admin review. Absent on restaurants registered before the check existed.
+     */
+    gstVerification: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined,
+    },
     fssaiNumber: {
       type: String,
     },

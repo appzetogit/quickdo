@@ -10,7 +10,8 @@ import {
     submitOrderRatingsController,
     getOrderDropOtpUserController,
     getOrderRouteUserController,
-    updateOrderInstructionsController
+    updateOrderInstructionsController,
+    getOrderInvoiceUserController
 } from '../controllers/order.controller.js';
 import { idempotency } from '../../../../middleware/idempotency.js';
 import { sensitiveActionRateLimiter } from '../../../../middleware/rateLimit.js';
@@ -30,6 +31,7 @@ router.get('/', listOrdersUserController);
 router.get('/:orderId/payments', getOrderPaymentsUserController);
 router.get('/:orderId/drop-otp', getOrderDropOtpUserController);
 router.get('/:orderId/route', getOrderRouteUserController);
+router.get('/:orderId/invoice', getOrderInvoiceUserController);
 router.get('/:orderId', getOrderByIdUserController);
 router.patch('/:orderId/cancel', cancelOrderController);
 router.patch('/:orderId/ratings', submitOrderRatingsController);

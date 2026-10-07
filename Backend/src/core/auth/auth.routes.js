@@ -36,7 +36,9 @@ import {
     socialSignInController,
     socialLinkController,
     socialUnlinkController,
-    customerAuthGuards
+    customerAuthGuards,
+    requestRestaurantEmailOtpController,
+    verifyRestaurantEmailOtpController
 } from './customerAuth.controller.js';
 
 const router = express.Router();
@@ -75,6 +77,9 @@ router.delete('/user/social/:provider(google|apple)', ...signedInUser, socialUnl
 // Restaurant OTP login
 router.post('/restaurant/request-otp', authRateLimiter, requestRestaurantOtpController);
 router.post('/restaurant/verify-otp', authRateLimiter, verifyRestaurantOtpController);
+// Restaurant owner sign-in with an emailed 6-digit code (existing outlets; SOW plan 6.5).
+router.post('/restaurant/email/request-otp', authRateLimiter, requestRestaurantEmailOtpController);
+router.post('/restaurant/email/verify-otp', authRateLimiter, verifyRestaurantEmailOtpController);
 
 // Delivery partner OTP login
 router.post('/delivery/request-otp', authRateLimiter, requestDeliveryOtpController);
