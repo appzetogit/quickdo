@@ -86,7 +86,7 @@ const createVariantDraft = (variant = {}) => ({
   // same as zero -- the dish's own limit then applies.
   minOrderQuantity: variant?.minOrderQuantity != null ? String(variant.minOrderQuantity) : "",
   maxOrderQuantity: variant?.maxOrderQuantity != null ? String(variant.maxOrderQuantity) : "",
-  // Stock per size (quick commerce and medical). Blank = not counted. The
+  // Stock per size (quick commerce). Blank = not counted. The
   // *AtLoad copies let the save send only a count the admin changed.
   stockQty: variant?.stockQty != null ? String(variant.stockQty) : "",
   lowStockThreshold: variant?.lowStockThreshold != null ? String(variant.lowStockThreshold) : "",
@@ -118,9 +118,9 @@ export default function FoodsList() {
   const [foodFormMode, setFoodFormMode] = useState("add")
   const [foodForm, setFoodForm] = useState(createFoodForm())
   const [editingFood, setEditingFood] = useState(null)
-  // Stock is counted in quick commerce and medical, not food (dishes aren't).
+  // Stock is counted in quick commerce, not food (dishes aren't).
   const { pathname } = useLocation()
-  const isStockPanel = /^\/admin\/(quick-commerce|medical)(\/|$)/.test(pathname)
+  const isStockPanel = /^\/admin\/quick-commerce(\/|$)/.test(pathname)
   /** Product-level stock for the save: only what changed since the form opened. */
   const productStockPayload = () => {
     const was = (v) => (v === null || v === undefined ? "" : String(v))

@@ -32,7 +32,6 @@
 export const APP_SERVICES = Object.freeze([
     { key: 'food', label: 'Food', zones: 'food' },
     { key: 'quick', label: 'Quick Commerce', zones: 'quick' },
-    { key: 'medical', label: 'Medical', zones: 'medical' },
     { key: 'taxi', label: 'Taxi', zones: 'taxi' },
 ]);
 

@@ -118,11 +118,13 @@ const restaurantSchema = new mongoose.Schema(
     /**
      * What kind of shop this is.
      *
-     * Drives three things that a single "restaurant" type cannot express: which
-     * category tree the seller may list under, which licence is mandatory at
-     * onboarding (FSSAI for anything edible, a drug licence for pharmacy), and
-     * whether an order from this seller may be pooled with another on one trip —
-     * medicine and raw meat should not share a bag with vegetables.
+     * Drives what a single "restaurant" type cannot express: which category tree
+     * the seller may list under, and whether an order from this seller may be
+     * pooled with another on one trip.
+     *
+     * 'pharmacy' is LEGACY (the Medical vertical was removed): kept in the enum so
+     * existing pharmacy sellers still save, never assigned to a new seller, and
+     * hidden from the customer Quick Shop. See shared/storeType.js.
      */
     storeType: {
       type: String,
@@ -147,11 +149,9 @@ const restaurantSchema = new mongoose.Schema(
     },
 
     /**
-     * Drug licence, mandatory for storeType 'pharmacy' and meaningless otherwise.
-     *
-     * Kept alongside the FSSAI fields rather than replacing them: FSSAI is required
-     * for any business handling food, which includes a kirana store, so both licences
-     * genuinely coexist in this vertical.
+     * DEPRECATED. Drug licence, from the removed Medical vertical. Kept so
+     * existing pharmacy documents load and save unchanged; nothing writes or
+     * reads it any more.
      */
     drugLicenseNumber: {
       type: String,
@@ -169,10 +169,8 @@ const restaurantSchema = new mongoose.Schema(
     },
 
     /*
-     * Pharmacy onboarding, beyond the licence. What the list of required
-     * documents in shared/partnerOnboarding.js asks for, and what the admin
-     * reviews before approving. Empty on every seller that registered before
-     * these existed, which the review page flags rather than suspending them.
+     * DEPRECATED. Pharmacist details from the removed Medical vertical's
+     * onboarding. Kept for existing documents; no longer written or read.
      */
     pharmacist: {
       name: { type: String, trim: true, default: '' },

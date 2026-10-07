@@ -8,7 +8,6 @@ function RedirectAdminEdit() {
   return <Navigate to={`/admin/master/admins/edit/${id}`} replace />;
 }
 import VerticalVocabulary from "./VerticalVocabulary";
-import { VERTICAL } from "@food/utils/verticalVocabulary";
 import ProtectedRoute from "./ProtectedRoute";
 import AdminLayout from "./AdminLayout";
 import Loader from "@food/components/Loader";
@@ -174,15 +173,10 @@ import { SERVICE_PROVIDER_ENABLED } from "@/config/features";
 // The Services admin, on for sites that set VITE_ENABLE_SERVICE_PROVIDER
 // (config/features.js). Lazy, so a site with it off never downloads it.
 const SPAdminRoutes = lazy(() => import("@sp/admin/routes"));
-// One admin-accounts screen for every panel (food, quick commerce, medical, taxi).
-// Stock per product size, per store (quick commerce and medical only).
+// One admin-accounts screen for every panel (food, quick commerce, taxi).
+// Stock per product size, per store (quick commerce only).
 const StockManager = lazy(() => import("@food/pages/shared/StockManager"));
 const AdminAccounts = lazy(() => import("@food/pages/admin/management/AdminAccounts"));
-const MedicalPrescriptionOrders = lazy(() => import("@food/pages/admin/medical/PrescriptionOrders"));
-const MedicalDrugLicences = lazy(() => import("@food/pages/admin/medical/DrugLicences"));
-const MedicalRequests = lazy(() => import("@food/pages/admin/medical/MedicalRequests"));
-const PharmacyVerification = lazy(() => import("@food/pages/admin/medical/PharmacyVerification"));
-const MedicalCommission = lazy(() => import("@food/pages/admin/medical/MedicalCommission"));
 
 /**
  * The admin pages for one vertical.
@@ -195,7 +189,7 @@ const MedicalCommission = lazy(() => import("@food/pages/admin/medical/MedicalCo
  * The prefix swap happens once, in the axios request interceptor, keyed on the browser
  * path. Nothing below needs to know which vertical it is serving.
  */
-/** Seller pages, by sub-path: shown under /restaurants (Food) and /stores (Quick, Medical). */
+/** Seller pages, by sub-path: shown under /restaurants (Food) and /stores (Quick). */
 const SELLER_PAGES = [
   ["", RestaurantsList],
   ["add", AddRestaurant],
@@ -212,7 +206,7 @@ const SELLER_PAGES = [
   ["bulk-export", RestaurantsBulkExport],
 ]
 
-/** In the Quick and Medical panels a /restaurants address is the /stores one. */
+/** In the Quick panel a /restaurants address is the /stores one. */
 function StoresRedirect({ children }) {
   const location = useLocation()
   const base = currentAdminBase(location.pathname)
@@ -256,8 +250,8 @@ const verticalAdminRoutes = (
             <Route path="zone-setup/edit/:id" element={<AddZone />} />
             <Route path="zone-setup/view/:id" element={<ViewZone />} />
             <Route path="food-approval" element={<FoodApproval />} />
-            {/* The seller pages. Food calls them restaurants; Quick and Medical
-                call them stores, under /stores (a /restaurants address there
+            {/* The seller pages. Food calls them restaurants; Quick
+                calls them stores, under /stores (a /restaurants address there
                 redirects). Same screens either way, from one list. */}
             {SELLER_PAGES.map(([sub, Page]) => (
               <Route key={`restaurants/${sub}`} path={sub ? `restaurants/${sub}` : "restaurants"} element={<StoresRedirect><Page /></StoresRedirect>} />
@@ -490,36 +484,6 @@ export default function AdminRouter() {
           >
             {verticalAdminRoutes}
             <Route path="stock" element={<StockManager scope="admin" />} />
-          </Route>
-
-          {/* MEDICAL ADMIN - the same screens again, on the same quick-commerce
-              API, narrowed to sellers whose storeType is 'pharmacy'.
-
-              A pharmacy is not a separate vertical: it is a quick-commerce
-              seller that must produce a drug licence and may only dispense
-              against a prescription. Forking a fourth copy of these screens to
-              say so would mean maintaining three copies of every fix. The
-              narrowing is one request parameter, added in the axios interceptor
-              for this path and enforced by the server, which refuses a store
-              type it does not recognise rather than widening the list. */}
-          <Route
-            path="medical/*"
-            element={
-              <VerticalVocabulary vertical={VERTICAL.MEDICAL}>
-                <Outlet />
-              </VerticalVocabulary>
-            }
-          >
-            {verticalAdminRoutes}
-            <Route path="stock" element={<StockManager scope="admin" />} />
-            {/* Only here: a prescription queue and a drug-licence register have
-                no meaning in food or in general quick-commerce, so they are not
-                in the shared route table. */}
-            <Route path="prescriptions" element={<MedicalPrescriptionOrders />} />
-            <Route path="drug-licences" element={<MedicalDrugLicences />} />
-            <Route path="requests" element={<MedicalRequests />} />
-            <Route path="verification" element={<PharmacyVerification />} />
-            <Route path="commission" element={<MedicalCommission />} />
           </Route>
         </Route>
 

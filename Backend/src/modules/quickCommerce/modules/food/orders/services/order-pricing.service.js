@@ -20,8 +20,8 @@ import { getRestaurantAvailabilityStatus } from '../../restaurant/helpers/restau
 import { resolveOrderCartItems } from '../helpers/order-cart-items.helper.js';
 import { AVG_SPEED_KMPH, PACKING_MINUTES } from './order.helpers.js';
 import { withMasterFees } from '../../../../../../core/finance/platformFees.service.js';
-import { isMedicalStore } from '../../shared/storeType.js';
 import { findZoneForPoint, readAddressPoint, ZONE_VERTICALS } from '../../shared/zoneServiceability.js';
+import { isLegacyPharmacy } from '../../shared/storeType.js';
 
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -65,23 +65,17 @@ export async function loadRestaurantForOrdering(restaurantId) {
       // autoAcceptOrders is read at order creation to decide whether the order
       // waits for a seller. Left out of this projection it is always undefined,
       // so the flag silently does nothing however it is set.
-      // storeType decides whether the order needs a prescription. Omitted from this
-      // projection it is undefined, every seller reads as non-medical, and a pharmacy
-      // order goes through with nothing attached -- the same failure the comment
-      // above describes for autoAcceptOrders.
-      'status restaurantName zoneId location city state area isAcceptingOrders autoAcceptOrders outsideHoursOverride openingTime closingTime openDays deliveryTimings isActive storeType drugLicenseExpiry',
+      // storeType: legacy pharmacies are refused below.
+      'status restaurantName zoneId location city state area isAcceptingOrders autoAcceptOrders outsideHoursOverride openingTime closingTime openDays deliveryTimings isActive storeType',
     )
     .lean();
 
   if (!doc) throw new ValidationError('Restaurant not found');
   if (doc.status !== 'approved') throw new ValidationError('Restaurant not available');
-  {
-    // An expired drug licence takes a pharmacy offline, including for an order
-    // from an app that still had it on screen.
-    const { isLicenceExpired } = await import('../../shared/partnerOnboarding.js');
-    if (isLicenceExpired(doc)) {
-      throw new ValidationError('This pharmacy is not taking orders right now.');
-    }
+  // A legacy pharmacy (the Medical vertical was removed) takes no orders, even
+  // from an app that still had it on screen.
+  if (isLegacyPharmacy(doc.storeType)) {
+    throw new ValidationError('This store is not taking orders right now.');
   }
 
   const [withTimings] = await attachOutletTimingsToRestaurants([doc], {
@@ -222,23 +216,19 @@ const asQcRanges = (slabs) =>
  * @param {string} [opts.zoneId] scopes the earning table to a city when set
  *
  * The one place every quick-commerce earning path reads its bands from, which is
- * why the Master table is overlaid HERE: order pricing, order creation and
- * prescription orders all pick it up without each being rewired.
+ * why the Master table is overlaid HERE: order pricing and order creation
+ * both pick it up without each being rewired.
  */
 /**
  * The zone an order to this address falls in -- the same answer order creation
  * stores (order.service.js resolveServiceableZone), else the store's own zone --
  * so a quote and the placed order read the same zone-level settings.
  */
-async function zoneIdForPricing(restaurant, deliveryAddress, vertical) {
+async function zoneIdForPricing(restaurant, deliveryAddress) {
   try {
     const point = readAddressPoint(deliveryAddress);
     if (point) {
-      const zone = await findZoneForPoint(
-        point.lat,
-        point.lng,
-        vertical === 'medical' ? ZONE_VERTICALS.MEDICAL : ZONE_VERTICALS.QUICK,
-      );
+      const zone = await findZoneForPoint(point.lat, point.lng, ZONE_VERTICALS.QUICK);
       if (zone?._id) return String(zone._id);
     }
   } catch {
@@ -253,8 +243,7 @@ export async function loadActiveFeeSettings({ zoneId, vertical = 'quickCommerce'
     .lean();
 
   // Master's platform fee when set (core/finance/platformFees).
-  // Fees stay on the Quick & Medical setting (Master's fee screen has no
-  // separate Medical tab); a zone's own fee still applies.
+  // Fees are the Quick Commerce setting; a zone's own fee still applies.
   const settings = await withMasterFees('quickCommerce', feeDoc || {
     deliveryFee: 0,
     deliveryFeeRanges: [],
@@ -348,7 +337,7 @@ export function computeItemsTax(
 /**
  * GST on the platform fee. Charged at the rate Master > Platform fee & GST sets
  * (withMasterFees puts it on the settings as platformFeeGstRate); absent means
- * not charged, which is how Quick & Medical always worked before one was set.
+ * not charged, which is how Quick Commerce always worked before one was set.
  * A separate line, never folded into `tax`: `tax` is the goods' GST, and returns
  * and seller figures read it as such.
  */
@@ -490,12 +479,10 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     ),
   );
 
-  // A pharmacy is priced by the Medical formula when one is set there, and
-  // any zone-level setting for the zone this address is in.
-  const orderVertical = isMedicalStore(restaurant?.storeType) ? 'medical' : 'quickCommerce';
+  // Any zone-level setting for the zone this address is in applies.
   const feeSettings = await loadActiveFeeSettings({
-    vertical: orderVertical,
-    zoneId: await zoneIdForPricing(restaurant, deliveryAddress, orderVertical),
+    vertical: 'quickCommerce',
+    zoneId: await zoneIdForPricing(restaurant, deliveryAddress),
   });
 
   const packagingFee = 0;
@@ -607,17 +594,14 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   // same tax it charged.
   const gstFallbackRate = Number(feeSettings.gstRate || 0);
   const gstOnPreDiscountValue = Number(discount) > 0;
-  // Medical orders carry no GST at all -- not on medicines, not on delivery
-  // (business rule, 2026-09-29). The platform fee and its GST still apply.
-  const isMedicalOrder = orderVertical === 'medical';
-  const tax = isMedicalOrder ? 0 : computeItemsTax(items, {
+  const tax = computeItemsTax(items, {
     discountFundedByPlatform: gstOnPreDiscountValue,
     subtotal,
     discount,
     fallbackRate: gstFallbackRate,
   });
 
-  const deliveryFeeGst = isMedicalOrder ? 0 : computeDeliveryFeeGst(deliveryFee);
+  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee);
   // GST on the platform fee, at Master's rate when one is set (not charged otherwise).
   const { platformFeeGstRate, platformFeeGst } = platformFeeGstFor(feeSettings, platformFee);
 

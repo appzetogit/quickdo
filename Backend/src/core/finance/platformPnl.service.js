@@ -10,7 +10,7 @@ import { decideAdminAccess } from '../admin/adminAccessPolicy.js';
  * this reads those records rather than re-deriving the money, so the figures
  * here are the ones each service's own reports and payouts are built from:
  *
- *   Food, Quick & Medical  food_transactions / qc_transactions, on delivered
+ *   Food, Quick Commerce  food_transactions / qc_transactions, on delivered
  *                          orders. platformNetProfit is platform fee + delivery
  *                          fee + surge + commission + admin packaging + round-off
  *                          - rider pay - any coupon the platform funded
@@ -35,7 +35,7 @@ const TZ = 'Asia/Kolkata';
 
 const SERVICES = {
   food: { label: 'Food', service: 'food', unit: 'orders' },
-  quick: { label: 'Quick & Medical', service: 'quickCommerce', unit: 'orders' },
+  quick: { label: 'Quick Commerce', service: 'quickCommerce', unit: 'orders' },
   taxi: { label: 'Taxi', service: 'taxi', unit: 'rides' },
   services: { label: 'Services', service: 'serviceProvider', unit: 'bookings' },
 };

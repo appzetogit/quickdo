@@ -37,9 +37,6 @@ const EMPTY = {
   landmark: "",
   latitude: null,
   longitude: null,
-  drugLicenseNumber: "",
-  drugLicenseExpiry: "",
-  drugLicenseImage: "",
   gstRegistered: false,
   gstNumber: "",
   gstImage: "",
@@ -48,10 +45,6 @@ const EMPTY = {
   panImage: "",
   fssaiNumber: "",
   fssaiImage: "",
-  businessRegistrationImage: "",
-  pharmacistName: "",
-  pharmacistRegistrationNumber: "",
-  pharmacistCertificateImage: "",
   storeFrontImage: "",
   storeInsideImage: "",
   storeSignboardImage: "",
@@ -69,16 +62,9 @@ const CHECK_KEY = {
   addressLine1: "address",
   city: "address",
   latitude: "location",
-  drugLicenseNumber: "drugLicenseNumber",
-  drugLicenseExpiry: "drugLicenseExpiry",
-  drugLicenseImage: "drugLicenseImage",
   panNumber: "panNumber",
   panImage: "panImage",
   fssaiImage: "fssaiImage",
-  businessRegistrationImage: "businessRegistrationImage",
-  pharmacistName: "pharmacist.name",
-  pharmacistRegistrationNumber: "pharmacist.registrationNumber",
-  pharmacistCertificateImage: "pharmacist.certificateImage",
   storeFrontImage: "storePhotos.front",
   storeInsideImage: "storePhotos.inside",
   storeSignboardImage: "storePhotos.signboard",
@@ -97,11 +83,7 @@ const STEPS = [
 
 const STEP_FIELDS = {
   basic: ["restaurantName", "ownerName", "ownerEmail", "addressLine1", "city", "latitude"],
-  documents: [
-    "drugLicenseNumber", "drugLicenseExpiry", "drugLicenseImage", "panNumber", "panImage",
-    "businessRegistrationImage", "pharmacistName", "pharmacistRegistrationNumber", "pharmacistCertificateImage",
-    "fssaiImage", "gstImage",
-  ],
+  documents: ["panNumber", "panImage", "fssaiImage", "gstImage"],
   photos: ["storeFrontImage", "storeInsideImage", "storeSignboardImage"],
   bank: ["accountHolderName", "accountNumber", "ifscCode", "upiId"],
 }
@@ -113,15 +95,8 @@ const LABELS = {
   addressLine1: "Store address",
   city: "City",
   latitude: "Location on map",
-  drugLicenseNumber: "Drug licence number",
-  drugLicenseExpiry: "Drug licence expiry date",
-  drugLicenseImage: "Drug licence document",
   panNumber: "PAN number",
   panImage: "PAN card photo",
-  businessRegistrationImage: "Store / business registration document",
-  pharmacistName: "Pharmacist name",
-  pharmacistRegistrationNumber: "Pharmacist registration number",
-  pharmacistCertificateImage: "Pharmacist registration certificate",
   fssaiImage: "FSSAI licence",
   gstImage: "GST certificate",
   storeFrontImage: "Front / entrance photo",
@@ -141,7 +116,6 @@ const fromApplication = (app) => {
   for (const key of Object.keys(EMPTY)) {
     if (app[key] !== undefined && app[key] !== null) out[key] = app[key]
   }
-  if (app.drugLicenseExpiry) out.drugLicenseExpiry = String(app.drugLicenseExpiry).slice(0, 10)
   return out
 }
 
@@ -207,7 +181,6 @@ export default function PartnerApply() {
   }
   if (!session.onboardingToken) return <Navigate to="/partner/status" replace />
 
-  const isMedical = type === "medical"
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }))
   const isRequired = (field) => {
     if (field === "gstImage") return form.gstRegistered === true
@@ -219,14 +192,8 @@ export default function PartnerApply() {
     if (field === "gstImage") return Boolean(form.gstImage && form.gstNumber)
     return String(form[field] ?? "").trim() !== ""
   }
-  const visible = (field) => {
-    const medicalOnly = ["drugLicenseNumber", "drugLicenseExpiry", "drugLicenseImage", "businessRegistrationImage", "pharmacistName", "pharmacistRegistrationNumber", "pharmacistCertificateImage"]
-    if (medicalOnly.includes(field)) return isMedical
-    if (field === "fssaiImage") return !isMedical
-    return true
-  }
   const missingOn = (stepId) =>
-    STEP_FIELDS[stepId].filter((f) => visible(f) && isRequired(f) && !isFilled(f)).map((f) => LABELS[f])
+    STEP_FIELDS[stepId].filter((f) => isRequired(f) && !isFilled(f)).map((f) => LABELS[f])
 
   const next = () => {
     const missing = missingOn(STEPS[step].id)
@@ -250,7 +217,7 @@ export default function PartnerApply() {
     try {
       const body = {
         ...form,
-        storeType: isMedical ? "pharmacy" : form.storeType,
+        storeType: form.storeType,
         latitude: form.latitude != null ? String(form.latitude) : undefined,
         longitude: form.longitude != null ? String(form.longitude) : undefined,
         gstRegistered: form.gstRegistered ? "true" : "false",
@@ -314,27 +281,25 @@ export default function PartnerApply() {
       <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {current === "basic" && (
           <>
-            <TextInput label={isMedical ? "Pharmacy / store name" : "Store name"} required={isRequired("restaurantName")} value={form.restaurantName} onChange={set("restaurantName")} />
+            <TextInput label="Store name" required={isRequired("restaurantName")} value={form.restaurantName} onChange={set("restaurantName")} />
             <div className="grid gap-4 md:grid-cols-2">
               <TextInput label="Owner name" required={isRequired("ownerName")} value={form.ownerName} onChange={set("ownerName")} autoComplete="name" />
               <TextInput label="Email" required={isRequired("ownerEmail")} value={form.ownerEmail} onChange={set("ownerEmail")} type="email" autoComplete="email" />
             </div>
-            {!isMedical && (
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-800">What kind of store</span>
-                <select
-                  value={form.storeType}
-                  onChange={(e) => set("storeType")(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3"
-                >
-                  {STORE_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-slate-800">What kind of store</span>
+              <select
+                value={form.storeType}
+                onChange={(e) => set("storeType")(e.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3"
+              >
+                {STORE_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <TextInput label="Store address" required={isRequired("addressLine1")} value={form.addressLine1} onChange={set("addressLine1")} placeholder="Shop no., building, street" />
             <div className="grid gap-4 md:grid-cols-2">
               <TextInput label="Area / locality" value={form.area} onChange={set("area")} />
@@ -357,36 +322,12 @@ export default function PartnerApply() {
 
         {current === "documents" && (
           <>
-            {isMedical && (
-              <div className="space-y-4 rounded-xl bg-slate-50 p-4">
-                <h2 className="text-sm font-semibold text-slate-800">Drug licence</h2>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <TextInput label="Licence number" required={isRequired("drugLicenseNumber")} value={form.drugLicenseNumber} onChange={set("drugLicenseNumber")} />
-                  <TextInput label="Valid until" required={isRequired("drugLicenseExpiry")} value={form.drugLicenseExpiry} onChange={set("drugLicenseExpiry")} type="date" min={new Date().toISOString().slice(0, 10)} />
-                </div>
-                <UploadField label="Drug licence" required={isRequired("drugLicenseImage")} value={form.drugLicenseImage} onChange={set("drugLicenseImage")} token={token} />
-              </div>
-            )}
             <div className="grid gap-4 md:grid-cols-2">
               <TextInput label="PAN number" required={isRequired("panNumber")} value={form.panNumber} onChange={(v) => set("panNumber")(v.toUpperCase().slice(0, 10))} placeholder="ABCDE1234F" />
               <TextInput label="Name on PAN" value={form.nameOnPan} onChange={set("nameOnPan")} />
             </div>
             <UploadField label="PAN card" required={isRequired("panImage")} value={form.panImage} onChange={set("panImage")} token={token} />
-            {isMedical ? (
-              <>
-                <UploadField label="Store / business registration document" hint="Shop & establishment certificate, trade licence or similar" required={isRequired("businessRegistrationImage")} value={form.businessRegistrationImage} onChange={set("businessRegistrationImage")} token={token} />
-                <div className="space-y-4 rounded-xl bg-slate-50 p-4">
-                  <h2 className="text-sm font-semibold text-slate-800">Registered pharmacist</h2>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <TextInput label="Pharmacist name" required={isRequired("pharmacistName")} value={form.pharmacistName} onChange={set("pharmacistName")} />
-                    <TextInput label="Registration number" required={isRequired("pharmacistRegistrationNumber")} value={form.pharmacistRegistrationNumber} onChange={set("pharmacistRegistrationNumber")} />
-                  </div>
-                  <UploadField label="Pharmacist registration certificate" required={isRequired("pharmacistCertificateImage")} value={form.pharmacistCertificateImage} onChange={set("pharmacistCertificateImage")} token={token} />
-                </div>
-              </>
-            ) : (
-              <UploadField label="FSSAI licence" required={isRequired("fssaiImage")} value={form.fssaiImage} onChange={set("fssaiImage")} token={token} />
-            )}
+            <UploadField label="FSSAI licence" required={isRequired("fssaiImage")} value={form.fssaiImage} onChange={set("fssaiImage")} token={token} />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.gstRegistered} onChange={(e) => set("gstRegistered")(e.target.checked)} className="h-4 w-4 accent-emerald-600" />
               My business is GST registered
@@ -404,11 +345,11 @@ export default function PartnerApply() {
           <>
             <p className="text-sm text-slate-600">
               We use the front photo to confirm your store is a real, physical shop. Take it from the street so the entrance
-              {isMedical ? " and pharmacy sign are" : " is"} clearly visible.
+              is clearly visible.
             </p>
             <UploadField label="Front / entrance photo" required={isRequired("storeFrontImage")} value={form.storeFrontImage} onChange={set("storeFrontImage")} token={token} accept="image/*" capture="environment" />
             <UploadField label="Inside the store" required={isRequired("storeInsideImage")} value={form.storeInsideImage} onChange={set("storeInsideImage")} token={token} accept="image/*" capture="environment" />
-            <UploadField label={isMedical ? "Pharmacy signboard" : "Signboard"} required={isRequired("storeSignboardImage")} value={form.storeSignboardImage} onChange={set("storeSignboardImage")} token={token} accept="image/*" capture="environment" />
+            <UploadField label="Signboard" required={isRequired("storeSignboardImage")} value={form.storeSignboardImage} onChange={set("storeSignboardImage")} token={token} accept="image/*" capture="environment" />
           </>
         )}
 

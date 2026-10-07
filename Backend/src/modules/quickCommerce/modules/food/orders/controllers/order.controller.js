@@ -204,24 +204,6 @@ export async function updateOrderStatusRestaurantController(req, res, next) {
     }
 }
 
-/**
- * Seller approves or rejects the prescription on a medical order.
- * Separate from the status change: reviewing the prescription and accepting the
- * order are two decisions, and the order cannot be accepted until this one is made.
- */
-export async function reviewOrderPrescriptionController(req, res, next) {
-    try {
-        const restaurantId = req.user?.userId;
-        const orderId = req.params.orderId;
-        const decision = String(req.body?.decision || '').trim().toLowerCase();
-        const reason = String(req.body?.reason || req.body?.rejectionReason || '').trim();
-        const result = await orderService.reviewOrderPrescription(orderId, restaurantId, decision, reason);
-        return sendResponse(res, 200, `Prescription ${decision}`, result);
-    } catch (err) {
-        next(err);
-    }
-}
-
 export async function listOrdersAvailableDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;
@@ -438,7 +420,7 @@ export async function resendDeliveryNotificationAdminController(req, res, next) 
  * The panel's Accept and Reject buttons both come here -- they PATCH
  * `/orders/:id/status` with the status they want, the same call the food
  * module has always had. This fork only had `/accept` and `/reject`, which no
- * panel calls, so every Accept on a quick-commerce or medical order answered
+ * panel calls, so every Accept on a quick-commerce order answered
  * 404 and the screen said "Failed to accept order".
  */
 export async function updateOrderStatusAdminController(req, res, next) {

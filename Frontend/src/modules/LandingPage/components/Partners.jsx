@@ -19,8 +19,8 @@ const partners = [
   {
     type: 'restaurant', icon: Store,
     title: 'Sell on Quick Drop',
-    subtitle: 'Restaurants, stores and medical stores',
-    description: 'List your restaurant, store or pharmacy on Quick Drop. Reach thousands of local customers and use our delivery fleet — register in minutes and start taking orders once approved.',
+    subtitle: 'Restaurants and stores',
+    description: 'List your restaurant or store on Quick Drop. Reach thousands of local customers and use our delivery fleet — register in minutes and start taking orders once approved.',
     benefits: ['Access to extensive customer database', 'Advanced order & dashboard analytics', 'Flexible pricing & promotional campaigns', 'Professional delivery network integration'],
     ctaText: 'Become a partner', ctaHref: '/partner',
     color: '#FFB800', gradient: 'from-[#FFB800] to-[#ff5100]',

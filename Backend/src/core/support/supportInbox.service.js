@@ -6,7 +6,7 @@ import { decideAdminAccess } from '../admin/adminAccessPolicy.js';
  * One support inbox for the whole platform (Master > Help & Support).
  *
  * Tickets are raised in seven places -- customers, restaurants/stores and riders
- * in Food and in Quick (which includes Medical), and everyone in Taxi -- and each
+ * in Food and in Quick, and everyone in Taxi -- and each
  * service's admin saw only its own. This reads all seven into one list and hands
  * every change back to the service that owns the ticket: a reply goes through
  * that service's own update function, so whatever it already does on a reply

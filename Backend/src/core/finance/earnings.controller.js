@@ -11,7 +11,7 @@ import { resolveDeliveryFormula, formulaFromSlabs } from './deliveryFormula.js';
  * bands, ids and all, is what keeps that intact.
  */
 
-const VERTICALS = Object.freeze(['food', 'quickCommerce', 'medical', 'taxi']);
+const VERTICALS = Object.freeze(['food', 'quickCommerce', 'taxi']);
 
 /** Each module's own bands, in the engine's shape. Empty when it has none. */
 async function legacyFor(vertical) {
@@ -21,7 +21,7 @@ async function legacyFor(vertical) {
         );
         return FoodDeliveryCommissionRule.find({ status: { $ne: false } }).lean();
     }
-    if (vertical === 'quickCommerce' || vertical === 'medical') {
+    if (vertical === 'quickCommerce') {
         const { FoodFeeSettings } = await import(
             '../../modules/quickCommerce/modules/food/admin/models/feeSettings.model.js'
         );

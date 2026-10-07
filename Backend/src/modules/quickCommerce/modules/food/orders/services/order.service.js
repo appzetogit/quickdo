@@ -12,7 +12,6 @@ import { FoodZone } from '../../admin/models/zone.model.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../../../core/auth/errors.js';
 import { reserveStockForItems, releaseReservations, restoreOrderStock } from './inventory.service.js';
 import { findZoneForPoint, readAddressPoint, ZONE_VERTICALS } from '../../shared/zoneServiceability.js';
-import { isMedicalStore } from '../../shared/storeType.js';
 import { sellerIdsOfStoreType, applySellerScope } from '../../shared/storeScope.js';
 import { attachRestaurantPayout } from '../../shared/restaurantPayout.js';
 import { buildPaginationOptions, buildPaginatedResult } from '../../../../utils/helpers.js';
@@ -47,14 +46,6 @@ import {
   assertRestaurantOpenForOrdering,
 } from './order-pricing.service.js';
 import { normalizeDeliveryAddress, fillAddressLocality } from '../../shared/geo.utils.js';
-import {
-  assertCanAcceptOrder,
-  buildOrderPrescription,
-  reviewPrescription,
-} from '../../shared/prescriptionRules.js';
-import { assertBillApproved,
-  assertPrescriptionOrderPriced,
-  isPriced as isPrescriptionOrderPriced } from '../../shared/prescriptionOrder.js';
 import * as dispatchService from './order-dispatch.service.js';
 import * as deliveryService from './order-delivery.service.js';
 import * as paymentService from './order-payment.service.js';
@@ -77,6 +68,7 @@ import {
   canExposeOrderToRestaurant,
   isStatusAdvance,
   STATUS_PRIORITY,
+  legacyPrescriptionAwaitingCustomer,
 } from './order.helpers.js';
 
 
@@ -140,7 +132,7 @@ async function claimCouponForCustomer(order, userId, awaitingOnline) {
       orderStatus: "pending_payment",
       "payment.status": { $nin: ["paid", "refunded"] },
       "pricing.couponCode": { $in: [couponCode, order.pricing.couponCode] },
-    }).select("_id orderStatus payment stockReservedAt stockRestoredAt prescriptionOnly").lean();
+    }).select("_id orderStatus payment stockReservedAt stockRestoredAt").lean();
     for (const doc of older) {
       try { await expirePendingPaymentOrder(doc); } catch (err) { logger.warn(`superseding ${doc._id} failed: ${err?.message || err}`); }
     }
@@ -241,49 +233,10 @@ async function deletePendingPaymentOrder(orderLike) {
 }
 
 /**
- * An abandoned payment on a prescription order is put back, not thrown away.
- *
- * Deleting it is right for a catalogue order: the customer committed to
- * nothing, and rebuilding a cart takes seconds. A prescription order is the
- * opposite. The customer photographed a prescription, a pharmacist read and
- * verified it, and priced a bill against it -- and deleting all of that
- * because someone opened the payment sheet and put their phone down means the
- * customer starts again and the pharmacist reads the same prescription twice.
- *
- * So it returns to where it was before they tapped pay: the bill still sent,
- * still unanswered. They can pay it later or take cash on delivery, and the
- * stale gateway order is cleared so the next attempt mints a fresh one.
- */
-async function releaseAbandonedPrescriptionPayment(orderLike) {
-    const order = await FoodOrder.findOne({
-        _id: orderLike._id,
-        orderStatus: 'pending_payment',
-        'payment.status': { $nin: ['paid', 'refunded'] },
-    });
-    if (!order) return false;
-
-    order.orderStatus = 'created';
-    order.payment.status = 'cod_pending';
-    order.payment.razorpay = { orderId: '', paymentId: '', signature: '' };
-    pushStatusHistory(order, {
-        byRole: 'SYSTEM',
-        byId: null,
-        from: 'pending_payment',
-        to: 'created',
-        note: 'Online payment abandoned; the bill is still waiting to be answered',
-    });
-    await order.save();
-    return true;
-}
-
-/**
- * What to do with a pending-payment order nobody completed. Exported for the
- * tests, which must be able to prove the two kinds part company here.
+ * What to do with a pending-payment order nobody completed: delete it.
+ * Exported for the maintenance path and the tests.
  */
 export async function expirePendingPaymentOrder(orderLike) {
-    if (orderLike?.prescriptionOnly) {
-        return releaseAbandonedPrescriptionPayment(orderLike);
-    }
     return deletePendingPaymentOrder(orderLike);
 }
 
@@ -309,17 +262,7 @@ async function resolveServiceableZone(restaurant, deliveryAddress) {
   // them would block real customers over missing data they never entered.
   if (!point) return null;
 
-  /*
-   * A pharmacy is asked against the medical map, everyone else against quick
-   * commerce's. The seller decides it, not the caller: this same function
-   * prices a grocery basket and a catalogue order of medicines, and the two
-   * verticals draw their zones separately.
-   */
-  const vertical = isMedicalStore(restaurant?.storeType)
-    ? ZONE_VERTICALS.MEDICAL
-    : ZONE_VERTICALS.QUICK;
-
-  const zone = await findZoneForPoint(point.lat, point.lng, vertical);
+  const zone = await findZoneForPoint(point.lat, point.lng, ZONE_VERTICALS.QUICK);
   if (!zone) {
     throw new ValidationError("We don't deliver to this address yet");
   }
@@ -345,8 +288,7 @@ export async function expireStalePendingPaymentOrders() {
     "payment.status": { $in: ["created", "pending", "failed"] },
     createdAt: { $lte: cutoff },
   })
-    // prescriptionOnly decides whether this order is deleted or put back.
-    .select("_id orderStatus payment stockReservedAt stockRestoredAt prescriptionOnly")
+    .select("_id orderStatus payment stockReservedAt stockRestoredAt")
     .lean();
 
   for (const doc of stale) {
@@ -366,19 +308,28 @@ function buildAcceptanceDeadline(date = new Date(), windowSeconds = ORDER_ACCEPT
 }
 
 /**
- * Who the customer's order is with, in words they recognise. Quick & Medical
- * sell through stores and pharmacies; the messages below were copied from Food
- * and said "restaurant", which a customer who ordered medicine read as wrong.
+ * Who the customer's order is with, in words they recognise. The messages below
+ * were copied from Food and said "restaurant".
  */
-function sellerNoun(order) {
-  return order?.prescription?.required === true ? 'pharmacy' : 'store';
+function sellerNoun() {
+  return 'store';
 }
 
 /** The reason shown to the customer when the seller rejects without giving one. */
-function defaultSellerCancelReason(order) {
-  return sellerNoun(order) === 'pharmacy'
-    ? 'The pharmacy could not fulfil this order (prescription or medicine unavailable).'
-    : 'The store could not fulfil this order.';
+function defaultSellerCancelReason() {
+  return 'The store could not fulfil this order.';
+}
+
+/**
+ * A legacy prescription order (the Medical vertical was removed) that the
+ * customer never agreed a bill for can only be cancelled: nothing can price or
+ * bill it any more.
+ */
+function assertLegacyPrescriptionCancelOnly(order, targetStatus) {
+  if (String(targetStatus || '').includes('cancel')) return;
+  if (legacyPrescriptionAwaitingCustomer(order)) {
+    throw new ValidationError('This prescription order can no longer be fulfilled. Cancel it instead.');
+  }
 }
 
 function buildCancellationRefundDescription(order, cancelledBy = 'system') {
@@ -769,7 +720,7 @@ export async function createOrder(userId, dto) {
     }
 
     const feeSettings = await loadActiveFeeSettings({
-      vertical: isMedicalStore(restaurant?.storeType) ? 'medical' : 'quickCommerce',
+      vertical: 'quickCommerce',
       zoneId: serviceableZone?._id ? String(serviceableZone._id) : restaurant?.zoneId ? String(restaurant.zoneId) : undefined,
     });
     const riderEarning = calculateRiderEarning(feeSettings, distanceKm) || 0;
@@ -797,29 +748,14 @@ export async function createOrder(userId, dto) {
       restaurantCommission -
       riderEarning;
 
-    // Medicine may not be dispensed against nothing: an order with a medical seller
-    // must carry a prescription, and this refuses it at creation rather than letting
-    // it reach the seller's queue looking like any other order.
-    const prescription = buildOrderPrescription(restaurant, dto, orderAt);
-
     const isAwaitingOnlinePayment = isAwaitingOnlinePaymentMethod(paymentMethod);
     // A trusted seller's order is confirmed on arrival: no window, no timeout
     // job, and the rider hunt starts now rather than after somebody taps a
     // tablet. Orders still awaiting payment are never auto-confirmed -- money
     // first, always.
-    //
-    // A medical order is never auto-accepted, no matter what the pharmacy's
-    // own autoAcceptOrders setting says: it still needs the pharmacist to
-    // review the prescription, price it and get the customer's bill approval
-    // (COD click or verified payment) before a rider can be sent for it --
-    // see assertBillApproved/assertDeliveryPartnerAssignable. Without this
-    // check, a pharmacy with auto-accept on would jump straight to
-    // orderStatus 'confirmed' and dispatch a rider at the same instant the
-    // order was placed, skipping every one of those steps.
     const autoAccept =
       restaurant?.autoAcceptOrders === true &&
-      !isAwaitingOnlinePayment &&
-      !prescription.required;
+      !isAwaitingOnlinePayment;
     const initialStatus = isAwaitingOnlinePayment
       ? "pending_payment"
       : autoAccept
@@ -830,7 +766,6 @@ export async function createOrder(userId, dto) {
     const order = new FoodOrder({
       userId: toObjectId(userId, 'User ID'),
       restaurantId: restaurantId,
-      prescription,
       // Server-resolved zone wins over the client's: it is the one that was
       // actually tested against the delivery address.
       zoneId: serviceableZone?._id
@@ -1100,39 +1035,8 @@ export async function verifyPayment(userId, dto) {
   order.payment.razorpay.paymentId = dto.razorpayPaymentId;
   order.payment.razorpay.signature = dto.razorpaySignature;
 
-  /*
-   * Paying the pharmacy's bill IS approving it, and only here -- a customer who
-   * opened the payment sheet and walked away has agreed to nothing, so the
-   * approval is stamped on the verified payment rather than when the sheet was
-   * opened. Until it is stamped, assertBillApproved keeps the order out of the
-   * pharmacy's preparation queue.
-   */
-  const isBillPayment =
-    order.prescriptionOnly === true && order.prescription?.bill?.status === 'submitted';
-  if (isBillPayment) {
-    order.prescription.bill.status = 'approved';
-    order.prescription.bill.approvedAt = new Date();
-  }
-
   const from = order.orderStatus;
 
-  if (isBillPayment) {
-    // This order already exists, was already accepted and packed (see
-    // submitPrescriptionBill) -- paying the bill approves it, it does not
-    // place a new one. Everything below this branch (fresh 'created' status,
-    // a new acceptance deadline, "new order" notification) is for an order
-    // being paid for the FIRST time; running it here would send an
-    // already-in-progress order back to square one the moment its bill is
-    // paid.
-    pushStatusHistory(order, {
-      byRole: "USER",
-      byId: userId,
-      from,
-      to: order.orderStatus,
-      note: "Bill payment verified",
-    });
-    await order.save();
-  } else {
   const acceptanceWindowSeconds = await getOrderAcceptanceWindowSeconds();
   order.orderStatus = "created";
   order.acceptanceWindowSeconds = acceptanceWindowSeconds;
@@ -1161,7 +1065,6 @@ export async function verifyPayment(userId, dto) {
   ).catch((err) => {
     logger.warn(`Failed to enqueue acceptance timeout check: ${err?.message || err}`);
   });
-  }
 
   try {
     const transaction = await foodTransactionService.createInitialTransaction(order);
@@ -1186,17 +1089,8 @@ export async function verifyPayment(userId, dto) {
     recordedById: new mongoose.Types.ObjectId(userId)
   });
 
-  if (isBillPayment) {
-    // The pharmacy already knows about this order -- this payment approved
-    // its bill, not placed it. That approval (same as the COD branch of
-    // approvePrescriptionBill) is what should send it to a rider now.
-    void tryAutoAssign(order._id).catch((err) => {
-      logger.warn(`Auto-dispatch failed after online bill payment for ${order._id}: ${err?.message || err}`);
-    });
-  } else {
-    // After online payment is verified, now notify restaurant about the new order.
-    await notifyRestaurantNewOrder(order);
-  }
+  // After online payment is verified, now notify restaurant about the new order.
+  await notifyRestaurantNewOrder(order);
 
   // No "Payment Successful" push.
   //
@@ -2054,35 +1948,6 @@ export async function listOrdersRestaurant(restaurantId, query) {
   };
 }
 
-/**
- * Seller reviews the prescription on a medical order.
- *
- * Separate from the status change on purpose: approving the prescription and
- * accepting the order are two decisions, and collapsing them would let an order be
- * accepted without anyone having looked at what was uploaded.
- *
- * @param {'approved'|'rejected'} decision
- */
-export async function reviewOrderPrescription(orderId, restaurantId, decision, reason = "") {
-  const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne({
-    ...identity,
-    restaurantId: new mongoose.Types.ObjectId(restaurantId),
-  });
-  if (!order) throw new NotFoundError("Order not found");
-
-  order.prescription = reviewPrescription(order, decision, {
-    reviewerId: new mongoose.Types.ObjectId(restaurantId),
-    reason,
-  });
-  await order.save();
-
-  return {
-    orderId: String(order._id),
-    prescription: order.prescription,
-  };
-}
-
 export async function updateOrderStatusRestaurant(
   orderId,
   restaurantId,
@@ -2091,8 +1956,7 @@ export async function updateOrderStatusRestaurant(
 ) {
   // Pickup and delivery are the rider's steps (handover code, cash, ledger). A
   // store could mark its own order delivered -- which also recorded a cash
-  // order as paid -- and a pharmacy could do it with a prescription still
-  // pending or rejected, dispensing without a pharmacist's approval.
+  // order as paid.
   if (["picked_up", "reached_pickup", "reached_drop", "delivered"].includes(String(orderStatus))) {
     throw new ForbiddenError("Pickup and delivery are marked by the delivery partner");
   }
@@ -2117,18 +1981,7 @@ export async function updateOrderStatusRestaurant(
 
   const targetStatus = String(orderStatus || "").toLowerCase();
 
-  // A medical order cannot be accepted until the seller -- who is the pharmacist --
-  // has reviewed the customer's prescription. Cancelling stays available, so an
-  // order with an unreadable prescription is not stuck.
-  assertCanAcceptOrder(order, targetStatus);
-
-  // ...and a prescription order may not be accepted before it has been priced,
-  // or the customer would be committed to a delivery whose cost nobody has told
-  // them. Cancelling stays available either way.
-  assertPrescriptionOrderPriced(order, targetStatus);
-  // Priced is not agreed: the customer has to accept the pharmacy's bill (and
-  // pay it, if they are paying online) before the medicines are prepared.
-  assertBillApproved(order, targetStatus);
+  assertLegacyPrescriptionCancelOnly(order, targetStatus);
 
   if (targetStatus === "preparing" || targetStatus === "confirmed") {
     const now = new Date();
@@ -2160,7 +2013,7 @@ export async function updateOrderStatusRestaurant(
   }
 
   // A seller who rejects without a reason still leaves the customer one, in
-  // the seller's own terms (pharmacy / store), rather than an empty line.
+  // the seller's own terms, rather than an empty line.
   const isSellerCancel = String(orderStatus).includes("cancel");
   const sellerNote = String(note || "").trim() || (isSellerCancel ? defaultSellerCancelReason(order) : "");
   if (isSellerCancel && !String(order.cancellationReason || "").trim()) {
@@ -2202,18 +2055,12 @@ export async function updateOrderStatusRestaurant(
   let title = `Order ${order._id.toString()} updated`;
   let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
 
-  const seller = sellerNoun(order);
-  const isPharmacy = seller === 'pharmacy';
   if (orderStatus === "confirmed") {
     title = "Order Accepted!";
-    body = isPharmacy
-      ? "The pharmacy has accepted your order and is preparing your medicines."
-      : "The store has accepted your order and is packing it.";
+    body = "The store has accepted your order and is packing it.";
   } else if (orderStatus === "preparing") {
-    title = isPharmacy ? "Preparing your medicines" : "Packing your order";
-    body = isPharmacy
-      ? "The pharmacy is preparing your medicines."
-      : "The store is packing your order.";
+    title = "Packing your order";
+    body = "The store is packing your order.";
   } else if (orderStatus === "ready_for_pickup") {
     title = "Order is ready!";
     body = "Your order is ready and waiting to be picked up.";
@@ -2346,19 +2193,9 @@ export async function updateOrderStatusRestaurant(
     const io = getIO();
     if (io) {
       // On accept (confirmed or preparing) -> request delivery partners via central logic
-      //
-      // Skipped for a prescription-only order still unpriced: Accept no longer
-      // implies a price (see assertPrescriptionOrderPriced/FILLABLE_STATUSES),
-      // and finding a rider for a job with no known price or contents yet
-      // would offer it before the customer has agreed to anything. Once the
-      // bill is submitted and the customer approves/pays it, that approval
-      // (approvePrescriptionBill / verifyPayment) is what triggers this hunt.
-      const isUnpricedPrescriptionOrder =
-        order.prescriptionOnly === true && !isPrescriptionOrderPriced(order);
       if (
         (String(orderStatus) === "preparing" || String(orderStatus) === "confirmed") &&
-        (String(from) !== "preparing" && String(from) !== "confirmed") &&
-        !isUnpricedPrescriptionOrder
+        (String(from) !== "preparing" && String(from) !== "confirmed")
       ) {
         console.log(
           `[DEBUG] Order ${order._id.toString()} status changed to '${orderStatus}'. Triggering central delivery dispatch.`,
@@ -2776,11 +2613,9 @@ export async function listOrdersAdmin(query) {
   }
 
   /*
-   * Scope to one kind of shop, for the Medical panel: this same list pointed at
-   * pharmacies. Applied LAST, and it intersects -- every filter above may set
-   * the seller (a named seller, or every seller in a zone), and any of them
-   * applied afterwards would replace the scope and put a grocery seller's
-   * orders on a medical screen.
+   * Optionally scoped to one kind of shop. Applied LAST, and it intersects --
+   * every filter above may set the seller (a named seller, or every seller in a
+   * zone), and any of them applied afterwards would replace the scope.
    */
   applySellerScope(filter, await sellerIdsOfStoreType(FoodRestaurant, query.storeType));
 
@@ -2903,20 +2738,8 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
         throw new ValidationError(`Invalid order status: ${orderStatus}`);
     }
 
-    /*
-     * A medical order passes the same three gates for support as it does for
-     * the pharmacy, and for the same reason: the pharmacist has to have read
-     * the prescription, the order has to have been priced, and the customer
-     * has to have agreed to the bill. Support accepting around all three would
-     * commit a customer to medicine nobody checked and a total nobody quoted.
-     *
-     * Only acceptance is gated. Cancelling stays available from any state, so
-     * an order stuck on an unreadable prescription is never stuck for good.
-     */
-    const target = String(orderStatus || "").toLowerCase();
-    assertCanAcceptOrder(order, target);
-    assertPrescriptionOrderPriced(order, target);
-    assertBillApproved(order, target);
+    // A legacy prescription order nobody agreed a bill for can only be cancelled.
+    assertLegacyPrescriptionCancelOnly(order, String(orderStatus || "").toLowerCase());
     if (!isStatusAdvance(order.orderStatus, orderStatus)) {
         throw new ValidationError(
             `Cannot change order status from '${order.orderStatus}' to '${orderStatus}'`,
@@ -3026,11 +2849,9 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
             }
 
             // On accept (confirmed or preparing) -> request delivery partners via central logic.
-            // Same unpriced-prescription-order skip as the restaurant path (above).
             if (
                 (String(orderStatus) === "preparing" || String(orderStatus) === "confirmed") &&
-                (String(from) !== "preparing" && String(from) !== "confirmed") &&
-                !(order.prescriptionOnly === true && !isPrescriptionOrderPriced(order))
+                (String(from) !== "preparing" && String(from) !== "confirmed")
             ) {
                 console.log(
                     `[DEBUG] Order ${order._id.toString()} status changed to '${orderStatus}' by Admin. Triggering central delivery dispatch.`,

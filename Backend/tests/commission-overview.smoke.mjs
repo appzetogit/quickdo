@@ -6,7 +6,7 @@
  * What this guards:
  *   - each seller's rate is the one its next order would be charged, through
  *     the services' own rate functions: a dated schedule shows over the
- *     standing rate, a pharmacy with no rate shows the Medical default;
+ *     standing rate; a legacy pharmacy gets no Medical default any more;
  *   - a seller with no rate at all is counted, since it pays nothing;
  *   - last-30-day commission and the effective rate come from delivered
  *     orders only;
@@ -70,7 +70,8 @@ await ledger('food_orders', 'food_transactions', joy, 'delivered', daysAgo(10), 
 await ledger('food_orders', 'food_transactions', joy, 'delivered', daysAgo(45), 999, 99);
 await ledger('food_orders', 'food_transactions', joy, 'cancelled_by_user', daysAgo(3), 999, 99);
 
-// --- Quick & Medical: store with a rate, pharmacy on the default, pharmacy with its own.
+// --- Quick Commerce: store with a rate, legacy pharmacy without one (the old
+// Medical default is ignored), legacy pharmacy with its own.
 const grocer = oid();
 const pharmaDefault = oid();
 const pharmaOwn = oid();
@@ -125,15 +126,15 @@ await check('last 30 days: delivered orders only, with the effective rate', asyn
   assert.equal(svc.food.mode, 'commission');
 });
 
-console.log('\nQuick & Medical');
+console.log('\nQuick Commerce');
 await check('a store\'s own rate', async () => {
   assert.deepEqual(row('quick', 'Daily Needs').rate, { type: 'percentage', value: 10 });
-  assert.equal(row('quick', 'Daily Needs').kind, 'store');
+  assert.equal(row('quick', 'Daily Needs').source, 'restaurant_default');
 });
-await check('a pharmacy with no rate pays the Medical default', async () => {
-  assert.deepEqual(row('quick', 'Sharma Medical').rate, { type: 'percentage', value: 8 });
-  assert.equal(row('quick', 'Sharma Medical').source, 'medical_default');
-  assert.deepEqual(svc.quick.medicalDefault, { type: 'percentage', value: 8 });
+await check('a legacy pharmacy with no rate pays nothing (no Medical default)', async () => {
+  assert.equal(row('quick', 'Sharma Medical').rate.value, 0);
+  assert.equal(row('quick', 'Sharma Medical').source, 'none');
+  assert.equal(svc.quick.medicalDefault, undefined);
 });
 await check('a pharmacy with its own flat rate keeps it', async () => {
   assert.deepEqual(row('quick', 'City Chemist').rate, { type: 'amount', value: 20 });

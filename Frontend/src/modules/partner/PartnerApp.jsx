@@ -12,7 +12,7 @@ const FONT_HREF = "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500
 /**
  * /partner -- one door for everyone who sells on Quick Drop.
  *
- *   /partner                 choose Restaurant, Store or Medical store
+ *   /partner                 choose Restaurant or Store
  *   /partner/login/:type     phone and OTP (restaurants go to their own login)
  *   /partner/apply/:type     the application, new or being fixed
  *   /partner/status          waiting for review, rejected, or approved

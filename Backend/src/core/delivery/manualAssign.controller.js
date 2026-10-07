@@ -5,8 +5,8 @@ import { listRiderCandidates, assignRider, unassignRider } from './manualAssign.
 
 /**
  * Admin endpoints for assigning a rider by hand (manualAssign.js), one set per
- * panel: mounted under the Food admin router with 'food' and under the Quick &
- * Medical admin router with 'quickCommerce', behind each router's own admin
+ * panel: mounted under the Food admin router with 'food' and under the Quick
+ * Commerce admin router with 'quickCommerce', behind each router's own admin
  * and permission gates.
  */
 

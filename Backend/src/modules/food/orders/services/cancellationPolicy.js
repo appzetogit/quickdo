@@ -58,7 +58,7 @@ const MASTER_KEYS = {
  *
  * Master > Cancellation Policy wins for anything set there (for every service
  * or this one). Otherwise each service keeps its own: Food's Order
- * cancellation screen, and for Quick & Medical the rule it always had --
+ * cancellation screen, and for Quick Commerce the rule it always had --
  * cancel only before the store accepts. Quick runs the same order flow as Food
  * (it is a fork of it), so judgeUserCancel below applies to its orders as is.
  *
@@ -138,7 +138,7 @@ const riderHasTheFood = (order) =>
  *   there is no deadline, i.e. still waiting for the restaurant).
  */
 export function judgeUserCancel(order, rules, now = new Date()) {
-  // 'store' for Quick & Medical (getCancelRules sets it), 'restaurant' for Food.
+  // 'store' for Quick Commerce (getCancelRules sets it), 'restaurant' for Food.
   const seller = rules?.sellerWord || 'restaurant';
   const status = String(order?.orderStatus || '');
   if (status === 'created') return { allowed: true, until: null, reason: '' };

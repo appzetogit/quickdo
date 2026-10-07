@@ -10,9 +10,9 @@ import {
 /**
  * An admin hands an order to a rider of their choosing.
  *
- * One implementation for Food and for Quick & Medical (vertical 'food' |
+ * One implementation for Food and for Quick Commerce (vertical 'food' |
  * 'quickCommerce'). The admin always picks a FOOD rider -- the identity the
- * delivery app signs in as -- and for a Quick / Medical order the assignment is
+ * delivery app signs in as -- and for a Quick order the assignment is
  * stored against the linked Quick rider record (qcRiderLink.js), exactly as the
  * app's own accept does.
  *
@@ -82,19 +82,23 @@ const loaders = {
     };
   },
   quickCommerce: async () => {
-    const [{ FoodOrder }, { FoodRestaurant }, helpers, dispatch, socket, rx] = await Promise.all([
+    const [{ FoodOrder }, { FoodRestaurant }, helpers, dispatch, socket] = await Promise.all([
       import('../../modules/quickCommerce/modules/food/orders/models/order.model.js'),
       import('../../modules/quickCommerce/modules/food/restaurant/models/restaurant.model.js'),
       import('../../modules/quickCommerce/modules/food/orders/services/order.helpers.js'),
       import('../../modules/quickCommerce/modules/food/orders/services/order-dispatch.service.js'),
       import('../../modules/quickCommerce/config/socket.js'),
-      import('../../modules/quickCommerce/modules/food/shared/prescriptionOrder.js'),
     ]);
     return {
       vertical: 'quickCommerce', isQc: true, Order: FoodOrder, Restaurant: FoodRestaurant,
       helpers, tryAutoAssign: dispatch.tryAutoAssign, socket,
-      // A Medical order goes to a rider only once the customer has agreed to the bill.
-      assertAssignable: rx.assertDeliveryPartnerAssignable,
+      // A legacy prescription order goes to a rider only once the customer has
+      // agreed to the bill (helpers.legacyPrescriptionAwaitingCustomer).
+      assertAssignable: (order) => {
+        if (helpers.legacyPrescriptionAwaitingCustomer(order)) {
+          throw new ValidationError('The customer has not agreed the bill for this order yet.');
+        }
+      },
     };
   },
 };
@@ -476,7 +480,7 @@ export async function assignRider({ vertical: name, orderId, foodRiderId, admin 
   if (foodRider.status !== 'approved') throw new ValidationError('This rider is not approved for deliveries.');
 
   const partnerId = ctx.isQc ? await qcRiderIdForFoodRider(foodRiderId) : String(foodRiderId);
-  if (!partnerId) throw new ValidationError('This rider could not be linked for Quick & Medical deliveries.');
+  if (!partnerId) throw new ValidationError('This rider could not be linked for Quick Commerce deliveries.');
 
   const store = await storePointForOrder(ctx, order);
   const warnings = await warningsFor({ order, foodRider, store });

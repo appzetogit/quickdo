@@ -4,10 +4,10 @@ import { logger } from '../../utils/logger.js';
 /**
  * One rider, two rider records.
  *
- * Food and Quick & Medical keep separate rider pools (food_delivery_partners,
+ * Food and Quick Commerce keep separate rider pools (food_delivery_partners,
  * qc_delivery_partners). The delivery app only ever signs in, goes online and
  * sends its location through the FOOD side, so the Quick pool stayed offline
- * and Quick / Medical orders were never offered to anyone.
+ * and Quick orders were never offered to anyone.
  *
  * This links the two records of the same person (same phone, or the same
  * unified driver) so that:
@@ -115,7 +115,7 @@ export async function onlineFoodRidersAsQcCandidates() {
   return out;
 }
 
-/** Whether an order id (mongo id or display id) is a Quick / Medical order. */
+/** Whether an order id (mongo id or display id) is a Quick order. */
 export async function isQcOrderId(orderId) {
   const raw = String(orderId || '').trim();
   if (!raw) return false;
@@ -186,12 +186,12 @@ export async function syncQcRiderFromFood(foodRiderId, { availabilityStatus, lat
 }
 
 /*
- * One rider, one job across Food and Quick/Medical.
+ * One rider, one job across Food and Quick.
  *
  * Each side's busy check only looked at its own orders, and the cross-service
  * busy-lock is a no-op for riders with no unified driver record -- which is
  * every rider who signed up through the Food app. So a rider carrying a Food
- * order could be offered and accept a Medical order, and the reverse.
+ * order could be offered and accept a Quick order, and the reverse.
  */
 const activeJobFilter = (partnerIds) => ({
   'dispatch.status': 'accepted',
@@ -207,7 +207,7 @@ const orderModels = async () => {
   return { FoodOrder, QcOrder };
 };
 
-/** Whether this Food rider is carrying a Quick/Medical order. */
+/** Whether this Food rider is carrying a Quick order. */
 export async function foodRiderHasQcJob(foodRiderId) {
   const qcId = await qcRiderIdForFoodRider(foodRiderId);
   if (!qcId) return false;
@@ -223,7 +223,7 @@ export async function qcRiderHasFoodJob(qcRiderId) {
   return Boolean(await FoodOrder.exists(activeJobFilter([foodId])));
 }
 
-/** Of these Food riders, the ids (strings) carrying a Quick/Medical order. */
+/** Of these Food riders, the ids (strings) carrying a Quick order. */
 export async function foodRidersOnQcJobs(foodRiderIds = []) {
   const pairs = (await Promise.all(foodRiderIds.map(async (f) => [String(f), await qcRiderIdForFoodRider(f)])))
     .filter(([, q]) => q);

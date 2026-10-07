@@ -11,10 +11,8 @@ import { adminAPI, uploadAPI, zoneAPI } from "@food/api"
 import { toast } from "sonner"
 import {
   DEFAULT_STORE_TYPE,
-  STORE_TYPES,
-  isMedicalStore,
   isQuickCommerceAdminPath,
-  medicalLicenceError,
+  storeTypeOptions,
 } from "@food/utils/quickCommerceStoreType"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => { console.warn(...args) }
@@ -223,9 +221,6 @@ export default function AddRestaurant() {
     fssaiExpiry: "",
     fssaiImage: null,
     storeType: DEFAULT_STORE_TYPE,
-    drugLicenseNumber: "",
-    drugLicenseExpiry: "",
-    drugLicenseImage: null,
     accountNumber: "",
     confirmAccountNumber: "",
     ifscCode: "",
@@ -273,12 +268,11 @@ export default function AddRestaurant() {
           }
         }
 
-        const [profileImage, panImage, gstImage, fssaiImage, drugLicenseImage] = await Promise.all([
+        const [profileImage, panImage, gstImage, fssaiImage] = await Promise.all([
           getFileFromDB("profileImage"),
           getFileFromDB("panImage"),
           getFileFromDB("gstImage"),
           getFileFromDB("fssaiImage"),
-          getFileFromDB("drugLicenseImage"),
         ])
         const menuFilePromises = Array.from({ length: MAX_MENU_FILES }, (_, i) => getFileFromDB(`menuImage_${i}`))
         const menuFilesFromDB = (await Promise.all(menuFilePromises)).filter(Boolean)
@@ -291,7 +285,6 @@ export default function AddRestaurant() {
           if (panImage) setStep3((prev) => ({ ...prev, panImage }))
           if (gstImage) setStep3((prev) => ({ ...prev, gstImage }))
           if (fssaiImage) setStep3((prev) => ({ ...prev, fssaiImage }))
-          if (drugLicenseImage) setStep3((prev) => ({ ...prev, drugLicenseImage }))
         }
       } catch (err) {
         debugError("Failed to restore admin add form data:", err)
@@ -396,9 +389,6 @@ export default function AddRestaurant() {
 
   useEffect(() => {
     if (!isHydrated) return
-    if (isUploadableFile(step3.drugLicenseImage)) {
-      void saveFileToDB("drugLicenseImage", step3.drugLicenseImage)
-    }
     if (isUploadableFile(step3.fssaiImage)) {
       void saveFileToDB("fssaiImage", step3.fssaiImage)
     } else {
@@ -474,12 +464,6 @@ export default function AddRestaurant() {
 
   const validateStep3 = () => {
     const errors = []
-    // The server refuses a medical store without a current drug licence; catching it
-    // here means the admin is told before the uploads run, not after.
-    if (isQuickCommerce) {
-      const licenceError = medicalLicenceError(step3)
-      if (licenceError) errors.push(licenceError)
-    }
     if (!step3.panNumber?.trim()) errors.push("PAN number is required")
     if (step3.panNumber?.trim() && !PAN_REGEX.test(step3.panNumber.trim())) errors.push("PAN number must be in valid format")
     if (!step3.nameOnPan?.trim()) errors.push("Name on PAN is required")
@@ -591,14 +575,6 @@ export default function AddRestaurant() {
         fssaiImageData = step3.fssaiImage
       }
 
-      // Only a medical store has a drug licence to upload.
-      let drugLicenseImageData = null
-      if (step3.drugLicenseImage instanceof File) {
-        drugLicenseImageData = await handleUpload(step3.drugLicenseImage, "restaurant/drug-licence")
-      } else if (step3.drugLicenseImage?.url) {
-        drugLicenseImageData = step3.drugLicenseImage
-      }
-
       // Prepare payload
       const payload = {
         // Step 1
@@ -635,9 +611,6 @@ export default function AddRestaurant() {
         ...(isQuickCommerce
           ? {
               storeType: step3.storeType || DEFAULT_STORE_TYPE,
-              drugLicenseNumber: step3.drugLicenseNumber || "",
-              drugLicenseExpiry: step3.drugLicenseExpiry || "",
-              drugLicenseImage: drugLicenseImageData?.url || drugLicenseImageData || "",
             }
           : {}),
         accountNumber: step3.accountNumber,
@@ -1449,8 +1422,7 @@ export default function AddRestaurant() {
         )}
       </section>
 
-      {/* Store type decides which licence is mandatory, so it sits with the documents
-          rather than the profile. Quick-commerce only: a food restaurant has no
+      {/* Store type sits with the documents rather than the profile. Quick-commerce only: a food restaurant has no
           store type and the food API ignores the field. */}
       {isQuickCommerce && (
         <section className="bg-white p-4 sm:p-6 rounded-md space-y-4">
@@ -1462,58 +1434,12 @@ export default function AddRestaurant() {
               onChange={(e) => setStep3({ ...step3, storeType: e.target.value })}
               className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
             >
-              {STORE_TYPES.map((t) => (
+              {storeTypeOptions(step3.storeType).map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-gray-500">
-              A medical store must hold a current drug licence, and its orders require a
-              customer prescription before they can be accepted.
-            </p>
           </div>
 
-          {isMedicalStore(step3.storeType) && (
-            <div className="space-y-4 rounded-md border border-amber-200 bg-amber-50 p-4">
-              <h3 className="text-sm font-semibold text-black">Drug licence</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Input
-                  value={step3.drugLicenseNumber || ""}
-                  onChange={(e) => setStep3({ ...step3, drugLicenseNumber: e.target.value })}
-                  className="bg-white text-sm"
-                  placeholder="Drug licence number*"
-                  maxLength={40}
-                />
-                <div>
-                  <Label className="text-xs text-gray-700 mb-1 block">Drug licence expiry date*</Label>
-                  <Input
-                    type="date"
-                    value={step3.drugLicenseExpiry || ""}
-                    onChange={(e) => setStep3({ ...step3, drugLicenseExpiry: e.target.value })}
-                    min={getTodayLocalYMD()}
-                    autoComplete="off"
-                    className="bg-white text-sm"
-                  />
-                </div>
-              </div>
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setStep3({ ...step3, drugLicenseImage: e.target.files?.[0] || null })}
-                className="bg-white text-sm"
-              />
-              {step3.drugLicenseImage && (
-                <div className="flex items-center gap-3">
-                  <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-white">
-                    <img src={getStoredImageSrc(step3.drugLicenseImage)} alt="Drug licence" className="h-full w-full object-cover" />
-                  </div>
-                  <p className="text-xs text-gray-600">Selected: {getStoredFileLabel(step3.drugLicenseImage)}</p>
-                </div>
-              )}
-              {medicalLicenceError(step3) && (
-                <p className="text-xs text-red-600">{medicalLicenceError(step3)}</p>
-              )}
-            </div>
-          )}
         </section>
       )}
 

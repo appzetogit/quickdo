@@ -1489,10 +1489,9 @@ export async function rejectDeliveryPartner(req, res, next) {
 /**
  * Which vertical's zones a request is about.
  *
- * The panel sends it as a query parameter on reads and in the body on writes,
- * because /admin/medical and /admin/quick-commerce are the same screens hitting
- * the same routes and the server cannot tell them apart otherwise. Anything
- * unrecognised, or absent, means quick commerce -- see zonesOf in the service.
+ * Medical used to send `vertical=medical` to reach its own zones; that
+ * vertical was removed, and every value now means quick commerce -- see
+ * zonesOf in the service.
  */
 const verticalOf = (req) => req.query?.vertical || req.body?.vertical || null;
 

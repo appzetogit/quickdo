@@ -6,7 +6,7 @@ import { stockAPI } from "@food/api"
 /**
  * Stock, per product variant, per store.
  *
- * One screen for the admin (Quick Commerce and Medical panels, any store) and
+ * One screen for the admin (Quick Commerce panel, any store) and
  * for a store's own dashboard (`scope="restaurant"`, its products only). Every
  * count here is the one the customer app sells against: an order takes units
  * off the exact variant bought, a cancel or return puts them back.

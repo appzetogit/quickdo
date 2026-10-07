@@ -4,14 +4,14 @@ import { logger } from '../../utils/logger.js';
  * The platform fee on an order, and the GST on it, set once in
  * Master > Platform Fee & GST.
  *
- * Food (food_fee_settings) and Quick & Medical (qc_fee_settingses) each kept
+ * Food (food_fee_settings) and Quick Commerce (qc_fee_settingses) each kept
  * their own platform fee, so the two could disagree without anyone deciding
  * they should. When Master has a value -- for every service, or for one -- it
  * is what that service's checkout charges; unset keeps the service's own, so
  * nothing changes until an admin saves one.
  *
- * GST on the platform fee: Food always charges it (18% unless set). Quick &
- * Medical charge it at Master's rate when Master sets one (since 2026-09-28,
+ * GST on the platform fee: Food always charges it (18% unless set). Quick
+ * Commerce charges it at Master's rate when Master sets one (since 2026-09-28,
  * on the business's request); with no Master rate it is not charged there.
  *
  * Taxi's platform fee is a different thing -- a percentage or flat amount on

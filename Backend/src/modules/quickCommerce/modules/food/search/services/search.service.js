@@ -91,7 +91,7 @@ export const searchUnified = async (query = {}, options = {}) => {
     const fetchLimit = Math.min(limitNumber * 3, 120);
 
     // 1. Initial Filter (approved status and basic conditions)
-    // Quick Shop search: pharmacies are listed in the Medical tab only.
+    // Quick Shop search (legacy pharmacies are not public).
     const restaurantFilter = { status: 'approved', ...QUICK_SHOP_SELLER_FILTER };
 
     if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {

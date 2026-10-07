@@ -149,18 +149,10 @@ const restaurantRegisterSchema = z.object({
     coverImage: z.string().optional(),
     galleryImages: z.string().optional(), // stringified array of pre-uploaded URLs
     /*
-     * Store type and the pharmacy documents. These were missing from this
-     * schema, and zod drops keys it does not declare -- so a pharmacy signing
-     * up from the app arrived as a grocery store with no licence, and the
-     * licence check (assertMedicalOnboarding) never ran.
+     * Store type and the onboarding documents. zod drops keys it does not
+     * declare, so each must be listed here to reach registration.
      */
     storeType: z.string().optional(),
-    drugLicenseNumber: z.string().optional(),
-    drugLicenseExpiry: z.string().optional(),
-    drugLicenseImage: z.string().optional(),
-    pharmacistName: z.string().optional(),
-    pharmacistRegistrationNumber: z.string().optional(),
-    pharmacistCertificateImage: z.string().optional(),
     businessRegistrationImage: z.string().optional(),
     storeFrontImage: z.string().optional(),
     storeInsideImage: z.string().optional(),

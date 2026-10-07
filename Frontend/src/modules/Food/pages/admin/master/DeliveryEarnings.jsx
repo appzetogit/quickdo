@@ -35,7 +35,6 @@ const MODULES = [
   { id: "*", level: "global", label: "All modules", hint: "The formula every module uses unless it has its own" },
   { id: "food", level: "vertical", label: "Food", hint: "Overrides the all-modules formula for food" },
   { id: "quickCommerce", level: "vertical", label: "Quick Commerce", hint: "Overrides it for grocery orders" },
-  { id: "medical", level: "vertical", label: "Medical", hint: "Overrides it for pharmacy orders" },
   // Rides are priced by base fare, per km and per minute in the Taxi panel.
   { id: "taxi", level: "vertical", label: "Taxi", hint: "Driver incentive only — ride fares are set in the Taxi panel", incentiveOnly: true },
 ]
@@ -44,7 +43,7 @@ const MODULES = [
  * Whose zones the zone picker lists for each tab. A zone value is keyed by the
  * zone alone, so on All modules every delivery zone is listed, by module.
  */
-const ZONE_MODULES = { "*": ["food", "quickCommerce", "medical"], food: ["food"], quickCommerce: ["quickCommerce"], medical: ["medical"], taxi: ["taxi"] }
+const ZONE_MODULES = { "*": ["food", "quickCommerce"], food: ["food"], quickCommerce: ["quickCommerce"], taxi: ["taxi"] }
 
 /** Which module's figures to READ when showing "what is charged today". */
 const readVertical = (moduleId) => (moduleId === "*" ? "food" : moduleId)
@@ -235,7 +234,7 @@ export default function DeliveryEarnings() {
   const access = useAdminAccess()
   const limited = isRestricted(access)
   const visibleModules = limited
-    ? MODULES.filter((m) => m.id !== "*" && (m.id === "medical" ? hasPanel(access, "medical") || hasPanel(access, "quickCommerce") : hasPanel(access, m.id)))
+    ? MODULES.filter((m) => m.id !== "*" && hasPanel(access, m.id))
     : MODULES
   useEffect(() => {
     if (limited && visibleModules.length && !visibleModules.some((m) => m.id === moduleId)) setModuleId(visibleModules[0].id)

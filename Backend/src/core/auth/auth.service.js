@@ -768,9 +768,10 @@ export const getProfile = async (userId, role) => {
   return { user: profile };
 };
 
-// Every value the model accepts. This list once lacked serviceProvider, so
-// saving a profile quietly removed that access from the admin.
-const ADMIN_SERVICES_ALLOWED = ["food", "quickCommerce", "medical", "taxi", "serviceProvider"];
+// Every value an admin may hold. This list once lacked serviceProvider, so
+// saving a profile quietly removed that access from the admin. ('medical' is
+// still in the model enum for old documents, but is no longer granted.)
+const ADMIN_SERVICES_ALLOWED = ["food", "quickCommerce", "taxi", "serviceProvider"];
 
 /** Update admin profile (name, email, phone, profileImage). Only for ADMIN role. */
 export const updateAdminProfile = async (userId, body) => {

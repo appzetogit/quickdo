@@ -8,13 +8,13 @@ import { decideAdminAccess } from '../admin/adminAccessPolicy.js';
  *
  * Four places set it, each on its own screen:
  *   Food              per restaurant, with dated schedules, or none in plan mode
- *   Quick & Medical   per store; a pharmacy with no rate pays the Medical default
+ *   Quick Commerce    per store
  *   Taxi              per vehicle type and city, on each fare row
  *   Services          the vendor's payout share; the platform keeps the rest
  *
  * The rate shown for a seller is the one its next order would be charged:
  * each service's own rate function (getRestaurantCommissionSnapshot) is asked
- * with a sample order, so schedules, the Medical fallback and plan mode are
+ * with a sample order, so schedules and plan mode are
  * applied exactly as payout applies them -- there is no second copy of the
  * rules here to drift. Beside it, what each seller actually paid over the last
  * 30 days, so a rate set but never charged (or charged but never set) shows.
@@ -27,7 +27,7 @@ const SAMPLE = 100;
 
 const SERVICES = {
   food: { label: 'Food', service: 'food', resource: 'restaurants', editPath: '/admin/food/restaurants/commission' },
-  quick: { label: 'Quick & Medical', service: 'quickCommerce', resource: 'restaurants', editPath: '/admin/quick-commerce/restaurants/commission' },
+  quick: { label: 'Quick Commerce', service: 'quickCommerce', resource: 'restaurants', editPath: '/admin/quick-commerce/restaurants/commission' },
   taxi: { label: 'Taxi', service: 'taxi', resource: 'fee_settings', editPath: '/taxi/admin/pricing/set-price' },
   services: { label: 'Services', service: 'serviceProvider', resource: 'settings', editPath: '/admin/sp/settings' },
 };
@@ -93,29 +93,19 @@ async function foodOverview(since) {
 
 async function quickOverview(since) {
   const { getRestaurantCommissionSnapshot } = await import('../../modules/quickCommerce/modules/food/orders/services/foodTransaction.service.js');
-  const { getMedicalDefaultCommission } = await import('../../modules/quickCommerce/modules/food/admin/services/medicalCommission.service.js');
-  const [sellers, own, medicalDefault] = await Promise.all([
-    coll('qc_restaurants').find({}).project({ restaurantName: 1, status: 1, storeType: 1 }).toArray(),
+  const [sellers, own] = await Promise.all([
+    coll('qc_restaurants').find({}).project({ restaurantName: 1, status: 1 }).toArray(),
     coll('qc_restaurant_commissions').find({ status: { $ne: false } }).project({ restaurantId: 1 }).toArray(),
-    getMedicalDefaultCommission().catch(() => null),
   ]);
   const hasOwn = new Set(own.map((r) => String(r.restaurantId)));
   const paid = await paidBySeller('qc_transactions', 'qc_orders', since);
   const rows = [];
   for (const s of sellers) {
     const snap = await getRestaurantCommissionSnapshot({ restaurantId: s._id, pricing: { subtotal: SAMPLE } });
-    const pharmacy = String(s.storeType || '').toLowerCase() === 'pharmacy';
-    const source = hasOwn.has(String(s._id))
-      ? 'restaurant_default'
-      : pharmacy && Number(snap.commissionValue) > 0
-        ? 'medical_default'
-        : 'none';
-    rows.push(rateRow(s, { ...snap, commissionSource: source }, paid, { kind: pharmacy ? 'pharmacy' : 'store' }));
+    const source = hasOwn.has(String(s._id)) ? 'restaurant_default' : 'none';
+    rows.push(rateRow(s, { ...snap, commissionSource: source }, paid));
   }
-  return {
-    rows,
-    medicalDefault: medicalDefault ? { type: medicalDefault.type || 'percentage', value: round(medicalDefault.value) } : null,
-  };
+  return { rows };
 }
 
 async function taxiOverview() {

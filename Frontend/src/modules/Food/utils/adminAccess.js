@@ -143,7 +143,6 @@ export function hasPanel(access, service) {
 
 const PANEL_BASES = [
   { base: "/admin/quick-commerce", service: "quickCommerce" },
-  { base: "/admin/medical", service: "medical" },
   { base: "/admin/food", service: "food" },
 ]
 
@@ -169,15 +168,11 @@ const PAGE_RULES = [
   ["/zone-setup", "zones"],
   ["/restaurants/complaints", "support"],
   ["/restaurants", "restaurants"],
-  // Quick and Medical show the same seller pages under /stores.
+  // Quick shows the same seller pages under /stores.
   ["/stores/complaints", "support"],
   ["/stores", "restaurants"],
   ["/free-delivery", "restaurants"],
   ["/delivery-radius", "restaurants"],
-  ["/verification", "restaurants"],
-  ["/drug-licences", "restaurants"],
-  ["/prescriptions", "orders"],
-  ["/requests", "orders"],
   ["/orders", "orders"],
   ["/order-detect-delivery", "orders"],
   ["/order-refunds", "orders"],

@@ -1,5 +1,4 @@
 import { QCZone } from '../admin/models/zone.model.js';
-import { MedicalZone } from '../admin/models/medicalZone.model.js';
 import { getRedisClient } from '../../../config/redis.js';
 
 /**
@@ -21,29 +20,18 @@ const ACTIVE_ZONES_CACHE_TTL_SECONDS = 120;
 /**
  * Which map a question is being asked against.
  *
- * Quick commerce and medical keep separate zones: a zone drawn for groceries
- * must not decide where medicine can go. `quick` is the default because every
- * caller that predates the split is asking about groceries -- a medical caller
- * has to say so, which is the safe direction for a value nobody passed.
+ * Quick commerce is the only one now. Medical kept its own map (medical_zones)
+ * until the vertical was removed; that collection is no longer read. The
+ * vertical argument is kept so callers and cache keys stay as they were.
  */
-export const ZONE_VERTICALS = Object.freeze({ QUICK: 'quick', MEDICAL: 'medical' });
+export const ZONE_VERTICALS = Object.freeze({ QUICK: 'quick' });
 
-export const normalizeZoneVertical = (value) => (
-    String(value || '').trim().toLowerCase() === ZONE_VERTICALS.MEDICAL
-        ? ZONE_VERTICALS.MEDICAL
-        : ZONE_VERTICALS.QUICK
-);
+export const normalizeZoneVertical = () => ZONE_VERTICALS.QUICK;
 
 /** The collection a vertical's zones live in. */
-export const zoneModelFor = (vertical) => (
-    normalizeZoneVertical(vertical) === ZONE_VERTICALS.MEDICAL ? MedicalZone : QCZone
-);
+export const zoneModelFor = () => QCZone;
 
-/*
- * A cache key per vertical. One shared key was how the first attempt at this
- * would have failed: medical would have been served whichever list happened to
- * be cached first, silently, for two minutes at a time.
- */
+/* A cache key per vertical. */
 const activeZonesCacheKey = (vertical) => (
     `zones:active:list:v1:${normalizeZoneVertical(vertical)}`
 );
@@ -53,13 +41,7 @@ export const toFiniteNumber = (value) => {
   return Number.isFinite(num) ? num : null;
 };
 
-/**
- * Drop a vertical's cached zone list, or both when none is named.
- *
- * Both by default: a caller that does not say which vertical it changed is
- * usually one that predates the split, and clearing a list that did not need
- * clearing costs one query. Serving a stale one costs a wrongly refused order.
- */
+/** Drop a vertical's cached zone list, or every one when none is named. */
 export const invalidateActiveZonesCache = async (vertical = null) => {
   const redis = getRedisClient();
   if (!redis || !redis.isReady) return;
@@ -112,10 +94,6 @@ export const isPointInPolygon = (lat, lng, polygon) => {
 
 /**
  * The first active zone containing the point, or null.
- *
- * `vertical` picks the map: medical's zones are its own, so a pharmacy order
- * and a grocery order to the same address can legitimately get different
- * answers, including one being servable and the other not.
  */
 export const findZoneForPoint = async (lat, lng, vertical = ZONE_VERTICALS.QUICK) => {
   const latitude = toFiniteNumber(lat);

@@ -5,14 +5,13 @@
  *
  * The panel's Accept and Reject buttons both PATCH `/orders/:id/status`. The
  * food module has had that route all along; this fork had only `/accept` and
- * `/reject`, which no panel calls -- so every Accept on a quick-commerce or
- * MEDICAL order answered 404 and the screen said "Failed to accept order".
- * Nothing was wrong with the order.
+ * `/reject`, which no panel calls -- so every Accept on a quick-commerce order
+ * answered 404 and the screen said "Failed to accept order".
  *
- * Two things are pinned here: the route the panel actually calls exists, and a
- * medical order passes the same three gates for support as it does for the
- * pharmacy -- prescription read, order priced, bill agreed -- so support
- * cannot accept around a check the customer is relying on.
+ * Pinned here: the route the panel actually calls exists; and, now that the
+ * Medical vertical is gone, a LEGACY prescription order still in flight can
+ * only be cancelled until its customer had agreed the bill -- nothing can price
+ * or bill it any more -- while one already agreed goes through.
  */
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
@@ -34,13 +33,10 @@ const mongo = await MongoMemoryServer.create();
 await mongoose.connect(mongo.getUri(), { dbName: 'qc_admin_status' });
 
 const BASE = '../src/modules/quickCommerce/modules/food';
-const rx = await import(`${BASE}/orders/services/prescriptionOrder.service.js`);
 const orderService = await import(`${BASE}/orders/services/order.service.js`);
 const { FoodOrder } = await import(`${BASE}/orders/models/order.model.js`);
 const { FoodRestaurant } = await import(`${BASE}/restaurant/models/restaurant.model.js`);
-// A pharmacy's zone lives on the medical map since medical and quick commerce
-// were given separate zones (see medical-zone-split.smoke.mjs).
-const { MedicalZone } = await import(`${BASE}/admin/models/medicalZone.model.js`);
+const { QCZone } = await import(`${BASE}/admin/models/zone.model.js`);
 const { FoodFeeSettings } = await import(`${BASE}/admin/models/feeSettings.model.js`);
 const { FoodRestaurantCommission } = await import(`${BASE}/admin/models/restaurantCommission.model.js`);
 const adminRouter = (await import(`${BASE}/admin/routes/admin.routes.js`)).default;
@@ -83,9 +79,9 @@ await check('the older /accept and /reject are still answered', () => {
 });
 
 // =============================================================================
-console.log('\n[2] a medical order, accepted by support');
+console.log('\n[2] a legacy prescription order, accepted by support');
 
-await MedicalZone.collection.insertOne({
+await QCZone.collection.insertOne({
     _id: zoneId,
     name: 'Central',
     isActive: true,
@@ -119,48 +115,54 @@ const address = {
     location: { type: 'Point', coordinates: [77.62, 12.95] },
 };
 
-const placed = await rx.createPrescriptionOrder(String(userId), {
-    restaurantId: String(pharmacyId),
-    address,
-    prescriptionImage: 'https://cdn.example/rx/1.jpg',
-    customerName: 'Asha',
-});
-const orderId = placed.orderMongoId;
+/** A prescription order as the removed Medical vertical left it in qc_orders. */
+const legacyOrder = async (bill, extra = {}) => {
+    const _id = id();
+    await FoodOrder.collection.insertOne({
+        _id,
+        order_id: `MED-${String(_id).slice(-8)}`,
+        userId,
+        restaurantId: pharmacyId,
+        zoneId,
+        prescriptionOnly: true,
+        prescription: { required: true, status: 'approved', imageUrl: 'https://cdn.example/rx/1.jpg', bill },
+        items: [],
+        deliveryAddress: address,
+        customerName: 'Asha',
+        pricing: { subtotal: 0, total: 0, currency: 'INR' },
+        payment: { method: 'cash', status: 'cod_pending' },
+        orderStatus: 'created',
+        createdAt: new Date(),
+        ...extra,
+    });
+    return String(_id);
+};
 
-const accept = () => orderService.updateOrderStatusAdmin(
+const accept = (orderId) => orderService.updateOrderStatusAdmin(
     orderId, 'confirmed', 'Order accepted by admin', String(adminId),
 );
 
-await check('refused while the pharmacist has not read the prescription', async () => {
-    await assert.rejects(accept, /Review the customer's prescription/);
+await check('refused while the customer never agreed a bill', async () => {
+    const orderId = await legacyOrder({ status: 'submitted', amount: 240 });
+    await assert.rejects(() => accept(orderId), /can no longer be fulfilled/);
 });
 
 await check('  and the reason is a sentence, not a 404', async () => {
-    // The whole complaint was "Failed to accept order" with nothing behind it.
-    const err = await accept().catch((e) => e);
+    const orderId = await legacyOrder({ status: 'none' });
+    const err = await accept(orderId).catch((e) => e);
     assert.equal(err.name, 'ValidationError');
     assert.ok(err.message.length > 20, err.message);
 });
 
-await check('refused after the prescription is approved but before it is priced', async () => {
-    await FoodOrder.updateOne(
-        { _id: orderId },
-        { $set: { 'prescription.status': 'approved', 'prescription.reviewedAt': new Date() } },
+await check('accepted when the customer had approved the bill', async () => {
+    const orderId = await legacyOrder(
+        { status: 'approved', amount: 240 },
+        {
+            items: [{ itemId: id(), name: 'Medicines (as billed)', price: 240, quantity: 1 }],
+            pricing: { subtotal: 240, total: 280, currency: 'INR' },
+        },
     );
-    await assert.rejects(accept, /price|bill/i);
-});
-
-await check('refused after it is billed but before the customer agrees', async () => {
-    await rx.submitPrescriptionBill(orderId, String(pharmacyId), {
-        billImageUrl: 'https://cdn.example/bill/1.jpg',
-        billAmount: 240,
-    });
-    await assert.rejects(accept, /bill|approve/i);
-});
-
-await check('accepted once the customer has approved the bill', async () => {
-    await rx.approvePrescriptionBill(orderId, String(userId), { paymentMethod: 'cash' });
-    const order = await accept();
+    const order = await accept(orderId);
     assert.ok(order, 'nothing came back');
     const stored = await FoodOrder.findById(orderId).lean();
     assert.equal(stored.orderStatus, 'confirmed');
@@ -169,18 +171,12 @@ await check('accepted once the customer has approved the bill', async () => {
 // =============================================================================
 console.log('\n[3] cancelling is never gated');
 
-await check('support can cancel an order the pharmacist never looked at', async () => {
-    const second = await rx.createPrescriptionOrder(String(userId), {
-        restaurantId: String(pharmacyId),
-        address,
-        prescriptionImage: 'https://cdn.example/rx/2.jpg',
-        customerName: 'Asha',
-    });
-    // An order stuck on an unreadable prescription must not be stuck for good.
+await check('support can cancel a legacy prescription order nobody priced', async () => {
+    const orderId = await legacyOrder({ status: 'none' });
     await orderService.updateOrderStatusAdmin(
-        second.orderMongoId, 'cancelled_by_admin', 'Unreadable prescription', String(adminId),
+        orderId, 'cancelled_by_admin', 'Medical service removed', String(adminId),
     );
-    const stored = await FoodOrder.findById(second.orderMongoId).lean();
+    const stored = await FoodOrder.findById(orderId).lean();
     assert.equal(stored.orderStatus, 'cancelled_by_admin');
 });
 
@@ -192,7 +188,7 @@ await check('support accepts a normal order with no prescription', async () => {
         userId: id(),
         restaurantId: pharmacyId,
         zoneId,
-        items: [{ itemId: id(), name: 'Paracetamol', price: 30, quantity: 1 }],
+        items: [{ itemId: id(), name: 'Bread', price: 30, quantity: 1 }],
         deliveryAddress: address,
         customerName: 'Asha',
         customerPhone: '9000000000',

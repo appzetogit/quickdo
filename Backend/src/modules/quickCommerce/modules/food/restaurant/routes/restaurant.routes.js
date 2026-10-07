@@ -76,12 +76,6 @@ import {
     uploadBulkMenuController
 } from '../controllers/bulkUpload.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
-import { fillPrescriptionOrderController, submitPrescriptionBillController, dispatchPrescriptionOrderController } from '../../orders/controllers/prescriptionOrder.controller.js';
-import {
-    claimPrescriptionRequestController,
-    declinePrescriptionRequestController,
-    listPharmacyRequestsController,
-} from '../../orders/controllers/prescriptionRequest.controller.js';
 import { authMiddleware, optionalAuth } from '../../../../core/auth/auth.middleware.js';
 import { stockRouter } from '../../admin/routes/stock.routes.js';
 import { sendError } from '../../../../utils/response.js';
@@ -114,9 +108,6 @@ const uploadFields = upload.fields([
     { name: 'panImage', maxCount: 1 },
     { name: 'gstImage', maxCount: 1 },
     { name: 'fssaiImage', maxCount: 1 },
-    // Medical stores: the drug licence a pharmacy must produce to be approved.
-    { name: 'drugLicenseImage', maxCount: 1 },
-    { name: 'pharmacistCertificateImage', maxCount: 1 },
     { name: 'businessRegistrationImage', maxCount: 1 },
     // Store photos. The front one is how an admin checks the shop is real.
     { name: 'storeFrontImage', maxCount: 1 },
@@ -313,33 +304,7 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
 router.get('/orders/:orderId', authMiddleware, requireRestaurant, orderController.getOrderByIdRestaurantController);
 router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
-// Medical orders: the seller reviews the customer's prescription before the order
-// can be accepted. Declared next to the status route because they are the two halves
-// of the same decision for a pharmacy.
-router.patch('/orders/:orderId/prescription', authMiddleware, requireRestaurant, orderController.reviewOrderPrescriptionController);
-// The pharmacist enters what they will dispense, which is what gives a
-// prescription-only order its price. Separate from accepting it: the customer is
-// told the total before the order is taken on.
-router.patch('/orders/:orderId/fill', authMiddleware, requireRestaurant, fillPrescriptionOrderController);
-// The paper bill and its total. This is what the customer is shown and asked to
-// pay, so it is the pharmacist's last chance to change the amount: once the
-// customer approves it, re-billing is refused.
-router.patch('/orders/:orderId/prescription-bill', authMiddleware, requireRestaurant, submitPrescriptionBillController);
-// The sealed packet, photographed as it is handed over. Refused until the
-// customer has paid the bill above.
-router.patch('/orders/:orderId/prescription-dispatch', authMiddleware, requireRestaurant, dispatchPrescriptionOrderController);
 router.post('/orders/:orderId/resend-notification', authMiddleware, requireRestaurant, orderController.resendDeliveryNotificationRestaurantController);
-
-/*
- * Prescriptions broadcast to every pharmacy nearby, which this shop may take.
- *
- * Not under /orders: there is no order yet. Accepting is what creates one --
- * for this pharmacy alone -- and it closes the request for everybody else, so
- * two shops cannot dispense the same prescription.
- */
-router.get('/medical/requests', authMiddleware, requireRestaurant, listPharmacyRequestsController);
-router.post('/medical/requests/:requestId/accept', authMiddleware, requireRestaurant, claimPrescriptionRequestController);
-router.post('/medical/requests/:requestId/decline', authMiddleware, requireRestaurant, declinePrescriptionRequestController);
 
 // Complaints (restaurant dashboard)
 router.get('/complaints', authMiddleware, requireRestaurant, getRestaurantComplaintsController);

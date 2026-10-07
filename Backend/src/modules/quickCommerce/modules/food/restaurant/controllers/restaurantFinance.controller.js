@@ -1,6 +1,17 @@
 import { sendResponse, sendError } from '../../../../utils/response.js';
 import { getRestaurantFinance } from '../services/restaurantFinance.service.js';
-import { currentCommissionFor } from '../../admin/services/medicalCommission.service.js';
+import mongoose from 'mongoose';
+import { FoodRestaurantCommission } from '../../admin/models/restaurantCommission.model.js';
+
+/** The commission rate this store's new orders are charged: its own rule, or none. */
+async function currentCommissionFor(restaurantId) {
+    if (!mongoose.Types.ObjectId.isValid(String(restaurantId || ''))) return { type: 'percentage', value: 0, source: 'none' };
+    const rule = await FoodRestaurantCommission.findOne({ restaurantId, status: { $ne: false } }).lean();
+    if (rule) {
+        return { type: rule.defaultCommission?.type || 'percentage', value: Number(rule.defaultCommission?.value) || 0, source: 'own' };
+    }
+    return { type: 'percentage', value: 0, source: 'none' };
+}
 
 export const getRestaurantFinanceController = async (req, res, next) => {
     try {

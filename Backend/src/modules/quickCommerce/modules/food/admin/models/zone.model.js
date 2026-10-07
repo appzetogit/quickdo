@@ -63,8 +63,7 @@ zoneSchema.index({ isActive: 1, name: 1 });
 zoneSchema.index({ country: 1, name: 1 });
 
 /*
- * Quick commerce's zones, and medical's -- a pharmacy is a quick-commerce
- * seller, so /admin/medical edits these.
+ * Quick commerce's zones.
  *
  * Its own model name and its own collection, deliberately. Food keeps
  * `FoodZone` in `food_zones` and taxi keeps `TaxiZone` in `taxizones`; nothing

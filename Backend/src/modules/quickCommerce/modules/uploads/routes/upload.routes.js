@@ -42,8 +42,9 @@ const documentUpload = multer({
 
 // POST /v1/qc/uploads/document
 /*
- * A photograph OR a PDF: a prescription arrives either way, and a clinic that
- * emails one sends a PDF that never reaches the phone's gallery.
+ * A photograph OR a PDF: a document (licence, certificate, registration)
+ * arrives either way, and one that was emailed is a PDF that never reaches the
+ * phone's gallery.
  *
  * Kept off /image deliberately. That route pushes everything through the image
  * optimiser, which a PDF cannot survive, and widening its whitelist would admit

@@ -10,7 +10,7 @@ import { SERVICE_PROVIDER_ENABLED } from "@/config/features"
  * What the platform takes from every partner, in one place
  * (core/finance/commissionOverview.service.js). Each seller's rate is the one
  * its next order would be charged, from the services' own rate functions --
- * schedules and the Medical default included -- beside what it actually paid
+ * schedules included -- beside what it actually paid
  * over the last 30 days. Read-only: each block links to where its rates are set.
  */
 
@@ -18,7 +18,6 @@ const SOURCE = {
   restaurant_default: { label: "Own rate", tone: "bg-neutral-100 text-neutral-700" },
   schedule_restaurant: { label: "Scheduled", tone: "bg-sky-50 text-sky-800" },
   schedule_platform: { label: "Scheduled (all)", tone: "bg-sky-50 text-sky-800" },
-  medical_default: { label: "Medical default", tone: "bg-violet-50 text-violet-800" },
   plan: { label: "On a plan", tone: "bg-emerald-50 text-emerald-800" },
   none: { label: "No rate", tone: "bg-amber-50 text-amber-800" },
 }
@@ -46,7 +45,7 @@ function EditLink({ to, children }) {
   )
 }
 
-function SellerTable({ rows, q, showKind }) {
+function SellerTable({ rows, q }) {
   const shown = rows.filter((r) => !q || r.name.toLowerCase().includes(q))
   if (!shown.length) return <p className="px-5 py-6 text-sm text-neutral-500">{rows.length ? "No seller matches the search." : "No sellers yet."}</p>
   return (
@@ -66,7 +65,6 @@ function SellerTable({ rows, q, showKind }) {
             <tr key={r.id} className={r.source === "none" ? "bg-amber-50/40" : ""}>
               <td className="px-5 py-2.5">
                 <p className="font-medium text-neutral-900">{r.name}</p>
-                {showKind && <p className="text-xs capitalize text-neutral-500">{r.kind}</p>}
               </td>
               <td className="px-3 py-2.5">
                 <div className="flex flex-wrap items-center gap-2">
@@ -178,23 +176,16 @@ export default function CommissionOverview() {
                   {s.key === "food" && s.mode === "plan" && (
                     <p className="text-sm text-emerald-800">Restaurants are on a subscription plan, so no commission is charged.</p>
                   )}
-                  {s.key === "quick" && (
-                    <p className="text-sm text-neutral-600">
-                      Pharmacies with no rate of their own pay the Medical default:{" "}
-                      <span className="font-medium text-neutral-900">{s.medicalDefault?.value > 0 ? rateText(s.medicalDefault) : "not set"}</span>.
-                    </p>
-                  )}
                   {s.key === "taxi" && <p className="text-sm text-neutral-600">Taken from the driver&rsquo;s fare, set on each vehicle and city price row.</p>}
                   <Summary s={s.summary} />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {s.key === "quick" && <EditLink to="/admin/medical/commission">Medical default</EditLink>}
                   <EditLink to={s.editPath}>Change rates</EditLink>
                 </div>
               </div>
 
               {s.key === "food" && <SellerTable rows={s.rows} q={query} />}
-              {s.key === "quick" && <SellerTable rows={s.rows} q={query} showKind />}
+              {s.key === "quick" && <SellerTable rows={s.rows} q={query} />}
 
               {s.key === "taxi" &&
                 (s.rows.length ? (

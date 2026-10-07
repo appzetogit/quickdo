@@ -20,7 +20,7 @@ const FALLBACK_REFRESH_MS = 10000
  * Rider assignment block for an order details view.
  *
  * Reads the order afresh when shown (list rows can be a few seconds old, and
- * some lists -- the prescription queue -- carry no dispatch data at all), then
+ * some lists carry no dispatch data at all), then
  * stays current from the admin socket. Without a socket it re-reads every 10s,
  * and only while a manual assignment is waiting on the rider.
  *

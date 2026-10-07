@@ -10,7 +10,7 @@ export const getPublicGourmetRestaurants = async (zoneId) => {
 
     const restaurantIds = docs.map((d) => d.restaurantId);
     
-    // Pharmacies are listed on the Medical tab, not among Quick Shop's picks.
+    // Legacy pharmacies are not public, so not among Quick Shop's picks.
     const query = { _id: { $in: restaurantIds }, status: 'approved', ...QUICK_SHOP_SELLER_FILTER };
     if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
         query.zoneId = new mongoose.Types.ObjectId(zoneId);

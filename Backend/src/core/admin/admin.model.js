@@ -37,6 +37,8 @@ const adminSchema = new mongoose.Schema(
         },
         servicesAccess: {
             type: [String],
+            // 'medical' is no longer granted (the vertical was removed); kept in the
+            // enum only so existing admin documents that still list it keep saving.
             enum: ['food', 'quickCommerce', 'medical', 'taxi', 'serviceProvider'],
             default: ['food']
         },
@@ -88,7 +90,7 @@ const adminSchema = new mongoose.Schema(
             ],
             default: []
         },
-        // Quick commerce and medical zones (qc_zones) a sub-admin is limited to; empty = all.
+        // Quick commerce zones (qc_zones) a sub-admin is limited to; empty = all.
         qc_zone_ids: {
             type: [mongoose.Schema.Types.ObjectId],
             default: []

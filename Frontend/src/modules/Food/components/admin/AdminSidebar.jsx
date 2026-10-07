@@ -53,7 +53,6 @@ import {
   PiggyBank,
   Lock,
   ShoppingBasket,
-  Pill,
   Percent,
   ShieldCheck,
 } from "lucide-react"
@@ -113,7 +112,6 @@ const iconMap = {
   Ticket,
   Percent,
   ShieldCheck,
-  Pill,
   UtensilsCrossed,
   Building2,
   FileText,
@@ -167,14 +165,14 @@ const iconMap = {
  * Add a base here when another vertical starts reusing these screens.
  */
 const FOOD_ADMIN_BASE = "/admin/food"
-const REUSED_ADMIN_BASES = ["/admin/quick-commerce", "/admin/medical"]
+const REUSED_ADMIN_BASES = ["/admin/quick-commerce"]
 
 export const currentAdminBase = (pathname = "") =>
   REUSED_ADMIN_BASES.find((base) => pathname.startsWith(base)) || FOOD_ADMIN_BASE
 
 /**
- * A food admin path as it lives in the panel for `base`. Quick and Medical call
- * their sellers stores, so /restaurants there is /stores (see AdminRouter).
+ * A food admin path as it lives in the panel for `base`. Quick calls
+ * its sellers stores, so /restaurants there is /stores (see AdminRouter).
  */
 export const rebaseAdminPath = (path, base) => {
   if (typeof path !== "string" || !path.startsWith(FOOD_ADMIN_BASE) || base === FOOD_ADMIN_BASE) return path
@@ -188,9 +186,6 @@ export const verticalAdminPath = (path) =>
 
 export const getVerticalTitle = (base = "", customName = "") => {
   const name = (customName || "Quick Drop").trim()
-  if (base === "/admin/medical") {
-    return name.toLowerCase().endsWith("medical") ? name : `${name} Medical`
-  }
   if (base === "/admin/quick-commerce") {
     return name.toLowerCase().endsWith("quick") ? name : `${name} Quick`
   }
@@ -235,100 +230,6 @@ const VERTICAL_BRANDING = {
         type: "section",
         label: "INVENTORY",
         items: [{ type: "link", label: "Stock", path: "/admin/quick-commerce/stock", icon: "Package" }],
-      },
-    ],
-  },
-  /*
-   * Medical is quick-commerce narrowed to pharmacies (the API scope lives in
-   * services/api/axios.js), so it inherits quick-commerce's word rewrites and
-   * then renames the two things that are genuinely different: the sellers are
-   * pharmacies and the products are medicines.
-   */
-  "/admin/medical": {
-    title: "Quick Drop Medical",
-    labels: {
-      "FOOD MANAGEMENT": "MEDICINE MANAGEMENT",
-      "RESTAURANT MANAGEMENT": "PHARMACY MANAGEMENT",
-    },
-    // Sourced from verticalVocabulary.js, like quick-commerce above, so the
-    // sidebar and the in-page shim cannot drift apart.
-    words: rulesFor(VERTICAL.MEDICAL),
-    hiddenPaths: [],
-    hiddenSections: [],
-    /*
-     * Medical shows two of the shared screens and no more.
-     *
-     * It inherits the whole quick-commerce admin -- sixty-odd links for
-     * catalogue, offers, combos, delivery fees, subscriptions, reports -- and a
-     * pharmacy operator needs none of it. What they need is the zones the
-     * platform serves and the list of pharmacies in them; everything specific
-     * to dispensing is in the MEDICAL section below, which this does not touch.
-     *
-     * An ALLOWLIST rather than a list of things to hide. Hiding would mean
-     * naming sixty-six paths and remembering to add the sixty-seventh the day
-     * somebody extends the shared menu -- and a link nobody remembered to hide
-     * is how food's screens turned up in quick-commerce before. Naming what
-     * belongs here means anything new is absent until somebody decides it
-     * belongs.
-     *
-     * Paths are the food ones, because this filter runs before rebasing.
-     */
-    onlyPaths: [
-      '/admin/food/zone-setup',
-      '/admin/food/restaurants',
-    ],
-    /*
-     * Screens that exist only here. A prescription queue and a drug-licence
-     * register have no meaning in food or general quick-commerce, so they are
-     * added for this base rather than put in the shared menu and hidden from
-     * the other two -- a hidden entry is one someone forgets to hide when the
-     * next vertical arrives.
-     *
-     * Paths are already based here, so rebaseAdminMenu leaves them alone.
-     */
-    extraSectionsFirst: true,
-    extraSections: [
-      {
-        type: "section",
-        label: "MEDICAL",
-        items: [
-          {
-            type: "link",
-            label: "Stock",
-            path: "/admin/medical/stock",
-            icon: "Package",
-          },
-          {
-            type: "link",
-            label: "Pharmacy Verification",
-            path: "/admin/medical/verification",
-            icon: "ShieldCheck",
-          },
-          {
-            type: "link",
-            label: "Commission",
-            path: "/admin/medical/commission",
-            icon: "Percent",
-          },
-          {
-            type: "link",
-            label: "Prescription Orders",
-            path: "/admin/medical/prescriptions",
-            icon: "FileText",
-          },
-          {
-            type: "link",
-            label: "Drug Licences",
-            path: "/admin/medical/drug-licences",
-            icon: "ShieldCheck",
-          },
-          {
-            type: "link",
-            label: "Prescription Requests",
-            path: "/admin/medical/requests",
-            icon: "Send",
-          },
-        ],
       },
     ],
   },
@@ -401,8 +302,8 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
    * An operator who switched to Master was still looking at Food.
    *
    * While inside Master the menu is the MASTER section and nothing else, and
-   * everywhere else that section is gone: it was repeated at the top of Food,
-   * Quick and Medical, so the same five screens appeared in four places. The
+   * everywhere else that section is gone: it was repeated at the top of every
+   * panel, so the same five screens appeared in several places. The
    * switcher tab is how you reach Master now, exactly as for every other panel.
    */
   const inMaster = location.pathname.startsWith("/admin/master")
@@ -439,11 +340,9 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
         taxi: hasPanel(access, "taxi"),
         serviceProvider: SERVICE_PROVIDER_ENABLED && hasPanel(access, "serviceProvider"),
         quickCommerce: hasPanel(access, "quickCommerce"),
-        medical: hasPanel(access, "medical"),
       }
     : {
         ...storedAccess,
-        medical: storedAccess.quickCommerce,
         // Off on a site that has not switched the module on, whatever the
         // stored session says -- the tab would lead to a route that is absent.
         serviceProvider: SERVICE_PROVIDER_ENABLED && storedAccess.serviceProvider !== false,
@@ -1268,28 +1167,6 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                   )}
                 />
                 Quick
-              </button>
-              )}
-              {/* Medical: the quick-commerce panel narrowed to pharmacies. Its own
-                  switch in admin accounts, so a pharmacy team need not see groceries. */}
-              {serviceAccess.medical && (
-              <button
-                type="button"
-                onClick={() => navigate("/admin/medical")}
-                className={cn(
-                  "flex-1 min-w-0 flex flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] leading-none font-bold rounded-lg transition-all duration-300",
-                  location.pathname.startsWith("/admin/medical")
-                    ? "bg-[var(--sb-active-bg)] text-[var(--sb-active-ink)] shadow-[0_2px_8px_rgba(26,26,26,0.18)]"
-                    : "text-[var(--sb-ink-faint)] hover:text-[var(--sb-ink-soft)] hover:bg-[var(--sb-hover)]"
-                )}
-              >
-                <Pill
-                  className={cn(
-                    "w-3.5 h-3.5",
-                    location.pathname.startsWith("/admin/medical") ? "text-[var(--sb-active-ink)]" : "text-[var(--sb-ink-faint)]"
-                  )}
-                />
-                Medical
               </button>
               )}
             </div>

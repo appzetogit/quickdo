@@ -6,7 +6,7 @@ import { SERVICE_PROVIDER_ENABLED } from "@/config/features"
 /**
  * Master > Report Management > Platform Earnings.
  *
- * What the platform kept, across Food, Quick & Medical, Taxi and Services, from
+ * What the platform kept, across Food, Quick Commerce, Taxi and Services, from
  * each service's own record of how every order, ride or bill was split
  * (core/finance/platformPnl.service.js). GST is shown beside income, not in it.
  */

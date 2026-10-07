@@ -740,7 +740,7 @@ export default function OrdersPage({ statusKey = "all" }) {
 
   /*
    * Manual rider assignment: live from the admin socket (Food on the root
-   * namespace, Quick & Medical on /qc). A matching event is shown at once and
+   * namespace, Quick on /qc). A matching event is shown at once and
    * the page re-read shortly after, debounced so a burst is one request. With
    * no socket, the page re-reads every 10s -- only while some order on it is
    * waiting on a hand-picked rider, and not on "all", which already polls.

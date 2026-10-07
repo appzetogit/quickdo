@@ -3,7 +3,7 @@ import { managedLegalPage, syncManagedLegalFromLegacy } from '../../../../../../
 import { appLegalPage } from '../../../../../../core/settings/appLegal.js';
 
 // Module -> the per-app page (Master settings) it reads first.
-const APP_OF_MODULE = { USER: 'qc_user', ALL: 'qc_user', RESTAURANT: 'qc_seller', DELIVERY: 'qc_rider', MEDICAL: 'medical_user' };
+const APP_OF_MODULE = { USER: 'qc_user', ALL: 'qc_user', RESTAURANT: 'qc_seller', DELIVERY: 'qc_rider' };
 import { ValidationError } from '../../../../core/auth/errors.js';
 
 const normalizeKey = (key) => String(key || '').trim().toLowerCase();
@@ -59,7 +59,7 @@ export const getPublicPageByKey = async (key, module = 'ALL') => {
     }
     
     // The platform's own page, when Master settings has one -- unless this
-    // module (e.g. MEDICAL) wrote a page of its own, which stays.
+    // module wrote a page of its own, which stays.
     const managed = await managedLegalPage(k);
     if (managed && !(doc && m !== 'ALL' && doc.module === m)) {
         return { key: k, module: m, data: normalizeLegalForResponse({ title: doc?.legal?.title || '', content: managed }) };

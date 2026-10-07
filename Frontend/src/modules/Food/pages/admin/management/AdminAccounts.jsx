@@ -22,7 +22,7 @@ import { refreshAdminAccess } from "@food/utils/adminAccess"
  * Admin accounts, for every panel.
  *
  * One list and one form whichever panel it is opened from (Food, Quick
- * Commerce, Medical or Taxi): an account is a person, and the same person can be
+ * Commerce or Taxi): an account is a person, and the same person can be
  * given several panels. What each sub-admin may do is enforced by the server;
  * this screen is where it is decided.
  */
@@ -30,7 +30,6 @@ import { refreshAdminAccess } from "@food/utils/adminAccess"
 const PANEL_TONE = {
   food: "bg-orange-50 text-orange-800 ring-orange-200",
   quickCommerce: "bg-emerald-50 text-emerald-800 ring-emerald-200",
-  medical: "bg-sky-50 text-sky-800 ring-sky-200",
   taxi: "bg-amber-50 text-amber-900 ring-amber-200",
 }
 const ROLE_META = {
@@ -275,7 +274,7 @@ function AdminForm({ meta, editing, onClose, onSaved }) {
   const showFoodZones = form.role !== "owner" && form.servicesAccess.includes("food") && (meta.foodZones || []).length > 0
   const showQcZones =
     form.role !== "owner" &&
-    (form.servicesAccess.includes("quickCommerce") || form.servicesAccess.includes("medical")) &&
+    form.servicesAccess.includes("quickCommerce") &&
     (meta.qcZones || []).length > 0
   const showTaxiZones = form.role !== "owner" && form.servicesAccess.includes("taxi") && (meta.taxiZones || []).length > 0
 
@@ -485,11 +484,11 @@ function AdminForm({ meta, editing, onClose, onSaved }) {
           )}
           {showQcZones && (
             <ZonePicker
-              title="Quick commerce & medical zones"
+              title="Quick commerce zones"
               zones={meta.qcZones}
               value={form.qcZoneIds}
               onChange={(qcZoneIds) => set({ qcZoneIds })}
-              note="Quick Commerce and Medical show this admin only the stores, orders, delivery partners and dashboard of these zones. With Zone settings below, they set earnings, incentives, cancellation and fees for these zones only."
+              note="Quick Commerce shows this admin only the stores, orders, delivery partners and dashboard of these zones. With Zone settings below, they set earnings, incentives, cancellation and fees for these zones only."
             />
           )}
           {showTaxiZones && (
@@ -734,7 +733,7 @@ export default function AdminAccounts() {
           <div>
             <h1 className="text-2xl font-semibold text-neutral-900">Admin accounts</h1>
             <p className="mt-1 text-sm text-neutral-600">
-              Who can open which panel, and what they can do there. One account works across Food, Quick Commerce, Medical and Taxi.
+              Who can open which panel, and what they can do there. One account works across Food, Quick Commerce and Taxi.
             </p>
           </div>
           {canManage && (
@@ -825,7 +824,7 @@ export default function AdminAccounts() {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3"><PanelChips services={r.servicesAccess} labels={{ ...panelLabels, food: "Food", quickCommerce: "Quick Commerce", medical: "Medical", taxi: "Taxi" }} /></td>
+                        <td className="px-4 py-3"><PanelChips services={r.servicesAccess} labels={{ ...panelLabels, food: "Food", quickCommerce: "Quick Commerce", taxi: "Taxi" }} /></td>
                         <td className="px-4 py-3 text-xs text-neutral-500">
                           {when(r.createdAt)}
                           {r.createdBy && <span className="block">by {r.createdBy}</span>}

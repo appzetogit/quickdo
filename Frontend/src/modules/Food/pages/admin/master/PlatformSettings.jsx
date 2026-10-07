@@ -125,7 +125,7 @@ function BrandTab({ profile, onSaved }) {
 
   return (
     <div className="space-y-5">
-      <Card title="Brand" description="One name and logo for Food, Quick Commerce, Medical and Taxi.">
+      <Card title="Brand" description="One name and logo for Food, Quick Commerce and Taxi.">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="App name" hint="Shown in every app, email and SMS" wide>
             <input className={inputCls} value={brand.name} placeholder="Quick Drop" onChange={(e) => setB("name")(e.target.value)} />
@@ -231,7 +231,7 @@ function LegalTab({ profile, onSaved }) {
   return (
     <Card
       title="Legal pages"
-      description="Written once, shown in every customer app. A page Medical has written for itself stays."
+      description="Written once, shown in every customer app."
       footer={
         <>
           {savedText && (
@@ -463,7 +463,7 @@ export default function PlatformSettings() {
       <div className="mx-auto max-w-3xl space-y-5">
         <div>
           <h1 className="text-2xl font-semibold text-neutral-900">Master settings</h1>
-          <p className="mt-1 text-sm text-neutral-600">Set once here for Food, Quick Commerce, Medical and Taxi.</p>
+          <p className="mt-1 text-sm text-neutral-600">Set once here for Food, Quick Commerce and Taxi.</p>
         </div>
 
         <div className="flex gap-1 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-1">

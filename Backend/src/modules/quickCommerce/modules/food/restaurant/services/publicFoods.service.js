@@ -25,7 +25,7 @@ export async function listPublicFoods(query = {}) {
     const promo = String(query.promo || query.promoSlug || '').trim().toLowerCase();
     const isSwitch99Promo = promo === 'switch99' || promo === 'under-250' || promo === 'under250';
 
-    // Quick Shop products only; medicines are sold through the Medical tab.
+    // Quick Shop products only (legacy pharmacies are not public).
     const restaurantFilter = { status: 'approved', ...QUICK_SHOP_SELLER_FILTER };
     if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
         restaurantFilter.zoneId = new mongoose.Types.ObjectId(zoneIdRaw);

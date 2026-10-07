@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { isPriced as isPrescriptionPriced } from '../../shared/prescriptionOrder.js';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
@@ -16,9 +15,8 @@ import { mirrorQcOfferToFoodRider } from '../../../../../../core/delivery/qcRide
 /*
  * Zone matching, shared with food so the two verticals cannot drift apart on what
  * "same zone" means. The zone MAP is not shared: quick commerce keys off
- * qc_zones, food off food_zones, medical off medical_zones, and none of the
- * ids overlap -- hence passing the right model in explicitly, picked per
- * order by the restaurant's own storeType (see listNearbyOnlineDeliveryPartners).
+ * qc_zones and food off food_zones, and none of the ids overlap -- hence
+ * passing the right model in explicitly (see listNearbyOnlineDeliveryPartners).
  *
  * The worldwide fallback was already removed here. What was still missing is the
  * zone test itself: distance alone lets an order cross into a neighbouring zone
@@ -26,8 +24,6 @@ import { mirrorQcOfferToFoodRider } from '../../../../../../core/delivery/qcRide
  */
 import { loadActiveZones, filterCandidatesToZone, resolveZoneIdForPoint } from '../../../../../food/shared/zoneMatching.js';
 import { FoodZone as QCZone } from '../../admin/models/zone.model.js';
-import { MedicalZone } from '../../admin/models/medicalZone.model.js';
-import { isMedicalStore } from '../../shared/storeType.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import {
   buildDeliverySocketPayload,
@@ -37,6 +33,7 @@ import {
   notifyOwnerSafely,
   notifyOwnersActionableAlert,
   notifyOwnersSafely,
+  legacyPrescriptionAwaitingCustomer,
 } from './order.helpers.js';
 import { fetchDrivingRoute } from '../utils/googleMaps.js';
 import { parseGeoPoint } from '../../shared/geo.utils.js';
@@ -137,12 +134,9 @@ export function buildIncomingOrderPushData(order, payload, acceptanceDeadlineAt)
 
   return {
     type: 'new_order',
-    // One explicit label the native incoming-order card's heading switches
-    // on, instead of guessing Medical-vs-QC from the order-code prefix
-    // (MED-/QC-) the way it still has to without this. prescriptionOnly/
-    // prescriptionRequired are the same fields the order's own isMedicalOrder
-    // concept is built from elsewhere (see shared/prescriptionRules.js).
-    jobType: (order?.prescriptionOnly || order?.prescriptionRequired) ? 'medical' : 'quick_commerce',
+    // One explicit label the native incoming-order card's heading switches on.
+    // Always quick commerce now ('medical' went with the Medical vertical).
+    jobType: 'quick_commerce',
     // Carried INSIDE data on purpose.
     //
     // This push is data-only, so FCM omits the notification block and
@@ -259,7 +253,7 @@ async function getCashBlockedPartnerIds(partnerIds, orderCash = 0) {
   if (!partnerIds.length) return new Set();
 
   // The shared figure (core/finance/riderFinance), same as accept: cash across
-  // Food, Quick & Medical and taxi against the rider's own limit (0 = none).
+  // Food, Quick Commerce and taxi against the rider's own limit (0 = none).
   // qc_delivery_wallets.cashInHand, read before, is never updated by deliveries.
   const { getRiderFinance } = await import('../../../../../../core/finance/riderFinance.service.js');
   const results = await Promise.all(partnerIds.map(async (id) => {
@@ -289,7 +283,7 @@ function orderCollectsCash(order) {
  * Partners with no driverId are kept, so the pool keeps working for anyone not
  * yet linked. No-op, and no extra query, while UNIFIED_DISPATCH_ENABLED is off.
  */
-async function filterByUnifiedWorkMode(partners, { isMedical = false } = {}) {
+async function filterByUnifiedWorkMode(partners) {
   if (!config.unifiedDispatchEnabled || !partners?.length) return partners || [];
 
   const ids = partners.map((p) => p._id);
@@ -308,12 +302,10 @@ async function filterByUnifiedWorkMode(partners, { isMedical = false } = {}) {
     // know which app a job came from. 'quickCommerce' is still accepted so a
     // driver who stored that mode before the toggle was collapsed keeps working.
     workMode: { $in: ['all', 'delivery', 'quickCommerce'] },
-    // Ordinary grocery orders stay exclusive to riders actually set up for
+    // Grocery orders stay exclusive to riders actually set up for
     // quick-commerce (a driver can be approved for one vertical and not the
-    // other). Medical is the one exception, by explicit request: a rider the
-    // admin approved for Food delivery should also see pharmacy orders, not
-    // only ones separately approved for quick-commerce.
-    serviceCapabilities: isMedical ? { $in: ['quickCommerce', 'delivery'] } : 'quickCommerce',
+    // other).
+    serviceCapabilities: 'quickCommerce',
   })
     .select('_id')
     .lean();
@@ -332,7 +324,7 @@ async function listNearbyOnlineDeliveryPartners(
 ) {
   const rId = (restaurantId?._id || restaurantId).toString();
   const restaurant = await FoodRestaurant.findById(rId)
-    .select("location zoneId storeType")
+    .select("location zoneId")
     .lean();
 
   if (!restaurant?.location?.coordinates?.length) {
@@ -340,17 +332,7 @@ async function listNearbyOnlineDeliveryPartners(
     return { restaurant: null, partners: [] };
   }
 
-  // A pharmacy's zone was resolved against medical_zones at order-placement
-  // time (resolveServiceableZone in order.service.js) -- zones created after
-  // the medical/quick-commerce split exist only there, not in qc_zones. This
-  // used to always load QCZone regardless of storeType, so a pharmacy whose
-  // zoneId only exists in medical_zones matched against the wrong map: every
-  // rider resolved to a different (or no) zone id, filterCandidatesToZone
-  // dropped them all, and the order was never offered to anyone -- riders
-  // approved for Food/Quick-commerce got grocery offers fine, but medical
-  // ones silently never arrived.
-  const zoneModel = isMedicalStore(restaurant.storeType) ? MedicalZone : QCZone;
-  const zones = await loadActiveZones({ model: zoneModel });
+  const zones = await loadActiveZones({ model: QCZone });
   // A store saved without a zone is placed by its own location.
   const orderZoneId = restaurant?.zoneId
     ? String(restaurant.zoneId)
@@ -365,7 +347,7 @@ async function listNearbyOnlineDeliveryPartners(
   /*
    * Riders online on the FOOD side count too, as their linked Quick rider
    * record: the delivery app only goes online (and reports GPS) through Food,
-   * so the Quick pool on its own was always empty and no Quick or Medical
+   * so the Quick pool on its own was always empty and no Quick
    * order was ever offered to anyone. Freshest position wins per rider.
    */
   const { onlineFoodRidersAsQcCandidates } = await import('../../../../../../core/delivery/qcRiderLink.js');
@@ -453,7 +435,6 @@ async function listNearbyOnlineDeliveryPartners(
   // query over a handful of candidates rather than the whole online pool.
   const final = await filterByUnifiedWorkMode(
     approved.map((p) => ({ ...p, _id: p.partnerId })),
-    { isMedical: isMedicalStore(restaurant.storeType) },
   );
 
   return { partners: final };
@@ -531,20 +512,11 @@ export async function tryAutoAssign(orderId, options = {}) {
     return order;
   }
 
-  /*
-   * A prescription order reaches 'preparing' the moment the pharmacy sends its
-   * bill -- before the customer has seen the price. Riders are offered it only
-   * once the customer has agreed: bill approved (cash on delivery), or paid
-   * online. An order from before bills existed (priced, no bill status) keeps
-   * going as it did.
-   */
+  // A legacy prescription order (removed Medical vertical) still in flight is
+  // offered to riders only once the customer has agreed its bill.
   if (order.prescriptionOnly === true) {
-    const billStatus = String(order.prescription?.bill?.status || 'none');
-    const paidOnline = String(order.payment?.status || '') === 'paid';
-    const agreed = billStatus === 'approved' || paidOnline
-      || (billStatus === 'none' && isPrescriptionPriced(order));
-    if (!agreed) {
-      logger.info(`tryAutoAssign: Skip for ${orderId} (prescription bill ${billStatus}, not yet agreed by the customer).`);
+    if (legacyPrescriptionAwaitingCustomer(order)) {
+      logger.info(`tryAutoAssign: Skip for ${orderId} (legacy prescription bill not yet agreed by the customer).`);
       await FoodOrder.updateOne(
         { _id: order._id },
         { $unset: { 'dispatch.dispatchingAt': '' } }

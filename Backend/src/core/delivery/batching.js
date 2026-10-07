@@ -5,7 +5,7 @@ import { qcRiderIdForFoodRider, foodRiderIdForQcRider } from './qcRiderLink.js';
 /**
  * Order batching: a second order for a rider who is already on a trip.
  *
- * Food, Quick and Medical riders are one pool, and a rider used to get one
+ * Food and Quick riders are one pool, and a rider used to get one
  * order at a time -- except that nothing stopped a rider on a Food trip being
  * offered (and accepting) any number of further Food orders, which the app
  * could not show. This is the one rule every dispatch and accept path asks:
@@ -177,7 +177,7 @@ export async function qcRidersBlockedFor(qcRiderIds = [], order, vertical = 'qui
     return out;
 }
 
-/** Of these Food riders, those carrying any live Food or Quick/Medical order. */
+/** Of these Food riders, those carrying any live Food or Quick order. */
 async function busyFoodRiders(foodRiderIds) {
     const { FoodOrder, QcOrder } = await models();
     const pairs = await Promise.all(foodRiderIds.map(async (f) => [f, await qcRiderIdForFoodRider(f).catch(() => null)]));

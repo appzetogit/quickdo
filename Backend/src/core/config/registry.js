@@ -212,7 +212,7 @@ export const SETTINGS = Object.freeze({
         max: 1000,
         scopes: NOT_PER_PARTNER,
         label: 'Platform fee per order',
-        help: 'A flat amount added to every Food and Quick & Medical order. 0 charges none. Unset keeps each service’s own fee.',
+        help: 'A flat amount added to every Food and Quick Commerce order. 0 charges none. Unset keeps each service’s own fee.',
     },
     'fees.platformFeeGstRate': {
         type: 'number',
@@ -221,14 +221,14 @@ export const SETTINGS = Object.freeze({
         max: 100,
         scopes: NOT_PER_PARTNER,
         label: 'GST on the platform fee (%)',
-        help: 'Added on top of the platform fee. Food only: Quick & Medical does not add GST to its platform fee. Unset keeps Food’s own rate (18% if it has none).',
+        help: 'Added on top of the platform fee. Food only: Quick Commerce does not add GST to its platform fee. Unset keeps Food’s own rate (18% if it has none).',
     },
 
     // --- order cancellation --------------------------------------------------
     /*
      * How long a customer may cancel after the restaurant or store accepts
      * (Master > Cancellation Policy). Unset keeps each service's own rule: Food's
-     * Order cancellation screen, and Quick & Medical's "only before the store
+     * Order cancellation screen, and Quick Commerce's "only before the store
      * accepts". Read by modules/food/orders/services/cancellationPolicy.js.
      */
     'orders.cancelAfterAccept': {
@@ -275,7 +275,7 @@ export const SETTINGS = Object.freeze({
      *
      * Unset means each service keeps paying what its own referral screen says,
      * which is how the platform behaved before this existed. Once set, it is what
-     * Food, Quick & Medical and Taxi pay (core/referral/referralSettings.service.js);
+     * Food, Quick Commerce and Taxi pay (core/referral/referralSettings.service.js);
      * WHEN each pays stays the service's own rule -- Food and Quick at sign-up or
      * approval, Taxi after the rides its screen asks for.
      */
@@ -351,7 +351,7 @@ export const SETTINGS = Object.freeze({
         default: false,
         scopes: NOT_PER_PARTNER,
         label: 'Give a rider a second order on the same trip',
-        help: 'Food, Quick and Medical. A rider on the way to a store can be offered another order from the same or a nearby store going the same way. Off: one order per rider.',
+        help: 'Food and Quick. A rider on the way to a store can be offered another order from the same or a nearby store going the same way. Off: one order per rider.',
     },
     'batching.maxOrders': {
         type: 'number',

@@ -109,7 +109,7 @@ async function listNearbyOnlineDeliveryPartners(
   // Driver unification: drop partners whose unified driver is busy on another job or whose
   // work-mode excludes deliveries. Flag-gated; no-op (and no extra query) while disabled.
   const unified = await filterByUnifiedWorkMode(allOnline);
-  // Riders already carrying an order (Food or Quick/Medical) are judged by the
+  // Riders already carrying an order (Food or Quick) are judged by the
   // caller against the order itself: core/delivery/batching.js.
   const eligible = unified;
 
@@ -312,7 +312,7 @@ const offerPushData = (order, payload = {}) => {
   return {
     type: 'new_order',
     // One explicit label the native incoming-order card's heading switches
-    // on, alongside the medical/quick-commerce forks of this same payload
+    // on, alongside the quick-commerce fork of this same payload
     // builder -- see their own jobType for why this replaces guessing from
     // order-code prefixes.
     jobType: 'food',

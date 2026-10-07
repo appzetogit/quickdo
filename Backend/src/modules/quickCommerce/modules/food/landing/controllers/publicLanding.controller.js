@@ -98,7 +98,7 @@ export const getPublicLandingSettingsController = async (req, res, next) => {
         const ids = settings?.recommendedRestaurantIds || [];
         let recommendedRestaurants = [];
         if (Array.isArray(ids) && ids.length > 0) {
-            // Quick Shop's home: pharmacies are listed on the Medical tab instead.
+            // Quick Shop's home (legacy pharmacies are not public).
             const query = { _id: { $in: ids }, status: 'approved', ...QUICK_SHOP_SELLER_FILTER };
             if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
                 query.zoneId = new mongoose.Types.ObjectId(zoneId);

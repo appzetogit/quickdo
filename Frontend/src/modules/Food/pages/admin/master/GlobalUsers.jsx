@@ -149,7 +149,7 @@ export default function GlobalUsers() {
           <div>
             <h1 className="text-2xl font-semibold text-neutral-900">Customers</h1>
             <p className="mt-1 text-sm text-neutral-600">
-              Everyone who uses Food, Quick Commerce, Medical, Taxi or Services — one person, one row.
+              Everyone who uses Food, Quick Commerce, Taxi or Services — one person, one row.
             </p>
           </div>
           <button type="button" className={btnCls} onClick={exportCsv} disabled={exporting || loading}>
@@ -281,7 +281,7 @@ export default function GlobalUsers() {
         </section>
 
         <p className="px-1 text-xs text-neutral-500">
-          Orders counts Food, and Quick Commerce with Medical, from their own order records; the
+          Orders counts Food and Quick Commerce from their own order records; the
           small figures under each total show the split. Blocking here blocks the customer in every app.
         </p>
       </div>

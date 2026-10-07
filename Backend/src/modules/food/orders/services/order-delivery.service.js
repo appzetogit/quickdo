@@ -413,7 +413,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   }
   if (lockOrderId && offeredToMe) {
     // One order at a time, unless this one can join the rider's trip
-    // (core/delivery/batching.js). Covers Food and Quick/Medical orders alike;
+    // (core/delivery/batching.js). Covers Food and Quick orders alike;
     // the lock below is a no-op for riders without a unified driver record.
     const { canAddToTrip, refusalMessage } = await import('../../../../core/delivery/batching.js');
     // An admin who hands this order to this rider by hand has decided; their

@@ -259,8 +259,7 @@ export function setAuthData(module, token, user, refreshToken = null) {
     if (module === "restaurant") {
       clearRestaurantSessionCache();
       // A fresh restaurant login is a food restaurant unless the caller says
-      // otherwise straight after (the /partner sign-in does, for stores and
-      // medical stores). See RESTAURANT_VERTICAL_KEY in services/api/axios.js.
+      // otherwise straight after (the /partner sign-in does, for stores). See RESTAURANT_VERTICAL_KEY in services/api/axios.js.
       localStorage.removeItem("restaurant_vertical");
     }
 

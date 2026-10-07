@@ -80,7 +80,7 @@ export default function OrderBatching() {
             <Layers className="h-5 w-5" /> Order batching
           </h1>
           <p className="mt-1 text-sm text-neutral-600">
-            Give a rider who is on the way to a store a second Food, Quick or Medical order from the same or a nearby store,
+            Give a rider who is on the way to a store a second Food or Quick order from the same or a nearby store,
             going the same way. They pick both up together and deliver one after the other. Each order pays its own delivery fee.
           </p>
         </div>

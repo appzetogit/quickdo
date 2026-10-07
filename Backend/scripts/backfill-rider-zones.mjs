@@ -1,6 +1,6 @@
 /**
  * Record the zones every delivery partner has already delivered in
- * (rider.zoneIds), from their delivered Food and Quick & Medical orders.
+ * (rider.zoneIds), from their delivered Food and Quick Commerce orders.
  *
  *   node scripts/backfill-rider-zones.mjs           # dry run: prints what it would do
  *   node scripts/backfill-rider-zones.mjs --apply
@@ -20,7 +20,7 @@ const db = mongoose.connection.db;
 
 const SOURCES = [
   { label: 'Food', orders: 'food_orders', riders: 'food_delivery_partners' },
-  { label: 'Quick & Medical', orders: 'qc_orders', riders: 'qc_delivery_partners' },
+  { label: 'Quick Commerce', orders: 'qc_orders', riders: 'qc_delivery_partners' },
 ];
 
 for (const { label, orders, riders } of SOURCES) {

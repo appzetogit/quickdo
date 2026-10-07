@@ -22,9 +22,6 @@ export default function Banners() {
     { value: 'food', label: 'Food' },
     { value: 'taxi', label: 'Rides' },
     { value: 'quick_commerce', label: 'Quick Commerce' },
-    // Medical shares the quick-commerce backend but is its own screen, so it
-    // gets its own artwork rather than inheriting Quick's.
-    { value: 'medical', label: 'Medical' },
     { value: 'porter', label: 'Porter' },
   ]
 
@@ -186,7 +183,7 @@ export default function Banners() {
       return
     }
     // Only Food links a banner to a restaurant or zone. Requiring it for every
-    // section is what made Rides, Quick and Medical impossible to upload at
+    // section is what made Rides and Quick impossible to upload at
     // all — there is no restaurant to pick.
     if (isFoodSection) {
       if (formData.bannerType === "Restaurant wise" && !formData.restaurant) {

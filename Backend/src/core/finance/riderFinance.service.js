@@ -61,9 +61,9 @@ export const resolveRiderIdentity = async (anyId) => {
 };
 
 /**
- * The Quick & Medical rider record a Food rider delivers those orders as, and back.
+ * The Quick Commerce rider record a Food rider delivers those orders as, and back.
  *
- * The delivery app only talks to /food/delivery/*; a Quick or Medical order is
+ * The delivery app only talks to /food/delivery/*; a Quick order is
  * accepted and completed as the linked QC rider record (core/delivery/qcRiderLink),
  * which is matched by driverId or phone and never written to
  * Driver.legacyQcPartnerId. Reading only the hub left qcPartnerId null for every

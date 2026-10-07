@@ -3,7 +3,7 @@ import { logger } from '../../utils/logger.js';
 /**
  * What a referral pays, set once in Master > Referral.
  *
- * Three systems grew separately: Food (food_referral_settings), Quick & Medical
+ * Three systems grew separately: Food (food_referral_settings), Quick Commerce
  * (qc_referral_settingses) and Taxi (the referral block of its business
  * settings). Each still decides WHEN it pays -- Food and Quick at sign-up or
  * rider approval, Taxi after the completed rides its own screen asks for -- but
@@ -14,7 +14,7 @@ import { logger } from '../../utils/logger.js';
  * code paths that credit wallets, and a new screen must not change what anyone
  * is paid until somebody saves something on it.
  *
- * Verticals: 'food', 'quickCommerce' (which Medical runs on) and 'taxi'.
+ * Verticals: 'food', 'quickCommerce' and 'taxi'.
  */
 
 const KEYS = {

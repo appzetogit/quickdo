@@ -5,7 +5,7 @@ import { sendResponse, sendError } from '../../../../../utils/response.js';
 import * as partner from './partner.service.js';
 
 /**
- * Partner sign-up for stores and medical stores. Mounted at /v1/qc/partner.
+ * Partner sign-up for stores. Mounted at /v1/qc/partner.
  *
  *   POST /request-otp      { phone, type }        send the code
  *   POST /verify-otp       { phone, otp, type }   where this partner stands

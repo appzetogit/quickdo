@@ -5,15 +5,14 @@ import { MapPin } from "lucide-react"
 /**
  * Picks the zone a Master setting is saved for.
  *
- * Every module draws its own zones (Food zones, Quick zones, Medical zones,
- * Taxi zones), so the list comes from the module or modules given. Empty is
+ * Every module draws its own zones (Food zones, Quick zones, Taxi zones), so the list comes from the module or modules given. Empty is
  * "All zones": the module's own default, which every zone without a value of
  * its own uses. The server resolves zone > module > all modules.
  *
  *   <ZonePicker modules={["food"]} value={zoneId} onChange={(id, name) => ...} />
  */
 
-const MODULE_LABEL = { food: "Food", quickCommerce: "Quick", medical: "Medical", taxi: "Taxi" }
+const MODULE_LABEL = { food: "Food", quickCommerce: "Quick", taxi: "Taxi" }
 const cache = new Map()
 
 // Per signed-in admin: a zone sub-admin's list is only their zones.

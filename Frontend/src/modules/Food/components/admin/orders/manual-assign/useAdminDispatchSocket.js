@@ -7,8 +7,8 @@ import { getModuleToken } from "@food/utils/auth"
  * Live dispatch events for the admin panel.
  *
  * Admin sockets are auto-joined to `admin:all` by the server once the handshake
- * carries the admin token. Food events come on the root namespace, Quick and
- * Medical on `/qc`. One socket per namespace is shared by every component that
+ * carries the admin token. Food events come on the root namespace, Quick
+ * on `/qc`. One socket per namespace is shared by every component that
  * listens (a list plus an open dialog do not open two connections), and it is
  * closed a moment after the last listener leaves.
  *

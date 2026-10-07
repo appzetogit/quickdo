@@ -337,10 +337,10 @@ const orderSchema = new mongoose.Schema(
          */
         returnRefundedPaise: { type: Number, min: 0 },
         /**
-         * At least one line -- except on a prescription-only order, which is placed
-         * from a photograph and carries no items until the pharmacist prices it (see
-         * prescriptionOnly below). Refusing it here meant no prescription order could
-         * ever be saved. A function, not an arrow, so `this` is the order.
+         * At least one line -- except on a legacy prescription-only order (see
+         * prescriptionOnly below), which carried no items until the pharmacist
+         * priced it; existing ones must still save. A function, not an arrow, so
+         * `this` is the order.
          */
         items: {
             type: [orderItemSchema],
@@ -372,26 +372,14 @@ const orderSchema = new mongoose.Schema(
             required: false
         },
         /**
-         * Prescription, for orders placed with a medical store.
+         * DEPRECATED -- `prescriptionOnly` and `prescription` belong to the removed
+         * Medical vertical (SOW decision D2). No order sets them any more; they are
+         * kept so existing medical orders load and save unchanged, and so a legacy
+         * prescription order still in flight is kept away from riders until its
+         * bill was agreed (order.helpers.js legacyPrescriptionAwaitingCustomer).
          *
-         * `required` is stamped from the seller's storeType when the order is created,
-         * not read from the seller at review time: a shop that changes type later must
-         * not retroactively change what an existing order needed.
-         *
-         * The seller reviews it, because they are the pharmacist — but they cannot
-         * confirm the order until they have, which is what stops medicine going out
-         * against nothing. See shared/prescriptionRules.js.
-         */
-        /**
-         * True when this order was placed by photographing a prescription
-         * rather than by adding catalogue items to a cart.
-         *
-         * It carries no items and no price until the pharmacist reads the photo
-         * and enters what they will dispense, so several ordinary invariants —
-         * "an order has a total", "the customer has paid or owes a known
-         * amount" — do not hold for it until then. Indexed because both the
-         * seller queue and the customer's order list have to tell the two kinds
-         * apart to render them at all. See shared/prescriptionOrder.js.
+         * prescriptionOnly: placed by photographing a prescription, with no items
+         * until the pharmacist priced it.
          */
         prescriptionOnly: { type: Boolean, default: false, index: true },
         prescription: {
@@ -411,19 +399,7 @@ const orderSchema = new mongoose.Schema(
             adminRemovedAt: { type: Date, default: null },
             adminRemovedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
             adminRemovedReason: { type: String, trim: true, default: '' },
-            /**
-             * The pharmacy's own bill, and the customer's answer to it.
-             *
-             * A prescription order is priced by the pharmacist after reading
-             * the photo, so the customer agreed to no amount when they placed
-             * it. They are shown this bill and either pay it or decline; until
-             * they do, the order may not be prepared or dispatched -- see
-             * shared/prescriptionOrder.js.
-             *
-             * `imageUrl` is the paper bill itself, kept because the amount is
-             * typed by hand: without the document beside it, a disputed charge
-             * is one person's figure against another's.
-             */
+            /** The pharmacy's own bill, and the customer's answer to it. */
             bill: {
                 imageUrl: { type: String, trim: true, default: '' },
                 /** What the pharmacist read off that bill, for the medicines alone. */
@@ -440,18 +416,7 @@ const orderSchema = new mongoose.Schema(
                 declinedAt: { type: Date, default: null },
                 declineReason: { type: String, trim: true, default: '' },
             },
-            /**
-             * The sealed packet, photographed by the pharmacy as it hands the
-             * order to the delivery partner.
-             *
-             * Not the same as the photo the partner takes at pickup. That one
-             * says what the partner received; this says what the pharmacy
-             * packed, and the gap between them is the only evidence either
-             * side has when a customer says something was missing.
-             *
-             * Recorded at dispatch, which is refused until the customer has
-             * paid -- see dispatchPrescriptionOrder.
-             */
+            /** The sealed packet, photographed by the pharmacy at dispatch. */
             packet: {
                 imageUrl: { type: String, trim: true, default: '' },
                 dispatchedAt: { type: Date, default: null },
@@ -556,17 +521,17 @@ orderSchema.index({ 'dispatch.assignMode': 1, 'dispatch.status': 1, 'dispatch.ma
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 
-// Numbers an order used to carry (FOD- before medical orders became MED-), so a
-// link or message with the old number still finds it.
+// Numbers an order used to carry (FOD- before old medical orders were renumbered
+// MED-), so a link or message with the old number still finds it.
 orderSchema.add({ previousOrderIds: { type: [String], default: undefined } });
 orderSchema.index({ previousOrderIds: 1 }, { sparse: true });
 
 orderSchema.pre('save', async function (next) {
     try {
         if (!this.order_id) {
-            // Medical (pharmacy) orders read MED-, everything else FOD- as before.
-            // Only new orders: an existing number is never rewritten.
-            const prefix = this.prescription?.required === true ? 'MED' : 'FOD';
+            // Only new orders: an existing number (including an old MED- one from
+            // the removed Medical vertical) is never rewritten.
+            const prefix = 'FOD';
             // 6 timestamp digits + 4 random digits, verified against the collection.
             // The old 4+3 format collided after a few thousand orders (birthday paradox),
             // which made display-id lookups match the wrong order.

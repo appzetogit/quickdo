@@ -2,7 +2,6 @@ import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodRestaurantCommission } from '../../admin/models/restaurantCommission.model.js';
 import { resolveDiscountSplitByCoupon } from '../../shared/discountSplit.util.js';
 import mongoose from 'mongoose';
-import { medicalFallbackRule } from '../../admin/services/medicalCommission.service.js';
 
 const RESTAURANT_COMMISSION_CACHE_MS = 60 * 1000;
 let restaurantCommissionRulesCache = null;
@@ -68,8 +67,6 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
     rules.find((r) => String(r.restaurantId) === String(restaurantIdRaw)) ||
     // Fallback: accept legacy docs where restaurantId may be stored under `restaurant` / `restaurant_id`
     rules.find((r) => String(r.restaurant || r.restaurant_id || '') === String(restaurantIdRaw)) ||
-    // A pharmacy with no rate of its own pays the medical default.
-    (await medicalFallbackRule(restaurantIdRaw).catch(() => null)) ||
     null;
 
   if (!rule) {

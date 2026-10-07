@@ -141,7 +141,7 @@ export async function getMeta(admin) {
     }
   }
 
-  // Zones for food and for quick commerce / medical, limited to the caller's own.
+  // Zones for food and for quick commerce, limited to the caller's own.
   const zonesOf = async (load, own) => {
     try {
       const Model = await load();
@@ -155,16 +155,9 @@ export async function getMeta(admin) {
   const foodZones = caller.servicesAccess.includes('food')
     ? await zonesOf(async () => (await import('../../modules/food/admin/models/zone.model.js')).FoodZone, caller.foodZoneIds)
     : [];
-  // Quick and Medical draw separate zones; one list covers both, labelled.
-  const qcZones = caller.servicesAccess.some((s) => s === 'quickCommerce' || s === 'medical')
-    ? [
-      ...(await zonesOf(async () => (await import('../../modules/quickCommerce/modules/food/admin/models/zone.model.js')).QCZone, caller.qcZoneIds))
-        .map((z) => ({ ...z, name: `${z.name} · Quick` })),
-      ...(await zonesOf(async () => {
-        const { zoneModelFor } = await import('../../modules/quickCommerce/modules/food/shared/zoneServiceability.js');
-        return zoneModelFor('medical');
-      }, caller.qcZoneIds)).map((z) => ({ ...z, name: `${z.name} · Medical` })),
-    ]
+  const qcZones = caller.servicesAccess.includes('quickCommerce')
+    ? (await zonesOf(async () => (await import('../../modules/quickCommerce/modules/food/admin/models/zone.model.js')).QCZone, caller.qcZoneIds))
+      .map((z) => ({ ...z, name: `${z.name} · Quick` }))
     : [];
   const taxiZones = caller.servicesAccess.includes('taxi')
     ? await zonesOf(async () => (await import('../../modules/taxi/driver/models/Zone.js')).Zone, caller.taxiZoneIds || [])
@@ -322,7 +315,7 @@ async function validatePayload(admin, caller, body, { creating }) {
     return list;
   };
   out.foodZoneIds = zonesFor(body.foodZoneIds, caller.foodZoneIds, services.includes('food'), 'food');
-  out.qcZoneIds = zonesFor(body.qcZoneIds, caller.qcZoneIds, services.includes('quickCommerce') || services.includes('medical'), 'quick commerce');
+  out.qcZoneIds = zonesFor(body.qcZoneIds, caller.qcZoneIds, services.includes('quickCommerce'), 'quick commerce');
   out.taxiZoneIds = zonesFor(body.taxiZoneIds, caller.taxiZoneIds || [], services.includes('taxi'), 'taxi');
   return out;
 }
@@ -340,7 +333,7 @@ function applyTo(doc, data, admin) {
     doc.admin_type = 'superadmin';
     doc.module = null;
     doc.permissions = ['*'];
-    doc.servicesAccess = ['food', 'quickCommerce', 'medical', 'taxi', 'serviceProvider'];
+    doc.servicesAccess = ['food', 'quickCommerce', 'taxi', 'serviceProvider'];
     doc.canDelete = true;
   } else {
     if (data.canDelete !== undefined) doc.canDelete = data.canDelete;

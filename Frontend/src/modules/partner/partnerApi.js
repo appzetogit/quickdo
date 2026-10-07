@@ -2,7 +2,7 @@ import apiClient, { RESTAURANT_VERTICAL_KEY } from "@food/api/axios"
 import { setAuthData } from "@food/utils/auth"
 
 /**
- * Partner sign-up API (/qc/partner). Stores and medical stores only; restaurants
+ * Partner sign-up API (/qc/partner). Stores only; restaurants
  * keep their own sign-up under /food/restaurant.
  *
  * The onboarding token is sent explicitly and the request carries its own
@@ -73,14 +73,10 @@ export const PARTNER_TYPES = {
     label: "Store",
     blurb: "Grocery, kirana, supermarket and daily essentials.",
   },
-  medical: {
-    label: "Medical store",
-    blurb: "Pharmacies taking prescription orders.",
-  },
 }
 
 /**
- * Sign an approved store or medical store into the web dashboard.
+ * Sign an approved store into the web dashboard.
  *
  * The restaurant dashboard serves them too, against quick commerce: the mark
  * set here sends its requests to /qc (see RESTAURANT_VERTICAL_KEY in axios.js).

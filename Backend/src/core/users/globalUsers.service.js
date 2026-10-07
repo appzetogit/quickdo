@@ -115,11 +115,11 @@ export async function enrichUsers(users = []) {
     const jobs = [];
 
     /*
-     * Food orders only. Quick commerce and medical write to `qc_orders` -- the
+     * Food orders only. Quick commerce writes to `qc_orders` -- the
      * QC order model passes that as mongoose.model's third argument, which
      * overrides the `food_orders` its schema declares -- and are counted below.
      * This used to claim all three shared `food_orders`, and silently left out
-     * every grocery and pharmacy order.
+     * every grocery order.
      */
     if (FoodOrder) {
         jobs.push(FoodOrder.aggregate([
@@ -189,7 +189,7 @@ export async function enrichUsers(users = []) {
     };
 
     /*
-     * Quick commerce and medical orders. They are keyed by the customer's
+     * Quick commerce orders. They are keyed by the customer's
      * `qc_users` id, not the platform one, so each qc_users row is first mapped
      * to its owner -- by `platformUserId`, or by phone where the backfill has
      * not reached -- and the orders summed onto that owner.
@@ -310,7 +310,7 @@ const CSV_COLUMNS = [
     ['Verified', (u) => (u.isVerified ? 'Yes' : 'No')],
     ['Apps used', (u) => (u.apps || []).join(' / ')],
     ['Food orders', (u) => u.foodOrders],
-    ['Quick & medical orders', (u) => u.quickOrders],
+    ['Quick commerce orders', (u) => u.quickOrders],
     ['Order value', (u) => u.orderValue],
     ['Rides', (u) => u.rides],
     ['Wallet balance', (u) => u.walletBalance],

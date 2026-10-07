@@ -116,7 +116,7 @@ router.use('/v1/platform/settings', authMiddleware, requireRoles('ADMIN'), zoneS
  * the router. See core/appServices.
  */
 router.use('/v1/platform/app-services', appServicesRoutes);
-// Admin accounts for every panel (food, quick commerce, medical, taxi).
+// Admin accounts for every panel (food, quick commerce, taxi).
 router.use('/v1/platform/admins', platformAdminRoutes);
 // One support inbox over every service's tickets (Master > Help & Support).
 router.use('/v1/platform/support', supportInboxRoutes);

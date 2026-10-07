@@ -329,17 +329,11 @@ function onRefreshFailed(module) {
 const SHARED_FOOD_PREFIXES = ["auth"];
 
 /**
- * The admin bases that speak to the quick-commerce API.
- *
- * Medical is not a fifth vertical: a pharmacy is a quick-commerce seller whose
- * storeType is 'pharmacy', so /admin/medical is these same screens on the same
- * API, narrowed to that one type. `scope` is what narrows them.
+ * The admin bases that speak to the quick-commerce API. `scope` is the
+ * storeType sent on reads ("quick" = every store).
  */
 const QC_ADMIN_BASES = [
-  // "quick": every store type but pharmacy -- medical stores have their own
-  // panel and must not be listed (or edited by mistake) under Quick Commerce.
   { base: "/admin/quick-commerce", scope: "quick" },
-  { base: "/admin/medical", scope: "pharmacy" },
 ];
 
 const currentQcBase = () => {
@@ -349,7 +343,7 @@ const currentQcBase = () => {
 };
 
 /*
- * Stores and medical stores use the restaurant web dashboard.
+ * Stores use the restaurant web dashboard.
  *
  * They are quick-commerce sellers: the same seller endpoints under /qc instead
  * of /food, which is exactly how the Partner app serves them. The /partner
@@ -378,7 +372,7 @@ const rewriteAdminVertical = (url) => {
  *
  * Sent as a request parameter rather than filtered in the browser: the lists
  * are paginated server-side, so filtering the page after it arrives would show
- * "20 sellers" of which three are pharmacies, and page two might hold none. The
+ * "20 sellers" of which three match, and page two might hold none. The
  * server refuses a store type it does not know, so a typo here fails loudly
  * instead of quietly widening the list back to every seller.
  *
@@ -386,13 +380,8 @@ const rewriteAdminVertical = (url) => {
  * scoped by what the operator could see and click.
  */
 /*
- * Zones are the one thing quick commerce and medical do NOT share.
- *
- * Everywhere else /admin/medical is quick commerce narrowed to pharmacies, so
- * a storeType parameter on reads is enough. Zones are their own collections --
- * a zone drawn for groceries must not decide where medicine can go -- and the
- * server cannot tell which panel is asking, because both render the same screen
- * against the same route.
+ * Quick-commerce zones are their own collection, and the server cannot tell
+ * which panel is asking from the route alone.
  *
  * So the vertical is sent on EVERY zone call, writes included: creating,
  * renaming and deleting all have to land in the right map, and a write is
@@ -407,7 +396,7 @@ const applyZoneVertical = (config) => {
   if (!entry) return config;
   if (!ZONE_PATH.test(String(config.url || ""))) return config;
 
-  const vertical = entry.base === "/admin/medical" ? "medical" : "quick";
+  const vertical = "quick";
   const method = String(config.method || "get").toLowerCase();
 
   config.params = { ...(config.params || {}), vertical };
@@ -424,7 +413,7 @@ const applyVerticalScope = (config) => {
   if (!entry?.scope) return config;
   const method = String(config.method || "get").toLowerCase();
   if (method !== "get") return config;
-  // An explicit storeType from a screen wins: a medical screen may legitimately
+  // An explicit storeType from a screen wins: a screen may legitimately
   // ask a narrower question, and overriding it here would answer a different one.
   const params = config.params || {};
   if (params.storeType === undefined) {

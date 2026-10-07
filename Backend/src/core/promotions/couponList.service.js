@@ -6,7 +6,7 @@ import { resolvePromoCeiling, tighten } from '../finance/promoLimits.service.js'
 /**
  * One list of every coupon on the platform (Master > Coupons).
  *
- * Three systems hold them: Food's food_offers, Quick & Medical's qc_offers and
+ * Three systems hold them: Food's food_offers, Quick Commerce's qc_offers and
  * Taxi's promo codes. Their forms differ -- restaurant scope and cost sharing
  * in one, service locations and ride types in another -- so creating and
  * editing stay on each service's own screen. What an operator needs in one
@@ -36,7 +36,7 @@ const SOURCES = {
     sellers: 'food_restaurants',
   },
   quick: {
-    label: 'Quick & Medical',
+    label: 'Quick Commerce',
     service: 'quickCommerce',
     vertical: 'quickCommerce',
     load: async () => (await import('../../modules/quickCommerce/modules/food/admin/models/offer.model.js')).FoodOffer,

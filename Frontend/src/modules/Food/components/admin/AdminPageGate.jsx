@@ -14,7 +14,6 @@ import {
 const PANELS = [
   { service: "food", base: "/admin/food", label: "Food" },
   { service: "quickCommerce", base: "/admin/quick-commerce", label: "Quick Commerce" },
-  { service: "medical", base: "/admin/medical", label: "Medical" },
   { service: "taxi", base: "/taxi/admin/dashboard", label: "Taxi" },
 ]
 

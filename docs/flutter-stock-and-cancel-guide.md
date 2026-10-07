@@ -6,7 +6,7 @@ additions. Nothing here needs a server change.
 
 | App | Repo | Commits already pushed |
 |---|---|---|
-| Partner app (restaurant / store / medical) | `Rish1811/quickdrop_restaurant` | `01e6e0a` Stock screen, `1b90373` stock in product form, `2cd2cb4` send only changed stock |
+| Partner app (restaurant / store) | `Rish1811/quickdrop_restaurant` | `01e6e0a` Stock screen, `1b90373` stock in product form, `2cd2cb4` send only changed stock |
 | Customer app | `Rish1811/quickdropnew` | `5b8ac88` cancel window + countdown |
 
 > **Before you build:** run `git fetch` and check `git log origin/main` matches the commits
@@ -16,7 +16,7 @@ additions. Nothing here needs a server change.
 
 ---
 
-## 1. Stock (partner app, stores and medical stores only)
+## 1. Stock (partner app, stores only)
 
 Restaurants never see any of this. Everything is gated on
 `ref.watch(sellerVerticalControllerProvider).isQuick`.

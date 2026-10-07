@@ -7,7 +7,7 @@ import { Loader2, Gift, Info, ExternalLink } from "lucide-react"
 /**
  * Master > Referral: what a referral pays, set once for every service.
  *
- * Food, Quick & Medical and Taxi each still decide WHEN they pay (at sign-up,
+ * Food, Quick Commerce and Taxi each still decide WHEN they pay (at sign-up,
  * on rider approval, after a number of rides) on their own screens. The AMOUNT
  * and the cap per person are set here, for all of them or for one
  * (core/referral/referralSettings.service.js on the server).
@@ -26,16 +26,16 @@ const KEYS = {
 const SCOPES = [
   { id: "*", level: "global", label: "All services" },
   { id: "food", level: "vertical", label: "Food" },
-  { id: "quickCommerce", level: "vertical", label: "Quick & Medical" },
+  { id: "quickCommerce", level: "vertical", label: "Quick Commerce" },
   { id: "taxi", level: "vertical", label: "Taxi" },
 ]
 
-const SERVICE_LABEL = { food: "Food", quickCommerce: "Quick & Medical", taxi: "Taxi" }
+const SERVICE_LABEL = { food: "Food", quickCommerce: "Quick Commerce", taxi: "Taxi" }
 
 // Each service's own referral screen, for the rules Master does not set.
 const OWN_SCREENS = [
   { label: "Food referral rules", path: "/admin/food/referral-settings" },
-  { label: "Quick & Medical referral rules", path: "/admin/quick-commerce/referral-settings" },
+  { label: "Quick Commerce referral rules", path: "/admin/quick-commerce/referral-settings" },
   { label: "Taxi customer referral rules", path: "/taxi/admin/referrals/user-settings" },
   { label: "Taxi driver referral rules", path: "/taxi/admin/referrals/driver-settings" },
 ]
@@ -153,7 +153,7 @@ export default function MasterReferral() {
       <div className="mx-auto max-w-3xl space-y-5">
         <div>
           <h1 className="text-2xl font-semibold text-neutral-900">Referral</h1>
-          <p className="mt-1 text-sm text-neutral-600">What an invite pays, set once for Food, Quick &amp; Medical and Taxi.</p>
+          <p className="mt-1 text-sm text-neutral-600">What an invite pays, set once for Food, Quick Commerce and Taxi.</p>
         </div>
 
         <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white">

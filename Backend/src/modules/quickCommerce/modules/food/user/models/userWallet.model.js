@@ -3,7 +3,7 @@ import { CustomerWallet } from '../../../../../../core/wallet/customerWallet.mod
 import { platformUserIdFor } from '../../../../../../core/identity/platformUser.js';
 
 /**
- * Quick & Medical's customer wallet -- now the customer's ONE wallet.
+ * Quick Commerce's customer wallet -- now the customer's ONE wallet.
  *
  * It was its own collection (qc_user_wallets), keyed by the Quick customer id,
  * so money added in Food or Rides could not be spent on groceries or medicine,

@@ -4,11 +4,11 @@
  * Run: node tests/app-services.smoke.mjs
  *
  * What this guards:
- *   - nothing is hidden until an admin hides it -- a fresh platform shows all four;
+ *   - nothing is hidden until an admin hides it -- a fresh platform shows all three;
  *   - "off everywhere" beats any zone;
  *   - "off in a zone" hides the service only for customers inside that zone, and
  *     only that service -- food's zone switch must not hide taxi;
- *   - each service is judged on its OWN map (food, quick and medical polygons,
+ *   - each service is judged on its OWN map (food and quick polygons,
  *     taxi's GeoJSON), because the same address can be in one and not another;
  *   - being outside every zone does not hide a tile;
  *   - the app's read is public, the admin's writes need an admin.
@@ -42,7 +42,6 @@ const routes = (await import('../src/core/appServices/appServices.routes.js')).d
 const { signAccessToken } = await import('../src/core/auth/token.util.js');
 const { FoodZone } = await import('../src/modules/food/admin/models/zone.model.js');
 const { QCZone } = await import('../src/modules/quickCommerce/modules/food/admin/models/zone.model.js');
-const { MedicalZone } = await import('../src/modules/quickCommerce/modules/food/admin/models/medicalZone.model.js');
 const { Zone: TaxiZone } = await import('../src/modules/taxi/driver/models/Zone.js');
 await TaxiZone.init(); // the 2dsphere index $geoIntersects needs
 
@@ -66,9 +65,8 @@ const geo = ({ lat, lng }, d = 0.1) => ({
 
 const foodIndore = await FoodZone.create({ name: 'Indore Food', isActive: true, coordinates: ring(INDORE) });
 await FoodZone.create({ name: 'Bhopal Food', isActive: true, coordinates: ring(BHOPAL) });
+// Quick is drawn only in Indore: Bhopal is outside every quick zone.
 await QCZone.create({ name: 'Indore Quick', isActive: true, coordinates: ring(INDORE) });
-// Medical is drawn only in Bhopal: Indore is outside every medical zone.
-await MedicalZone.create({ name: 'Bhopal Medical', isActive: true, coordinates: ring(BHOPAL) });
 const taxiIndore = await TaxiZone.create({ name: 'Indore Taxi', active: true, geometry: geo(INDORE) });
 
 const at = async (point) => {
@@ -79,9 +77,9 @@ const at = async (point) => {
 
 console.log('\nnothing hidden until someone hides it');
 
-await check('a fresh platform shows all four services', async () => {
+await check('a fresh platform shows all three services (no Medical)', async () => {
     const s = await at(INDORE);
-    assert.deepEqual(Object.keys(s).sort(), ['food', 'medical', 'quick', 'taxi']);
+    assert.deepEqual(Object.keys(s).sort(), ['food', 'quick', 'taxi']);
     for (const key of Object.keys(s)) assert.equal(s[key].visible, true, `${key} hidden`);
 });
 
@@ -90,7 +88,7 @@ await check('each service reports its own zone at the same address', async () =>
     assert.equal(s.food.zone?.name, 'Indore Food');
     assert.equal(s.quick.zone?.name, 'Indore Quick');
     assert.equal(s.taxi.zone?.name, 'Indore Taxi', 'taxi GeoJSON zone not found');
-    assert.equal(s.medical.inZone, false, 'Indore has no medical zone');
+    assert.equal((await at(BHOPAL)).quick.inZone, false, 'Bhopal has no quick zone');
 });
 
 await check('outside every zone is not a reason to hide a tile', async () => {
@@ -141,26 +139,30 @@ await check('switching the zone back on shows it again, with one rule stored', a
 
 await check('a zone id from another service is refused', async () => {
     await assert.rejects(
-        () => svc.setZoneEnabled('medical', String(foodIndore._id), false),
+        () => svc.setZoneEnabled('quick', String(foodIndore._id), false),
         /does not exist for this service/,
     );
 });
 
+await check('medical is no longer a service', async () => {
+    await assert.rejects(() => svc.setServiceEnabled('medical', false));
+});
+
 console.log('\neverywhere');
 
-await check('medical switched off everywhere: hidden in every city, and with no location', async () => {
-    await svc.setServiceEnabled('medical', false, { actorId: 'admin1' });
-    assert.equal((await at(INDORE)).medical.visible, false);
-    assert.equal((await at(BHOPAL)).medical.reason, 'disabled');
-    assert.equal((await at(null)).medical.visible, false);
+await check('quick switched off everywhere: hidden in every city, and with no location', async () => {
+    await svc.setServiceEnabled('quick', false, { actorId: 'admin1' });
+    assert.equal((await at(INDORE)).quick.visible, false);
+    assert.equal((await at(BHOPAL)).quick.reason, 'disabled');
+    assert.equal((await at(null)).quick.visible, false);
 });
 
 await check('off everywhere beats a zone that is switched on', async () => {
-    const medical = await MedicalZone.findOne({ name: 'Bhopal Medical' });
-    await svc.setZoneEnabled('medical', String(medical._id), true);
-    assert.equal((await at(BHOPAL)).medical.visible, false);
-    await svc.setServiceEnabled('medical', true);
-    assert.equal((await at(BHOPAL)).medical.visible, true);
+    const quick = await QCZone.findOne({ name: 'Indore Quick' });
+    await svc.setZoneEnabled('quick', String(quick._id), true);
+    assert.equal((await at(INDORE)).quick.visible, false);
+    await svc.setServiceEnabled('quick', true);
+    assert.equal((await at(INDORE)).quick.visible, true);
 });
 
 await check('the admin view lists every service with its zones and switches', async () => {
@@ -204,7 +206,7 @@ await check('the app reads without signing in', async () => {
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.data.located, true);
-    assert.equal(body.data.services.length, 4);
+    assert.equal(body.data.services.length, 3);
 });
 
 await check('the admin view needs a token', async () => {

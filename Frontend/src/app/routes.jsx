@@ -138,7 +138,7 @@ const AppRoutes = () => {
         {/* Auth Module */}
         <Route path="/login/*" element={<Suspense fallback={<PageLoader />}><AuthApp /></Suspense>} />
 
-        {/* Partner sign-in and registration: restaurant, store, medical store */}
+        {/* Partner sign-in and registration: restaurant, store */}
         <Route path="/partner/*" element={<Suspense fallback={<PageLoader />}><PartnerApp /></Suspense>} />
 
         {/* Support Module */}

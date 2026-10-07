@@ -41,6 +41,7 @@ import {
   TERMINAL_ORDER_STATUSES,
   isStatusAdvance,
   sanitizeOrderForExternal,
+  legacyPrescriptionAwaitingCustomer,
 } from './order.helpers.js';
 const DELIVERY_ORDER_BASE_SELECT = [
   '_id',
@@ -91,8 +92,8 @@ const DELIVERY_RESTAURANT_POPULATE = {
  * rider app.
  *
  * The app replaces its current order with what each trip step returns. These
- * steps returned the store as a bare id, so after "Reached pickup" a Medical
- * order's card lost the pharmacy's name and address ("Pharmacy", no address).
+ * steps returned the store as a bare id, so after "Reached pickup" an order's
+ * card lost the store's name and address.
  */
 async function withStoreForRider(order) {
   try {
@@ -304,9 +305,9 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
               },
             },
             orderStatus: { $in: ['confirmed', 'preparing', 'ready_for_pickup'] },
-            // A prescription order is only for riders once the customer has
-            // agreed to the pharmacy's bill (approved for cash, or paid online).
-            $or: RIDER_READY_PRESCRIPTION,
+            // A legacy prescription order is only for riders once the customer
+            // has agreed to the pharmacy's bill (approved for cash, or paid online).
+            $or: RIDER_READY_LEGACY_PRESCRIPTION,
           },
           {
             'dispatch.deliveryPartnerId': partnerId,
@@ -452,9 +453,9 @@ async function assertCashLimitAllows(deliveryPartnerId, order) {
   if (method !== 'cash' && method !== 'razorpay_qr') return;
 
   // The rider's ONE cash figure (core/finance/riderFinance): cash from Food,
-  // Quick & Medical and taxi together, against their own limit (0 = none). It
+  // Quick Commerce and taxi together, against their own limit (0 = none). It
   // read qc_delivery_wallets.cashInHand, which nothing but an admin edit ever
-  // updates, so a rider took unlimited Quick/Medical cash orders.
+  // updates, so a rider took unlimited Quick cash orders.
   const { getRiderFinance } = await import('../../../../../../core/finance/riderFinance.service.js');
   const finance = await getRiderFinance(deliveryPartnerId).catch(() => null);
   const limit = Number(finance?.cashLimit) || 0;
@@ -514,8 +515,12 @@ async function releaseQcLock(deliveryPartnerId, orderId) {
   await releaseAssignment(driverId, orderId);
 }
 
-/** Unassigned orders a rider may be shown: not a prescription order still waiting on its bill. */
-const RIDER_READY_PRESCRIPTION = Object.freeze([
+/**
+ * Unassigned orders a rider may be shown: not a legacy prescription order (the
+ * removed Medical vertical) still waiting on its bill. Mirrors
+ * legacyPrescriptionAwaitingCustomer in order.helpers.js.
+ */
+const RIDER_READY_LEGACY_PRESCRIPTION = Object.freeze([
   { prescriptionOnly: { $ne: true } },
   { 'prescription.bill.status': 'approved' },
   { 'payment.status': 'paid' },
@@ -527,17 +532,12 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  // Not before the customer has agreed to a prescription order's bill: until
-  // then there is no price, no rider pay, and possibly no order at all.
+  // Not a legacy prescription order before the customer has agreed its bill:
+  // until then there is no price, no rider pay, and possibly no order at all.
   {
     const rx = await FoodOrder.findOne(identity).select('prescriptionOnly prescription.bill.status payment.status items pricing.total').lean();
-    const billStatus = String(rx?.prescription?.bill?.status || 'none');
-    const filledTheOldWay = billStatus === 'none' && (rx?.items || []).length > 0 && Number(rx?.pricing?.total) > 0;
-    if (rx?.prescriptionOnly === true
-      && billStatus !== 'approved'
-      && String(rx.payment?.status || '') !== 'paid'
-      && !filledTheOldWay) {
-      throw new ValidationError('This medical order is waiting for the customer to accept the pharmacy bill.');
+    if (legacyPrescriptionAwaitingCustomer(rx)) {
+      throw new ValidationError('This order is waiting for the customer to accept the bill.');
     }
   }
 
@@ -636,7 +636,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   const assignedByAdmin = lockOrder?.dispatch?.assignMode === 'manual'
     && String(lockOrder?.dispatch?.deliveryPartnerId || '') === String(partnerId);
   if (lockOrder && !assignedByAdmin) {
-    // One order at a time across Food and Quick/Medical, unless this one can
+    // One order at a time across Food and Quick, unless this one can
     // join the rider's trip (core/delivery/batching.js). The lock below is a
     // no-op for riders without a unified driver record; this isn't.
     const { foodRiderIdForQcRider } = await import('../../../../../../core/delivery/qcRiderLink.js');
@@ -1427,26 +1427,6 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     recordedById: deliveryPartnerId,
     note: `Delivery completed. Prev status: ${prevPayStatus}`,
   });
-
-  // Medical/pharmacy orders settle automatically on delivery rather than
-  // waiting on an admin's manual reconciliation -- explicitly requested for
-  // this vertical only. Grocery/quick-commerce orders through this same
-  // completeDelivery are unaffected and still settle the existing manual
-  // way (foodTransaction.service.js settleRestaurant, admin-triggered).
-  // Fire-and-forget and best-effort: the delivery itself must not fail if
-  // this does.
-  if (order.prescriptionOnly === true) {
-    foodTransactionService
-      .updateTransactionStatus(order._id, 'settled', {
-        status: 'captured',
-        note: 'Medical store payout settled automatically on delivery',
-        recordedByRole: 'SYSTEM',
-        recordedById: null,
-      })
-      .catch((err) => {
-        logger.warn(`Auto-settlement failed for medical order ${order._id}: ${err?.message || err}`);
-      });
-  }
 
   emitOrderUpdate(order, deliveryPartnerId);
   enqueueOrderEvent('delivery_completed', {

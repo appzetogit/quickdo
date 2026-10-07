@@ -49,11 +49,7 @@ export const requireServiceAccess = (vertical) => async (req, res, next) => {
         }
 
         const access = Array.isArray(admin.servicesAccess) ? admin.servicesAccess : [];
-        // The quick-commerce API also serves the Medical panel (a pharmacy is a
-        // quick-commerce seller), so Medical access admits an admin to it; what
-        // they may see there is narrowed by enforceAdminAccess.
-        const admits = vertical === 'quickCommerce' ? ['quickCommerce', 'medical'] : [vertical];
-        if (access.length > 0 && !admits.some((v) => access.includes(v))) {
+        if (access.length > 0 && !access.includes(vertical)) {
             return sendError(res, 403, `Forbidden: no access to the ${vertical} vertical`);
         }
 

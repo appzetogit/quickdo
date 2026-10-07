@@ -1,15 +1,12 @@
 /**
- * What the seller (restaurant or medical store) earns on one order, line by
+ * What the seller (store) earns on one order, line by
  * line. See the food-tree twin at modules/food/shared/restaurantPayout.js for
  * the full rationale — this is the same pure computation, kept as a separate
  * copy because the qc tree's Order model, commission model and FoodOffer model
  * are separate collections from the food tree's (see order.model.js).
  *
- * Works unchanged for a prescription order: `order.pricing.subtotal` is the
- * pharmacist's billed amount, `order.pricing.restaurantCommission` is what
- * submitPrescriptionBill/fillPrescriptionOrder already computed and stored via
- * getRestaurantCommissionSnapshot, and there is no packaging fee or coupon on
- * this kind of order, so those lines simply read as zero.
+ * Also works for a legacy prescription order (the removed Medical vertical):
+ * its pricing was stored the same way, with no packaging fee or coupon.
  */
 
 import { splitDiscountForOffer } from './discountSplit.util.js';

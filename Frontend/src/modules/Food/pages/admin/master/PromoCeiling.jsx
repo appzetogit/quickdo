@@ -29,7 +29,6 @@ const MODULES = [
   { id: "taxi", level: "vertical", label: "Taxi" },
   { id: "food", level: "vertical", label: "Food" },
   { id: "quickCommerce", level: "vertical", label: "Quick Commerce" },
-  { id: "medical", level: "vertical", label: "Medical" },
 ]
 
 const inputCls =

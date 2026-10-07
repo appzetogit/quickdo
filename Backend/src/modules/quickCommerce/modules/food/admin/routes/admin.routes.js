@@ -24,9 +24,6 @@ import {
 } from '../../restaurant/controllers/bulkUpload.controller.js';
 import { FoodAdmin } from '../../../../core/admin/admin.model.js';
 import { requireAdminPermission, requireAnyAdminPermission } from '../../../../core/roles/adminPermission.middleware.js';
-import prescriptionAdminRoutes from './prescriptionAdmin.routes.js';
-import drugLicenceAdminRoutes from './drugLicenceAdmin.routes.js';
-import medicalAdminRoutes from './medicalAdmin.routes.js';
 import { stockRouter } from './stock.routes.js';
 import * as driverRegField from '../../delivery/controllers/driverRegistrationField.controller.js';
 import * as cashbackSettings from '../controllers/cashbackSettings.controller.js';
@@ -57,7 +54,7 @@ const requireAdmin = (req, _res, next) => {
 
 router.use(requireAdmin);
 // Platform admins (the `admins` collection) are checked here against the shared
-// permissions, covering the Quick Commerce and the Medical panel alike. Before
+// permissions for the Quick Commerce panel. Before
 // this, hydrateAdmin below admitted every one of them as a QC superadmin.
 router.use(enforceAdminAccess('quickCommerce', resolveStoreAdminResource));
 router.use(async (req, _res, next) => {
@@ -470,16 +467,6 @@ router.post('/zones', adminController.createZone);
 router.patch('/zones/:id', adminController.updateZone);
 router.delete('/zones/:id', adminController.deleteZone);
 
-// ----- Medical -----
-// The two screens that exist only in the Medical panel: the prescription queue
-// and the drug-licence register. Both read-only -- the pharmacist reviews
-// prescriptions and the seller update owns licences -- and both scoped to
-// pharmacies inside their own services rather than from the query, so a missing
-// parameter cannot widen them to the whole platform.
-router.use('/prescriptions', prescriptionAdminRoutes);
-router.use('/drug-licences', drugLicenceAdminRoutes);
-// How far a prescription may travel, and the log of where each one went.
-router.use('/medical', medicalAdminRoutes);
 // Stock per product variant, per store (admin/services/stock.service.js).
 router.use('/stock', stockRouter({ scope: 'admin' }));
 
@@ -530,8 +517,8 @@ router.post(
     requireAdminPermission('order_management', 'edit'),
     orderController.resendDeliveryNotificationAdminController
 );
-// Assign a rider by hand (core/delivery/manualAssign.js), for Quick and Medical
-// orders alike. The GET is gated by the section check above (order_management
+// Assign a rider by hand (core/delivery/manualAssign.js), for Quick Commerce
+// orders. The GET is gated by the section check above (order_management
 // view); the PATCHes ask for edit, as Deassign & Resend does.
 const manualAssign = manualAssignControllers('quickCommerce');
 router.get('/orders/:orderId/rider-candidates', manualAssign.riderCandidates);

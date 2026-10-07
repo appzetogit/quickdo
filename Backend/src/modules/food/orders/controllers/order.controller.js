@@ -1,12 +1,13 @@
 import { sendResponse } from '../../../../utils/response.js';
 import * as orderService from '../services/order.service.js';
-import * as foodOrderPaymentService from '../services/foodOrderPayment.service.js';
+import * as foodOrderPaymentService from '../services/foodOrderPayment.service.js';
+
 
 /*
- * Quick & Medical orders through the Food rider endpoints.
+ * Quick Commerce orders through the Food rider endpoints.
  *
  * The delivery app signs in, goes online and acts only through these Food
- * endpoints. When the order id is a Quick / Medical order, the call is handed
+ * endpoints. When the order id is a Quick order, the call is handed
  * to the Quick order service as the rider's linked Quick rider record
  * (core/delivery/qcRiderLink.js). Returns undefined for a Food order, so the
  * Food path runs unchanged.
@@ -33,7 +34,7 @@ const viaQuickOrder = async (req, run) => {
     return { result: asFoodRider(await run({ ...qcService, ...qcDelivery }, qcRiderId, orderId), qcRiderId, req.user?.userId) };
 };
 
-/** The rider's Quick / Medical orders, for merging into the Food lists. */
+/** The rider's Quick orders, for merging into the Food lists. */
 const quickOrdersForRider = async (req, run) => {
     try {
         const { qcRiderIdForFoodRider } = await import('../../../../core/delivery/qcRiderLink.js');
@@ -162,7 +163,7 @@ export async function rateCustomerDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;
         const dto = validateCustomerRatingDto(req.body);
-        // Quick & Medical keep no rider-to-customer rating: accept it so the
+        // Quick Commerce keep no rider-to-customer rating: accept it so the
         // app's last screen finishes, and record nothing.
         const qc = await viaQuickOrder(req, async () => ({ recorded: false }));
         if (qc) return sendResponse(res, 200, 'Customer rated successfully', qc.result);
@@ -268,7 +269,7 @@ export async function listOrdersAvailableDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;
         const result = await orderService.listOrdersAvailableDelivery(deliveryPartnerId, req.query);
-        // Quick & Medical orders offered to this rider, in the same list.
+        // Quick Commerce orders offered to this rider, in the same list.
         const quick = await quickOrdersForRider(req, (svc, rider) => svc.listOrdersAvailableDelivery(rider, req.query));
         if (quick?.data?.length) {
             result.data = [...(result.data || []), ...quick.data];
@@ -338,7 +339,7 @@ export async function confirmPickupDeliveryController(req, res, next) {
 /**
  * The pharmacy / restaurant bill, photographed by the rider at pickup.
  * Body: { base64, mimeType? }. Returns { url } for confirm-pickup's billImageUrl.
- * Only the rider carrying the order (Food, or Quick & Medical as the linked
+ * Only the rider carrying the order (Food, or Quick Commerce as the linked
  * rider) may upload, only images, at most 8MB.
  */
 export async function uploadPickupBillPhotoController(req, res, next) {
@@ -466,9 +467,9 @@ export async function getCurrentTripDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;
         let order = await orderService.getCurrentTripDelivery(deliveryPartnerId);
-        // No Food trip: the rider may be on a Quick / Medical one.
+        // No Food trip: the rider may be on a Quick one.
         if (!order) order = await quickOrdersForRider(req, (svc, rider) => svc.getCurrentTripDelivery(rider));
-        // Every order on the trip, Food and Quick/Medical, first accepted first.
+        // Every order on the trip, Food and Quick, first accepted first.
         // `activeOrder` stays for app builds that know only one.
         const food = await orderService.getCurrentTripsDelivery(deliveryPartnerId).catch(() => []);
         const quick = (await quickOrdersForRider(req, (svc, rider) => svc.getCurrentTripsDelivery(rider))) || [];

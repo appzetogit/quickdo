@@ -240,12 +240,13 @@ export const ensureUploadStorageReady = async (folder = '') => {
 const PDF_MIME = 'application/pdf';
 
 /**
- * A prescription or a pharmacy bill, which is a photograph OR a PDF.
+ * A document (licence, certificate, registration paper), which is a
+ * photograph OR a PDF.
  *
  * Separate from saveImageFile rather than widening it. That function exists to
  * put every uploaded picture through the optimiser, and a PDF cannot go through
  * it -- sharp would reject the buffer, and a "PDF" that survived being
- * re-encoded as WebP would be a blank image where a prescription used to be.
+ * re-encoded as WebP would be a blank image where a document used to be.
  * Widening the whitelist there would also let a PDF into every avatar and menu
  * photo on the platform.
  *

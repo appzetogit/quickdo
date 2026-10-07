@@ -1,10 +1,5 @@
 import express from 'express';
 import {
-    approvePrescriptionBillController,
-    createPrescriptionOrderController,
-    declinePrescriptionBillController,
-} from '../controllers/prescriptionOrder.controller.js';
-import {
     calculateOrderController,
     createOrderController,
     verifyPaymentController,
@@ -31,16 +26,6 @@ const router = express.Router();
 // coupon code so it is a brute-forceable oracle and gets rate limited, and the two
 // money paths get the ledger. idempotency() is a no-op without an Idempotency-Key
 // header, so existing clients are unaffected.
-// Placing an order from a photographed prescription. Deliberately not POST '/'
-// with an empty item list: that route prices and charges before it writes, and
-// neither is possible here. See shared/prescriptionOrder.js.
-router.post('/prescription', createPrescriptionOrderController);
-// Answering the pharmacy's bill. Approving it returns the Razorpay order to pay
-// with; declining cancels, since nothing has been paid and nothing has left the
-// pharmacy. Rate-limited with the other money-moving routes below.
-router.post('/:orderId/prescription-bill/approve', sensitiveActionRateLimiter, idempotency(), approvePrescriptionBillController);
-router.post('/:orderId/prescription-bill/decline', sensitiveActionRateLimiter, declinePrescriptionBillController);
-
 router.post('/calculate', sensitiveActionRateLimiter, calculateOrderController);
 router.post('/', sensitiveActionRateLimiter, idempotency({ implicitWindowMs: 10_000 }), createOrderController);
 router.post('/verify-payment', sensitiveActionRateLimiter, idempotency(), verifyPaymentController);

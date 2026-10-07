@@ -5,7 +5,7 @@ import { managedLegalPage } from './platformProfile.service.js';
 /**
  * Terms and privacy pages written per app: the food customer app, the
  * restaurant app and the food delivery app each get their own, and so do the
- * quick commerce, medical, taxi and services apps.
+ * quick commerce, taxi and services apps.
  *
  * An app with no page of its own shows the platform-wide one (Master settings,
  * Legal pages), and failing that whatever its service already had.
@@ -18,8 +18,6 @@ export const LEGAL_APPS = Object.freeze([
   { key: 'qc_user', label: 'Quick commerce: customer app', group: 'Quick commerce' },
   { key: 'qc_seller', label: 'Quick commerce: seller app', group: 'Quick commerce' },
   { key: 'qc_rider', label: 'Quick commerce: rider app', group: 'Quick commerce' },
-  { key: 'medical_user', label: 'Medical: customer app', group: 'Medical' },
-  { key: 'medical_seller', label: 'Medical: pharmacy app', group: 'Medical' },
   { key: 'taxi_user', label: 'Taxi: rider app', group: 'Taxi' },
   { key: 'taxi_driver', label: 'Taxi: driver app', group: 'Taxi' },
   { key: 'services_user', label: 'Services: customer app', group: 'Services' },

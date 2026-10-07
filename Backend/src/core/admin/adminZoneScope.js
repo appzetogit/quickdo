@@ -7,7 +7,7 @@ import { loadAdminCached } from '../../modules/food/admin/middlewares/foodAdmin.
  * Zones a sub-admin is limited to, per vertical (admin accounts form, "Zones").
  *
  *   food           -> admin.food_zone_ids  (food_zones)
- *   quickCommerce  -> admin.qc_zone_ids    (qc_zones; medical uses the same)
+ *   quickCommerce  -> admin.qc_zone_ids    (qc_zones)
  *
  * An empty list means every zone. For a limited sub-admin this middleware puts
  * the list on req.query.scopeZoneIds, which the dashboard, store list and order

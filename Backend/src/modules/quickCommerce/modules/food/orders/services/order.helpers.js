@@ -9,7 +9,6 @@ import {
 } from "../../../../core/notifications/firebase.service.js";
 import { getIO, rooms } from '../../../../config/socket.js';
 import { holdIfConfigured, registerHoldTarget } from '../../../../../../core/orders/orderHold.js';
-import { isMedicalStore } from '../../shared/storeType.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 
 export function enqueueOrderEvent(action, payload = {}) {
@@ -151,7 +150,7 @@ export function buildOrderIdentityFilter(orderIdOrMongoId) {
     $or: [
         { order_id: raw },
         { orderId: raw },
-        // A medical order renumbered FOD- -> MED- still answers to its old number.
+        // An order renumbered (old medical FOD- -> MED-) still answers to its old number.
         { previousOrderIds: raw }
     ]
   };
@@ -208,7 +207,7 @@ export function normalizeOrderForClient(orderDoc) {
   // own getOrderById) -- ownerPhone/primaryContactNumber otherwise sit
   // unreachable inside a bare ObjectId string. Flattened here, the one place
   // every customer-facing order response passes through, so the app can call
-  // the pharmacy/restaurant the same way it already calls the rider.
+  // the store the same way it already calls the rider.
   const restaurant =
     order.restaurantId && typeof order.restaurantId === "object"
       ? order.restaurantId
@@ -534,7 +533,7 @@ export async function notifyRestaurantNewOrder(orderDoc, { released = false } = 
     if (!released && (await holdIfConfigured({
       name: 'quickCommerce',
       order: orderDoc,
-      vertical: await verticalOfOrder(orderDoc),
+      vertical: 'quickCommerce',
       shiftAcceptanceDeadline: true,
     }))) return;
 
@@ -582,12 +581,7 @@ export async function notifyRestaurantNewOrder(orderDoc, { released = false } = 
       : "";
     const total = orderDoc.pricing?.total ?? 0;
 
-    // Same app, same mechanism for every store type -- but the partner should
-    // see at a glance which kind of order just came in, since a medical-store
-    // owner glancing at "New order received" has no way to tell a grocery
-    // order from a prescription one apart until they open it.
-    const vertical = await verticalOfOrder(orderDoc);
-    const orderKindTitle = vertical === 'medical' ? 'New Medical order received' : 'New Quick Commerce order received';
+    const orderKindTitle = 'New Quick Commerce order received';
 
     // Construct rich body for the custom notification layout in Flutter
     let bodyText = `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`;
@@ -613,7 +607,7 @@ export async function notifyRestaurantNewOrder(orderDoc, { released = false } = 
         // Android silently demotes an unknown channel to low importance, so the
         // alert would arrive without sound or a heads-up even once it displayed.
         // Must match local_notification_service.dart's _newOrderChannel id
-        // exactly. Bumped again to "_v3": a medical-store test device was
+        // exactly. Bumped again to "_v3": a store test device was
         // still silent after this string was corrected to match "_v2",
         // because Android permanently locks a channel's sound/importance
         // the first time it is created on a device -- if that device had
@@ -722,16 +716,21 @@ export function isStatusAdvance(current, next) {
   return nextPrio > currentPrio;
 }
 
-/** 'medical' for a pharmacy's order, else 'quickCommerce' -- which hold setting applies. */
-async function verticalOfOrder(order) {
-  if (order?.prescriptionOnly === true) return 'medical';
-  try {
-    const { FoodRestaurant } = await import('../../restaurant/models/restaurant.model.js');
-    const store = await FoodRestaurant.findById(order?.restaurantId).select('storeType').lean();
-    return isMedicalStore(store?.storeType) ? 'medical' : 'quickCommerce';
-  } catch {
-    return 'quickCommerce';
-  }
+/**
+ * A legacy prescription order still waiting for the customer to agree its bill.
+ *
+ * The Medical vertical was removed and no prescription order is created any
+ * more, but one placed before that may still be in flight. Until the customer
+ * has agreed the pharmacy's bill (approved, or paid online) it must not reach a
+ * rider -- the rule the removed code enforced. An older one priced before bills
+ * existed (items and a total, no bill) goes through.
+ */
+export function legacyPrescriptionAwaitingCustomer(order) {
+  if (order?.prescriptionOnly !== true) return false;
+  const bill = String(order?.prescription?.bill?.status || 'none');
+  if (bill === 'approved' || String(order?.payment?.status || '') === 'paid') return false;
+  const priced = Array.isArray(order.items) && order.items.length > 0 && Number(order?.pricing?.total) > 0;
+  return !(bill === 'none' && priced);
 }
 
 // Lets the hold sweeper (core/orders/orderHold.js) alert the store when a held order is due.

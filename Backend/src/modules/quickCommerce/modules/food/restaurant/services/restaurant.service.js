@@ -18,10 +18,7 @@ import {
 } from '../../shared/geo.utils.js';
 import { getRestaurantSubscriptionSettings } from '../../admin/services/admin.service.js';
 import {
-    assertMedicalOnboarding,
-    isMedicalStore,
-    mergeStoreTypeUpdate,
-    normalizeDrugLicenceInput,
+    isLegacyPharmacy,
     normalizeStoreTypeInput,
     QUICK_SHOP_SELLER_FILTER,
 } from '../../shared/storeType.js';
@@ -545,7 +542,7 @@ const stripPendingLocationFromPublicRestaurant = (doc) => {
 /**
  * Open every day, round the clock.
  *
- * Same rule as the medical endpoint's copy: seven days, and a window that
+ * Seven days, and a window that
  * leaves no gap. A shop trading 00:00-23:59 is 24x7 in every sense a
  * customer cares about -- the missing minute is how a closing time is
  * written, not a shutter.
@@ -718,14 +715,11 @@ export const createRestaurantOnboardingFeeOrder = async ({ ownerPhone }) => {
  * the active zone polygons -- the same check the order path runs, so a shop is
  * findable on day one by the same rule that will later serve its orders.
  *
- * The map depends on the trade: a pharmacy is matched against MEDICAL zones,
- * because that is where createPrescriptionOrder looks.
- *
  * Returns undefined when no zone contains the pin, which stores exactly what
  * is stored today. This module tolerates a seller with no zone by design, so
  * refusing the registration would break a case that currently works.
  */
-const resolveOnboardingZoneId = async ({ zoneId, latitude, longitude, storeType }) => {
+const resolveOnboardingZoneId = async ({ zoneId, latitude, longitude }) => {
     const explicit = String(zoneId || '').trim();
     if (explicit && mongoose.Types.ObjectId.isValid(explicit)) {
         return new mongoose.Types.ObjectId(explicit);
@@ -735,12 +729,8 @@ const resolveOnboardingZoneId = async ({ zoneId, latitude, longitude, storeType 
     const lng = toFiniteNumber(longitude);
     if (lat === null || lng === null) return undefined;
 
-    const vertical = isMedicalStore(storeType)
-        ? ZONE_VERTICALS.MEDICAL
-        : ZONE_VERTICALS.QUICK;
-
     try {
-        const zone = await findZoneForPoint(lat, lng, vertical);
+        const zone = await findZoneForPoint(lat, lng, ZONE_VERTICALS.QUICK);
         return zone && zone._id ? new mongoose.Types.ObjectId(String(zone._id)) : undefined;
     } catch (err) {
         // A zone lookup that fails must not fail the signup: the seller is
@@ -801,14 +791,7 @@ export const registerRestaurant = async (payload, files) => {
         gstImage: preUploadedGstImage,
         fssaiImage: preUploadedFssaiImage,
         menuImages: preUploadedMenuImages,
-        // Medical stores. A pharmacy must produce a drug licence before it may
-        // dispense; assertMedicalOnboarding below refuses one that cannot.
         storeType: rawStoreType,
-        drugLicenseNumber,
-        drugLicenseExpiry,
-        drugLicenseImage: preUploadedDrugLicenseImage,
-        pharmacistName,
-        pharmacistRegistrationNumber,
         upiId,
     } = payload;
 
@@ -866,8 +849,7 @@ export const registerRestaurant = async (payload, files) => {
         profileImage: preUploadedProfileImage || '',
         panImage: preUploadedPanImage || '',
         gstImage: preUploadedGstImage || '',
-        fssaiImage: preUploadedFssaiImage || '',
-        drugLicenseImage: preUploadedDrugLicenseImage || ''
+        fssaiImage: preUploadedFssaiImage || ''
     };
 
     const uploadTasks = [];
@@ -889,22 +871,16 @@ export const registerRestaurant = async (payload, files) => {
         uploadTasks.push(uploadImageBuffer(files.fssaiImage[0].buffer, 'food/restaurants/fssai')
             .then(url => { imageMap.fssaiImage = url; }));
     }
-    if (files?.drugLicenseImage?.[0]) {
-        uploadTasks.push(uploadImageBuffer(files.drugLicenseImage[0].buffer, 'food/restaurants/drug-licence')
-            .then(url => { imageMap.drugLicenseImage = url; }));
-    }
 
-    // Pharmacy documents and store photos: each arrives either as a file or as
-    // a URL already uploaded through /upload-attachment.
+    // Registration document and store photos: each arrives either as a file or
+    // as a URL already uploaded through /upload-attachment.
     const partnerImages = {
-        pharmacistCertificateImage: String(payload.pharmacistCertificateImage || '').trim(),
         businessRegistrationImage: String(payload.businessRegistrationImage || '').trim(),
         storeFrontImage: String(payload.storeFrontImage || '').trim(),
         storeInsideImage: String(payload.storeInsideImage || '').trim(),
         storeSignboardImage: String(payload.storeSignboardImage || '').trim(),
     };
     for (const [field, folder] of [
-        ['pharmacistCertificateImage', 'qc/partners/pharmacist'],
         ['businessRegistrationImage', 'qc/partners/registration'],
         ['storeFrontImage', 'qc/partners/store-front'],
         ['storeInsideImage', 'qc/partners/store-inside'],
@@ -974,28 +950,11 @@ export const registerRestaurant = async (payload, files) => {
 
     Object.assign(images, imageMap);
 
-    // Medical onboarding, checked here rather than at the top: the licence photo
-    // may arrive as a file that has only just finished uploading, so the rule has
-    // to see the resolved URL. assertMedicalOnboarding is a no-op for every other
-    // store type, and refuses a pharmacy with a missing or expired licence.
-    const storeType = normalizeStoreTypeInput(rawStoreType);
-    const drugLicence = normalizeDrugLicenceInput({
-        drugLicenseNumber,
-        drugLicenseExpiry,
-        drugLicenseImage: images.drugLicenseImage || undefined,
-    });
-    const storeFields = mergeStoreTypeUpdate({}, {
-        ...(storeType !== undefined ? { storeType } : {}),
-        ...(drugLicence || {}),
-    });
-    assertMedicalOnboarding(storeFields);
+    // What kind of shop this is. A new seller cannot be a (legacy) pharmacy.
+    const storeType = normalizeStoreTypeInput(rawStoreType) || 'grocery';
+    const storeFields = { storeType };
 
     const partnerFields = {
-        pharmacist: {
-            name: String(pharmacistName || '').trim(),
-            registrationNumber: String(pharmacistRegistrationNumber || '').trim(),
-            certificateImage: partnerImages.pharmacistCertificateImage,
-        },
         businessRegistrationImage: partnerImages.businessRegistrationImage,
         storePhotos: {
             front: partnerImages.storeFrontImage,
@@ -1005,28 +964,6 @@ export const registerRestaurant = async (payload, files) => {
         upiId: String(upiId || '').trim(),
         applicationSubmittedAt: new Date(),
     };
-
-    // Everything a pharmacy must hand over, checked against the values that
-    // will actually be stored. See shared/partnerOnboarding.js.
-    {
-        const { assertApplicationComplete, partnerTypeOfSeller } = await import('../../shared/partnerOnboarding.js');
-        const latProbe = toFiniteNumber(latitude);
-        const lngProbe = toFiniteNumber(longitude);
-        assertApplicationComplete(partnerTypeOfSeller(storeFields), {
-            ...payload,
-            ...storeFields,
-            ...images,
-            ...partnerFields,
-            ownerPhone,
-            location: {
-                addressLine1: addressLine1 || '',
-                city: city || '',
-                formattedAddress: formattedAddress || '',
-                coordinates: latProbe !== null && lngProbe !== null ? [lngProbe, latProbe] : undefined,
-            },
-            gstRegistered: gstRegistered === true,
-        });
-    }
 
     const normalizedOpeningTime = normalizeRestaurantTime(openingTime);
     const normalizedClosingTime = normalizeRestaurantTime(closingTime);
@@ -1089,7 +1026,6 @@ export const registerRestaurant = async (payload, files) => {
             zoneId,
             latitude: latNum,
             longitude: lngNum,
-            storeType,
         });
         const restaurant = await FoodRestaurant.create({
             restaurantName,
@@ -1977,16 +1913,14 @@ export const listApprovedRestaurants = async (query = {}) => {
         const rx = { $regex: escapeRegex(area), $options: 'i' };
         filter.$and = [...(filter.$and || []), { $or: [{ 'location.area': rx }, { area: rx }] }];
     }
-    // ?storeType=pharmacy — what the Medical tab lists. Validated rather than
+    // ?storeType=<type> narrows to one kind of shop. Validated rather than
     // passed through, so an unknown value is refused instead of quietly matching
-    // nothing and looking like an empty neighbourhood.
-    // With no type asked for this is the Quick Shop list, which must not
-    // include pharmacies -- they have their own tab.
-    if (String(query.storeType || '').trim().toLowerCase() === 'quick') {
-        // The Quick Commerce admin panel's scope: the Quick Shop list.
-        Object.assign(filter, QUICK_SHOP_SELLER_FILTER);
-    } else if (query.storeType !== undefined && String(query.storeType).trim()) {
-        filter.storeType = normalizeStoreTypeInput(query.storeType);
+    // nothing and looking like an empty neighbourhood. 'pharmacy' is refused too:
+    // legacy pharmacies are not public (the Medical vertical was removed).
+    // With no type asked for (or "quick") this is the Quick Shop list.
+    const askedType = String(query.storeType || '').trim().toLowerCase();
+    if (askedType && askedType !== 'quick') {
+        filter.storeType = normalizeStoreTypeInput(askedType);
     } else {
         Object.assign(filter, QUICK_SHOP_SELLER_FILTER);
     }
@@ -2105,10 +2039,9 @@ export const listApprovedRestaurants = async (query = {}) => {
         openingTime: 1,
         closingTime: 1,
         openDays: 1,
-        // The customer app decides which screens a seller gets from this: a
-        // pharmacy takes a photographed prescription, not a cart. Projected here
-        // as well as in PUBLIC_RESTAURANT_SELECT because this listing builds its
-        // own projection rather than using that constant.
+        // What kind of shop this is. Projected here as well as in
+        // PUBLIC_RESTAURANT_SELECT because this listing builds its own
+        // projection rather than using that constant.
         storeType: 1
     };
 
@@ -2313,9 +2246,7 @@ export const PUBLIC_RESTAURANT_SELECT = [
     'outletTimings', 'deliveryTimings', 'outsideHoursOverride',
     'pureVegRestaurant', 'offer', 'featuredDish',
     'featuredPrice', 'status', 'zoneId', 'createdAt',
-    // What kind of shop this is. Public because the customer app has to be able
-    // to tell a pharmacy from a grocer before it decides which screens to offer:
-    // a medical store takes a photographed prescription, not a cart.
+    // What kind of shop this is (grocery, kirana, ...).
     'storeType',
 ].join(' ');
 
@@ -2420,10 +2351,8 @@ export const listPublicOffers = async (query = {}) => {
         .populate({ path: 'restaurantIds', select: 'restaurantName restaurantNameNormalized profileImage estimatedDeliveryTime rating storeType' })
         .lean();
 
-    // Pharmacies have their own Medical tab: a store-specific offer shows in the
-    // Quick list only if it covers at least one non-pharmacy store, and in the
-    // Medical list (?storeType=pharmacy) only if it covers a pharmacy.
-    const wantPharmacy = isMedicalStore(query.storeType);
+    // Legacy pharmacies are not public: a store-specific offer shows only if it
+    // covers at least one store that is not one.
     const offersForThisList = list.filter((o) => {
         if (o.restaurantScope !== 'selected') return true;
         const stores = Array.isArray(o.restaurantIds) && o.restaurantIds.length > 0
@@ -2431,7 +2360,7 @@ export const listPublicOffers = async (query = {}) => {
             : (o.restaurantId ? [o.restaurantId] : []);
         const known = stores.filter((s) => s && typeof s === 'object');
         if (known.length === 0) return true;
-        return known.some((s) => isMedicalStore(s.storeType) === wantPharmacy);
+        return known.some((s) => !isLegacyPharmacy(s.storeType));
     });
 
     let allOffers = offersForThisList.map((o) => {

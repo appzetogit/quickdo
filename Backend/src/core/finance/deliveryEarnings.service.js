@@ -110,7 +110,7 @@ export function bandFee(band, distanceKm) {
  * The earning table for a vertical.
  *
  * @param {object} args
- * @param {string} args.vertical          'food' | 'quickCommerce' | 'medical' | 'taxi'
+ * @param {string} args.vertical          'food' | 'quickCommerce' | 'taxi'
  * @param {string} [args.zoneId]
  * @param {Function} [args.loadLegacy]    async () => module's own rows, used when nothing is set here
  * @returns {Promise<{slabs: Array, source: string, level: string|null}>}

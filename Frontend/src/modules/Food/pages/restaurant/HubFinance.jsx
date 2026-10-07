@@ -816,7 +816,7 @@ export default function HubFinance() {
         {activeTab === "payouts" && (
           <div className="space-y-6">
             {/* Platform commission on new orders (admin: Commission). Only when
-                the server sends one: quick commerce and medical stores. */}
+                the server sends one: quick commerce stores. */}
             {financeData?.commission && (() => {
               const c = financeData.commission
               const n = Number(c.value) || 0

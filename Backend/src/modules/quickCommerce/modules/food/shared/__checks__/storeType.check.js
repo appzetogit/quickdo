@@ -1,103 +1,54 @@
 /**
- * Self-check for quick-commerce store types and the medical licence rule.
+ * Self-check for quick-commerce store types, including the legacy pharmacy type
+ * left behind by the removed Medical vertical.
  * Run: node src/modules/quickCommerce/modules/food/shared/__checks__/storeType.check.js
  */
 import assert from 'node:assert/strict';
 import {
     DEFAULT_STORE_TYPE,
-    MEDICAL_STORE_TYPE,
+    LEGACY_PHARMACY_STORE_TYPE,
+    QUICK_SHOP_SELLER_FILTER,
+    STORED_STORE_TYPES,
     STORE_TYPES,
-    assertMedicalOnboarding,
-    isMedicalStore,
-    mergeStoreTypeUpdate,
-    normalizeDrugLicenceInput,
+    isLegacyPharmacy,
     normalizeStoreTypeInput,
-    requiresPrescription,
 } from '../storeType.js';
+import { normalizeStoreTypeFilter, storeTypeCondition } from '../storeScope.js';
 
 const throws = (fn, re) => assert.throws(fn, (e) => e.name === 'ValidationError' && (!re || re.test(e.message)));
 
-const NOW = new Date('2026-08-25T00:00:00Z');
-const FUTURE = new Date('2027-01-01T00:00:00Z');
-const PAST = new Date('2026-01-01T00:00:00Z');
+// --- the types a seller may be given ---
+assert.equal(DEFAULT_STORE_TYPE, 'grocery');
+assert.ok(STORE_TYPES.includes('grocery'));
+assert.ok(!STORE_TYPES.includes('pharmacy'), 'pharmacy is no longer assignable');
+assert.ok(STORED_STORE_TYPES.includes(LEGACY_PHARMACY_STORE_TYPE), 'but stored pharmacies stay valid');
 
-const pharmacy = (over = {}) => ({
-    storeType: 'pharmacy',
-    drugLicenseNumber: 'DL-123',
-    drugLicenseImage: 'https://cdn/licence.jpg',
-    drugLicenseExpiry: FUTURE,
-    ...over,
-});
+// --- normalizeStoreTypeInput ---
+assert.equal(normalizeStoreTypeInput(undefined), undefined, 'absent leaves it alone');
+assert.equal(normalizeStoreTypeInput(''), 'grocery');
+assert.equal(normalizeStoreTypeInput(' Kirana '), 'kirana');
+throws(() => normalizeStoreTypeInput('bakery'), /Store type must be one of/);
+// No new pharmacy, from any path...
+throws(() => normalizeStoreTypeInput('pharmacy'), /Store type must be one of/);
+throws(() => normalizeStoreTypeInput('Pharmacy'), /Store type must be one of/);
+// ...but an existing one may send its own type back unchanged.
+assert.equal(normalizeStoreTypeInput('pharmacy', { allowLegacy: true }), 'pharmacy');
 
-// --- type predicates ------------------------------------------------------
-assert.equal(isMedicalStore('pharmacy'), true);
-assert.equal(isMedicalStore('PHARMACY'), true);   // case-insensitive
-assert.equal(isMedicalStore(' pharmacy '), true); // trimmed
-assert.equal(isMedicalStore('grocery'), false);
-assert.equal(isMedicalStore(undefined), false);
-assert.equal(requiresPrescription('pharmacy'), true);
-assert.equal(requiresPrescription('grocery'), false);
-assert.equal(STORE_TYPES.includes(MEDICAL_STORE_TYPE), true);
+// --- legacy pharmacy detection, and the customer-facing filter ---
+assert.equal(isLegacyPharmacy('pharmacy'), true);
+assert.equal(isLegacyPharmacy(' PHARMACY '), true);
+assert.equal(isLegacyPharmacy('grocery'), false);
+assert.equal(isLegacyPharmacy(undefined), false);
+assert.deepEqual(QUICK_SHOP_SELLER_FILTER, { storeType: { $ne: 'pharmacy' } });
 
-// --- store type normalization --------------------------------------------
-assert.equal(normalizeStoreTypeInput(undefined), undefined);     // partial update untouched
-assert.equal(normalizeStoreTypeInput(''), DEFAULT_STORE_TYPE);
-assert.equal(normalizeStoreTypeInput('Pharmacy'), 'pharmacy');
-assert.equal(normalizeStoreTypeInput(' GROCERY '), 'grocery');
-throws(() => normalizeStoreTypeInput('hospital'), /Store type must be one of/);
-throws(() => normalizeStoreTypeInput('medical'), /Store type must be one of/); // not an enum member
+// --- admin list scope: "quick" no longer hides anything ---
+assert.equal(normalizeStoreTypeFilter(undefined), null);
+assert.equal(normalizeStoreTypeFilter('all'), null);
+assert.equal(normalizeStoreTypeFilter('quick'), null);
+assert.equal(storeTypeCondition('quick'), null);
+assert.equal(storeTypeCondition('kirana'), 'kirana');
+// An admin can still narrow to the legacy type to find those stores.
+assert.equal(storeTypeCondition('pharmacy'), 'pharmacy');
+throws(() => normalizeStoreTypeFilter('bakery'), /Unknown store type/);
 
-// --- drug licence normalization ------------------------------------------
-assert.equal(normalizeDrugLicenceInput({}), undefined);          // nothing sent
-assert.deepEqual(normalizeDrugLicenceInput({ drugLicenseNumber: '  DL-9 ' }), { drugLicenseNumber: 'DL-9' });
-assert.equal(normalizeDrugLicenceInput({ drugLicenseExpiry: '' }).drugLicenseExpiry, null);
-assert.equal(normalizeDrugLicenceInput({ drugLicenseExpiry: null }).drugLicenseExpiry, null);
-assert.equal(
-    normalizeDrugLicenceInput({ drugLicenseExpiry: '2027-01-01' }).drugLicenseExpiry.toISOString().slice(0, 10),
-    '2027-01-01'
-);
-throws(() => normalizeDrugLicenceInput({ drugLicenseExpiry: 'not-a-date' }), /not a valid date/);
-
-// --- the rule: a non-medical store is never asked for a licence -----------
-assertMedicalOnboarding({ storeType: 'grocery' }, NOW);
-assertMedicalOnboarding({ storeType: 'kirana', drugLicenseNumber: '' }, NOW);
-assertMedicalOnboarding({}, NOW);
-
-// --- the rule: a medical store must prove all three ----------------------
-assertMedicalOnboarding(pharmacy(), NOW); // complete and current: allowed
-throws(() => assertMedicalOnboarding(pharmacy({ drugLicenseNumber: '' }), NOW), /licence number is required/);
-throws(() => assertMedicalOnboarding(pharmacy({ drugLicenseNumber: '   ' }), NOW), /licence number is required/);
-throws(() => assertMedicalOnboarding(pharmacy({ drugLicenseImage: '' }), NOW), /photo of the drug licence/);
-throws(() => assertMedicalOnboarding(pharmacy({ drugLicenseExpiry: null }), NOW), /expiry date is required/);
-throws(() => assertMedicalOnboarding(pharmacy({ drugLicenseExpiry: PAST }), NOW), /has expired/);
-// Expiring exactly now counts as expired, not valid.
-throws(() => assertMedicalOnboarding(pharmacy({ drugLicenseExpiry: NOW }), NOW), /has expired/);
-
-// --- merge: an update cannot switch to pharmacy by omitting the licence ---
-{
-    const stored = { storeType: 'grocery', drugLicenseNumber: '', drugLicenseImage: '', drugLicenseExpiry: null };
-    const merged = mergeStoreTypeUpdate(stored, { storeType: 'pharmacy' });
-    assert.equal(merged.storeType, 'pharmacy');
-    throws(() => assertMedicalOnboarding(merged, NOW), /licence number is required/);
-}
-// An existing pharmacy editing only its name keeps its licence and stays valid.
-{
-    const stored = pharmacy();
-    const merged = mergeStoreTypeUpdate(stored, {});
-    assert.equal(merged.storeType, 'pharmacy');
-    assertMedicalOnboarding(merged, NOW);
-}
-// Switching a pharmacy away to grocery drops the obligation.
-{
-    const merged = mergeStoreTypeUpdate(pharmacy(), { storeType: 'grocery' });
-    assertMedicalOnboarding(merged, NOW);
-}
-// Clearing the licence on a store that is still a pharmacy is refused.
-{
-    const merged = mergeStoreTypeUpdate(pharmacy(), { drugLicenseNumber: '' });
-    throws(() => assertMedicalOnboarding(merged, NOW), /licence number is required/);
-}
-// Absent storeType on a fresh record falls back to the default, not pharmacy.
-assert.equal(mergeStoreTypeUpdate({}, {}).storeType, DEFAULT_STORE_TYPE);
-
-console.log('All store-type / medical-licence checks passed.');
+console.log('storeType.check: ok');

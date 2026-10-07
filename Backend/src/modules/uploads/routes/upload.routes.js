@@ -118,7 +118,7 @@ router.post('/image', authMiddleware, runUpload, async (req, res, next) => {
 // POST /v1/uploads/document
 /*
  * A photograph OR a PDF, for the documents this platform has to keep rather
- * than merely display: a prescription and the pharmacy bill raised against it.
+ * than merely display: licences, certificates and registration papers.
  *
  * Kept off /image on purpose. That route pushes everything through the image
  * optimiser, which a PDF cannot survive, and widening its whitelist would let
@@ -136,7 +136,7 @@ router.post('/document', authMiddleware, runUpload, async (req, res, next) => {
         const stored = await saveDocumentFile(req.file, normalizeFolder(req.body?.folder));
 
         // Same response shape as /image, so a client that already reads
-        // `data.url` needs no second code path to upload a prescription.
+        // `data.url` needs no second code path to upload a document.
         return res.status(200).json({
             success: true,
             message: 'Document uploaded successfully',

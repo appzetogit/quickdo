@@ -144,7 +144,7 @@ export default function ItemDetailsPage() {
   const [minOrderQuantity, setMinOrderQuantity] = useState("0")
   const [maxOrderQuantity, setMaxOrderQuantity] = useState("0")
   /*
-   * Stock, for stores and medical stores (quick commerce) only: restaurants sell
+   * Stock, for stores (quick commerce) only: restaurants sell
    * dishes, which are not counted. Blank = not counted, sells without a limit.
    * A product with sizes counts each size instead (the size rows below).
    */

@@ -1,4 +1,4 @@
-import { Eye, MapPin, Package, User, Phone, Mail, Calendar, Clock, Truck, CreditCard, X, Receipt, CheckCircle2, FileText } from "lucide-react"
+import { Eye, MapPin, Package, User, Phone, Mail, Calendar, Clock, Truck, CreditCard, X, Receipt, CheckCircle2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -29,39 +29,6 @@ const getStatusColor = (orderStatus) => {
     "Offline Payments": "bg-slate-100 text-slate-700",
   }
   return colors[orderStatus] || "bg-slate-100 text-slate-700"
-}
-
-/**
- * Plain words for the two medical states an operator asks about.
- *
- * Deliberately not the wire values: "pending_review" and "submitted" read as
- * the same thing to anyone who has not seen the schema, and they are opposite
- * halves of the flow -- one waits on the pharmacist, the other on the customer.
- */
-const rxVerificationLabel = (status) => {
-  switch (String(status || "")) {
-    case "approved":
-      return "Verified by the pharmacist"
-    case "rejected":
-      return "Rejected by the pharmacist"
-    case "pending_review":
-      return "Waiting on the pharmacist"
-    default:
-      return "Not required"
-  }
-}
-
-const rxBillLabel = (bill) => {
-  switch (String(bill?.status || "none")) {
-    case "approved":
-      return "Approved by the customer"
-    case "submitted":
-      return "Sent — waiting on the customer"
-    case "rejected":
-      return "Declined by the customer"
-    default:
-      return "No bill sent yet"
-  }
 }
 
 /**
@@ -468,100 +435,6 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, vertical,
                     <p className="text-sm font-medium text-slate-900">{order.deliveryPartnerPhone}</p>
                   </div>
                 )}
-              </div>
-            </div>
-          )}
-
-          {/* Prescription and pharmacy bill — medical orders only.
-              Everything about this order that exists nowhere else in the panel:
-              what the customer sent, whether a pharmacist actually read it, the
-              paper bill behind the amount charged, and whether the customer
-              agreed to it. A support call about a medical order is otherwise
-              three screens and a phone call to the pharmacy. */}
-          {order.prescription && (order.prescription.required || order.prescriptionOnly) && (
-            <div className="border-t border-slate-200 pt-4">
-              <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Prescription &amp; pharmacy bill
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    Pharmacist verification
-                  </p>
-                  <p className="text-sm font-medium text-slate-900">
-                    {rxVerificationLabel(order.prescription.status)}
-                  </p>
-                  {order.prescription.rejectionReason && (
-                    <p className="text-xs text-red-600">{order.prescription.rejectionReason}</p>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    Customer&apos;s answer to the bill
-                  </p>
-                  <p className="text-sm font-medium text-slate-900">
-                    {rxBillLabel(order.prescription.bill)}
-                  </p>
-                  {order.prescription.bill?.declineReason && (
-                    <p className="text-xs text-red-600">{order.prescription.bill.declineReason}</p>
-                  )}
-                </div>
-                {Number(order.prescription.bill?.amount) > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Medicines, per the pharmacy bill
-                    </p>
-                    <p className="text-sm font-medium text-slate-900">
-                      ₹{Number(order.prescription.bill.amount).toFixed(2)}
-                    </p>
-                    {/* The rest of what the customer pays is the platform's:
-                        delivery and fees. Shown as the difference so the two
-                        figures beside it always add up to the order total. */}
-                    {Number(order.totalAmount) > 0 && (
-                      <p className="text-xs text-slate-500">
-                        Delivery &amp; fees ₹
-                        {Math.max(
-                          0,
-                          Number(order.totalAmount) - Number(order.prescription.bill.amount),
-                        ).toFixed(2)}
-                        {" · total ₹"}
-                        {Number(order.totalAmount).toFixed(2)}
-                      </p>
-                    )}
-                  </div>
-                )}
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    Documents
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    {order.prescription.imageUrl ? (
-                      <a
-                        href={order.prescription.imageUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-medium text-blue-600 hover:underline"
-                      >
-                        Prescription
-                      </a>
-                    ) : (
-                      <span className="text-sm text-slate-400">No prescription image</span>
-                    )}
-                    {order.prescription.bill?.imageUrl ? (
-                      <a
-                        href={order.prescription.bill.imageUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-medium text-blue-600 hover:underline"
-                      >
-                        Pharmacy bill
-                      </a>
-                    ) : (
-                      <span className="text-sm text-slate-400">No bill uploaded</span>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           )}

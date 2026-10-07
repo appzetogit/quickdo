@@ -1,10 +1,8 @@
 /**
- * Quick-commerce store types, and the medical-licence rule that follows from them.
+ * Quick-commerce store types.
  *
  * Mirrors Backend/src/modules/quickCommerce/modules/food/shared/storeType.js. The
- * server is the authority -- it revalidates every write and refuses a pharmacy
- * without a current drug licence -- this exists so the admin sees the right fields
- * and gets told before submitting rather than after.
+ * server is the authority and revalidates every write.
  *
  * The food admin and the quick-commerce admin are the same screens on two routes,
  * so anything store-type related has to render only under /admin/quick-commerce.
@@ -14,7 +12,6 @@ export const STORE_TYPES = [
   { value: 'grocery', label: 'Grocery' },
   { value: 'kirana', label: 'Kirana' },
   { value: 'supermarket', label: 'Supermarket' },
-  { value: 'pharmacy', label: 'Medical / Pharmacy' },
   { value: 'pet', label: 'Pet Supplies' },
   { value: 'electronics', label: 'Electronics' },
   { value: 'stationery', label: 'Stationery' },
@@ -22,13 +19,22 @@ export const STORE_TYPES = [
 ]
 
 export const DEFAULT_STORE_TYPE = 'grocery'
-export const MEDICAL_STORE_TYPE = 'pharmacy'
 
-export const isMedicalStore = (storeType) =>
-  String(storeType || '').trim().toLowerCase() === MEDICAL_STORE_TYPE
+/*
+ * No longer offered: a store cannot be created as or switched to it, but one
+ * that already has it may keep it, so it is still labelled and shown when it
+ * is the current value.
+ */
+const LEGACY_STORE_TYPES = [{ value: 'pharmacy', label: 'Pharmacy (legacy)' }]
+
+/** The selectable types, plus `current` when it is a legacy one. */
+export const storeTypeOptions = (current) => {
+  const legacy = LEGACY_STORE_TYPES.find((t) => t.value === current)
+  return legacy ? [...STORE_TYPES, legacy] : STORE_TYPES
+}
 
 export const storeTypeLabel = (value) =>
-  STORE_TYPES.find((t) => t.value === value)?.label || value || ''
+  [...STORE_TYPES, ...LEGACY_STORE_TYPES].find((t) => t.value === value)?.label || value || ''
 
 /**
  * True while the admin is in the quick-commerce vertical.
@@ -40,18 +46,3 @@ export const storeTypeLabel = (value) =>
 export const isQuickCommerceAdminPath = (pathname) =>
   String(pathname || (typeof window !== 'undefined' ? window.location.pathname : ''))
     .startsWith('/admin/quick-commerce')
-
-/**
- * Client-side mirror of the server rule, for pre-submit feedback.
- * @returns {string} an error message, or '' when the seller is acceptable
- */
-export const medicalLicenceError = (form = {}) => {
-  if (!isMedicalStore(form.storeType)) return ''
-  if (!String(form.drugLicenseNumber || '').trim()) return 'Enter the drug licence number for a medical store'
-  if (!form.drugLicenseImage) return 'Upload a photo of the drug licence for a medical store'
-  if (!String(form.drugLicenseExpiry || '').trim()) return 'Enter the drug licence expiry date for a medical store'
-  const expiry = new Date(form.drugLicenseExpiry)
-  if (Number.isNaN(expiry.getTime())) return 'Drug licence expiry is not a valid date'
-  if (expiry.getTime() <= Date.now()) return 'This drug licence has expired. Upload a current one.'
-  return ''
-}

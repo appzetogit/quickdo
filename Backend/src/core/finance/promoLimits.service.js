@@ -52,7 +52,7 @@ export function tighten(own, ceiling) {
  * The ceilings for a module.
  *
  * @param {object} args
- * @param {string} args.vertical  'taxi' | 'food' | 'quickCommerce' | 'medical'
+ * @param {string} args.vertical  'taxi' | 'food' | 'quickCommerce'
  * @returns {Promise<{perUser: number|null, total: number|null, perUserLevel: string|null, totalLevel: string|null}>}
  */
 export async function resolvePromoCeiling({ vertical } = {}) {

@@ -780,7 +780,7 @@ export default function ExploreMore() {
     { id: "bogo-nav", label: "Buy One Get One", icon: FileCheck, route: "/restaurant/bogo-offers" },
       { id: "combos-nav", label: "Combos", icon: FileCheck, route: "/restaurant/combos" },
     { id: "analytics-nav", label: "Analytics", icon: BarChart2, route: "/restaurant/analytics" },
-    // Stores and medical stores (quick commerce) count stock per size.
+    // Stores (quick commerce) count stock per size.
     ...(isQcStore ? [{ id: "stock-nav", label: "Stock", icon: Settings, route: "/restaurant/stock" }] : []),
   ]
 
