@@ -176,23 +176,45 @@ const getPaymentDetails = async (paymentId) => {
 };
 
 /**
- * Refund payment
+ * Refund payment -- through the platform refund service (core/payments/refund.service.js).
+ *
+ * That service keeps one Refund row per refund, named by `idempotencyKey`, so a
+ * retried or double-submitted refund never reaches Razorpay twice, and the
+ * `refund.processed` / `refund.failed` webhooks keep the row's gateway status
+ * current for the admin refunds page.
+ *
+ * @param {string} paymentId  Razorpay payment id
+ * @param {number|null} amount rupees; null refunds nothing (the gateway needs an amount here)
+ * @param {object} notes       free-form notes sent to Razorpay
+ * @param {object} [options]   { idempotencyKey, bookingId, bookingNumber, userId, source, initiatedBy }
  */
-const refundPayment = async (paymentId, amount = null, notes = {}) => {
+const refundPayment = async (paymentId, amount = null, notes = {}, options = {}) => {
   try {
-    const refundOptions = {
-      payment_id: paymentId,
-      notes
-    };
-
-    if (amount) {
-      refundOptions.amount = Math.round(amount * 100); // Convert to paise
+    if (!amount || Number(amount) <= 0) {
+      return { success: false, error: 'A refund amount is required' };
     }
-
-    const refund = await getRazorpay().payments.refund(paymentId, refundOptions);
+    const { refundGatewayPayment } = await import('../../../core/payments/refund.service.js');
+    const bookingId = options.bookingId || notes.bookingId || '';
+    const result = await refundGatewayPayment({
+      vertical: 'serviceProvider',
+      gatewayPaymentId: paymentId,
+      amount: Number(amount),
+      idempotencyKey: options.idempotencyKey || `sp:refund:${bookingId || paymentId}:${Math.round(Number(amount) * 100)}`,
+      orderId: bookingId || null,
+      orderRef: options.bookingNumber || '',
+      userId: options.userId || null,
+      reason: notes.reason || '',
+      source: options.source || 'sp_refund',
+      initiatedBy: options.initiatedBy || null,
+      notes: Object.fromEntries(Object.entries(notes || {}).map(([k, v]) => [k, String(v)])),
+    });
+    if (!result.success) {
+      return { success: false, error: result.inProgress ? 'A refund for this booking is already in progress' : (result.error || 'Refund failed') };
+    }
     return {
       success: true,
-      refund
+      duplicate: result.duplicate,
+      refund: { id: result.refundId, status: result.gatewayStatus }
     };
   } catch (error) {
     console.error('Razorpay refund error:', error);

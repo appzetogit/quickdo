@@ -1,37 +1,16 @@
-import nodemailer from 'nodemailer';
+import { sendEmail } from '../queues/email.queue.js';
+import { isMailConfigured } from './mailTransport.js';
 import mongoose from 'mongoose';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { emailCredentials } from '../core/settings/platformProfile.service.js';
 
-let transporter = null;
-let transporterKey = '';
-
 /*
- * SMTP from Master settings if saved there, else .env
- * (core/settings/platformProfile.service.js). Rebuilt when the settings
- * change, so saving new mail settings needs no restart.
+ * Mail goes out through the email queue (queues/email.queue.js): queued when
+ * BullMQ is on, sent directly otherwise. SMTP comes from Master settings if saved
+ * there, else .env (services/mailTransport.js).
  */
-function getTransporter() {
-  const mail = emailCredentials();
-  const key = `${mail.host}|${mail.port}|${mail.user}|${mail.pass}|${mail.secure}`;
-  if (transporter && key === transporterKey) return transporter;
-  if (!mail.host || !mail.user || !mail.pass) {
-    logger.warn('Email not configured: set it in Master settings, or EMAIL_HOST, EMAIL_USER, EMAIL_PASS');
-    return null;
-  }
-  transporter = nodemailer.createTransport({
-    host: mail.host,
-    port: mail.port || 587,
-    secure: mail.secure,
-    auth: {
-      user: mail.user,
-      pass: mail.pass
-    }
-  });
-  transporterKey = key;
-  return transporter;
-}
+const getTransporter = () => (isMailConfigured() ? true : null);
 
 /**
  * Normalizes user details to retrieve name and email.
@@ -329,13 +308,14 @@ export async function sendFoodInvoiceEmail(order, user) {
   `;
 
   try {
-    await trans.sendMail({
+    await sendEmail({
+      kind: 'invoice',
       from: typeof from === 'string' && from.includes('<') ? from : `Quick Drop <${from}>`,
       to: email,
       subject,
       html
     });
-    logger.info(`Food invoice email sent to ${email} for order ${orderId}`);
+    logger.info(`Food invoice email sent (or queued) to ${email} for order ${orderId}`);
     return true;
   } catch (err) {
     logger.error(`Failed to send food invoice email to ${email} for order ${orderId}:`, err);
@@ -616,13 +596,14 @@ export async function sendTaxiInvoiceEmail(ride, user) {
   `;
 
   try {
-    await trans.sendMail({
+    await sendEmail({
+      kind: 'invoice',
       from: typeof from === 'string' && from.includes('<') ? from : `Quick Drop <${from}>`,
       to: email,
       subject,
       html
     });
-    logger.info(`Taxi invoice email sent to ${email} for trip ${rideId}`);
+    logger.info(`Taxi invoice email sent (or queued) to ${email} for trip ${rideId}`);
     return true;
   } catch (err) {
     logger.error(`Failed to send taxi invoice email to ${email} for trip ${rideId}:`, err);

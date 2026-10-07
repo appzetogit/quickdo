@@ -1,7 +1,18 @@
 import mongoose from 'mongoose';
 
 /**
- * Who moved money, whose money, why, and what happened.
+ * Who changed what, as an admin: every admin write on every panel (2.7), and the
+ * finance permission decisions on money moves.
+ *
+ * Two kinds of row:
+ *   kind 'finance'   written by requireFinancePermission -- who moved money, whose
+ *                    money, why, the permission decision and what happened;
+ *   kind 'activity'  written by adminActivityLog for every other admin write --
+ *                    method, path, module, target ids, a REDACTED summary of the
+ *                    body (never passwords, OTPs, tokens, card or bank numbers),
+ *                    status and ip.
+ *
+ * The rest of this note is about the finance rows.
  *
  * Distinct from `activities` on purpose. That collection is a CUSTOMER feed -- one
  * row per order/ride/booking, indexed by userId, meant to answer "what has this
@@ -27,10 +38,19 @@ const adminAuditSchema = new mongoose.Schema(
         actorEmail: { type: String, default: '' },
         actorRole: { type: String, default: '' },
 
-        /** The permission that was required, and whether they actually held it. */
-        resource: { type: String, required: true, index: true },
-        action: { type: String, required: true },
-        permitted: { type: Boolean, required: true },
+        /** 'finance' | 'activity' -- see above. Rows from before 2.7 have none and are finance rows. */
+        kind: { type: String, default: 'finance', index: true },
+        /** 'food' | 'quickCommerce' | 'taxi' | 'serviceProvider' | 'platform' */
+        module: { type: String, default: '', index: true },
+
+        /**
+         * Finance rows: the permission that was required, and whether they held it.
+         * Activity rows: the section written to (e.g. 'restaurants') and the verb
+         * ('create' | 'update' | 'delete').
+         */
+        resource: { type: String, default: '', index: true },
+        action: { type: String, default: '', index: true },
+        permitted: { type: Boolean, default: true },
         /**
          * True when the admin did NOT hold the permission but was let through
          * anyway because enforcement is still in tolerant mode. These rows are the
@@ -44,6 +64,16 @@ const adminAuditSchema = new mongoose.Schema(
         /** Who the money belongs to, where the route makes that knowable. */
         targetType: { type: String, default: '' },
         targetId: { type: String, default: '', index: true },
+        /** Every id the request named (path segments, route params, body *Id fields). */
+        targetIds: { type: [String], default: undefined },
+
+        /**
+         * What was sent, with every secret replaced by '[REDACTED]' and long values
+         * cut short (core/admin/auditRedact.js). Enough to see WHAT was changed,
+         * never enough to replay a credential.
+         */
+        bodySummary: { type: mongoose.Schema.Types.Mixed, default: undefined },
+        durationMs: { type: Number, default: undefined },
 
         /** Operator-supplied justification. Required by policy on money moves. */
         reason: { type: String, default: '' },
@@ -66,6 +96,8 @@ const adminAuditSchema = new mongoose.Schema(
 adminAuditSchema.index({ createdAt: -1 });
 adminAuditSchema.index({ actorId: 1, createdAt: -1 });
 adminAuditSchema.index({ targetId: 1, createdAt: -1 });
+adminAuditSchema.index({ module: 1, createdAt: -1 });
+adminAuditSchema.index({ targetIds: 1 });
 
 export const AdminAudit =
     mongoose.models.AdminAudit || mongoose.model('AdminAudit', adminAuditSchema);

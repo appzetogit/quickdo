@@ -130,6 +130,23 @@ export const emailCredentials = () => {
   };
 };
 
+const csv = (v) => str(v).split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+
+/**
+ * Google / Apple sign-in audiences (core/auth/socialAuth.service.js). Each list
+ * moves on its own: saved here, it replaces the .env list for that provider.
+ */
+export const socialSignInConfig = () => {
+  const s = snapshot().integrations?.social || {};
+  const google = csv(s.googleClientIds);
+  const apple = csv(s.appleClientIds);
+  return {
+    googleClientIds: google.length ? google : csv(process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID),
+    appleClientIds: apple.length ? apple : csv(process.env.APPLE_CLIENT_IDS || process.env.APPLE_BUNDLE_ID),
+    source: { google: google.length ? 'master' : 'env', apple: apple.length ? 'master' : 'env' },
+  };
+};
+
 // For CommonJS code (service provider), which cannot import this module
 // synchronously: see platformCredentials.cjs.
 globalThis.__qdPlatformCredentials = { razorpayCredentials, smsCredentials, emailCredentials };
@@ -225,6 +242,11 @@ export const getPlatformProfileForAdmin = async () => {
         from: str(i.email?.from),
         inUse: { source: mail.source, configured: Boolean(mail.host && mail.user && mail.pass), host: mail.host, from: mail.from },
       },
+      social: {
+        googleClientIds: str(i.social?.googleClientIds),
+        appleClientIds: str(i.social?.appleClientIds),
+        inUse: socialSignInConfig(),
+      },
     },
     updatedAt: p.updatedAt || null,
   };
@@ -238,6 +260,7 @@ const ALLOWED = {
   'integrations.razorpay': ['keyId', 'keySecret', 'webhookSecret'],
   'integrations.sms': ['apiKey', 'senderId', 'templateId', 'templateText'],
   'integrations.email': ['host', 'port', 'secure', 'user', 'pass', 'from'],
+  'integrations.social': ['googleClientIds', 'appleClientIds'],
 };
 const SECRET_FIELDS = new Set(['keySecret', 'webhookSecret', 'apiKey', 'pass']);
 
@@ -251,6 +274,8 @@ const validate = (section, field, value) => {
   if (field === 'keyId' && !/^rzp_(live|test)_\w+$/.test(value)) bad('Razorpay key id starts with rzp_live_ or rzp_test_');
   if (field === 'port' && !(Number(value) > 0 && Number(value) < 65536)) bad('Port must be a number like 587 or 465');
   if (field === 'templateText' && !String(value).includes('{{OTP}}')) bad('The SMS template must contain {{OTP}} where the code goes');
+  if (field === 'googleClientIds' && csv(value).some((id) => !/^[\w.-]+\.apps\.googleusercontent\.com$/.test(id))) bad('Google client ids end in .apps.googleusercontent.com (separate several with commas)');
+  if (field === 'appleClientIds' && csv(value).some((id) => !/^[A-Za-z0-9.-]+$/.test(id))) bad('Apple ids are bundle ids or Services IDs like com.example.app (separate several with commas)');
   if ((field === 'logoUrl' || field === 'faviconUrl') && !/^https?:\/\//.test(value)) bad('Upload an image or paste an https:// link');
   return value;
 };

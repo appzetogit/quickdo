@@ -36,6 +36,8 @@ export const FINANCE_ACTIONS = Object.freeze({
     PARTNER_WALLET_ADJUST: { resource: 'wallet', action: 'write', targetType: 'partner' },
     PARTNER_BONUS_GRANT: { resource: 'wallet', action: 'write', targetType: 'partner' },
     EARNING_CREDIT: { resource: 'wallet', action: 'write', targetType: 'partner' },
+    /** Refunding a customer, to the wallet or to the original payment method. */
+    REFUND_ISSUE: { resource: 'wallet', action: 'write', targetType: 'refund' },
     CASH_LIMIT_SET: { resource: 'fee_settings', action: 'write', targetType: 'platform' },
     COMMISSION_RULE_SET: { resource: 'fee_settings', action: 'write', targetType: 'platform' },
     /*

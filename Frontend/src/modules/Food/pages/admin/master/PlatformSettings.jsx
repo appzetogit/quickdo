@@ -286,7 +286,7 @@ function InUse({ source, children }) {
   )
 }
 
-function IntegrationCard({ kind, title, description, initial, fields, inUse, testExtra, onSaved, saveNote }) {
+function IntegrationCard({ kind, title, description, initial, fields, inUse, testExtra, onSaved, saveNote, noTest = false }) {
   const [values, setValues] = useState(initial)
   const [busy, setBusy] = useState("")
   const [extra, setExtra] = useState("")
@@ -324,10 +324,12 @@ function IntegrationCard({ kind, title, description, initial, fields, inUse, tes
           {testExtra && (
             <input className={`${inputCls} w-56`} placeholder={testExtra.placeholder} value={extra} onChange={(e) => setExtra(e.target.value)} />
           )}
-          <button type="button" className={ghostCls} disabled={!!busy} onClick={test}>
-            {busy === "test" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Test
-          </button>
+          {!noTest && (
+            <button type="button" className={ghostCls} disabled={!!busy} onClick={test}>
+              {busy === "test" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Test
+            </button>
+          )}
           <button type="button" className={btnCls} disabled={!!busy} onClick={save}>
             {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Save
@@ -361,6 +363,7 @@ function IntegrationCard({ kind, title, description, initial, fields, inUse, tes
 
 function IntegrationsTab({ profile, onSaved }) {
   const { razorpay, sms, email } = profile.integrations
+  const social = profile.integrations.social || { googleClientIds: "", appleClientIds: "", inUse: { googleClientIds: [], appleClientIds: [], source: {} } }
   return (
     <div className="space-y-5">
       <IntegrationCard
@@ -420,6 +423,25 @@ function IntegrationsTab({ profile, onSaved }) {
           { key: "from", label: "Send as", placeholder: "Quick Drop <noreply@quickdropsindia.com>", wide: true },
         ]}
         testExtra={{ key: "sendTo", placeholder: "Email to send a test (optional)" }}
+        onSaved={onSaved}
+      />
+      <IntegrationCard
+        kind="social"
+        title="Google and Apple sign-in"
+        description="The app ids a Google or Apple sign-in may come from. A sign-in from any other app is refused."
+        initial={{ googleClientIds: social.googleClientIds, appleClientIds: social.appleClientIds }}
+        inUse={
+          <InUse source={social.inUse?.source?.google === "master" || social.inUse?.source?.apple === "master" ? "master" : "env"}>
+            Google: <b>{social.inUse?.googleClientIds?.length ? `${social.inUse.googleClientIds.length} client id(s)` : "off"}</b>
+            {" · "}Apple: <b>{social.inUse?.appleClientIds?.length ? `${social.inUse.appleClientIds.length} id(s)` : "off"}</b>
+          </InUse>
+        }
+        fields={[
+          { key: "googleClientIds", label: "Google OAuth client ids", hint: "Web, Android and iOS client ids from Google Cloud, separated by commas.", textarea: true, wide: true, placeholder: "1234-abc.apps.googleusercontent.com, 1234-def.apps.googleusercontent.com" },
+          { key: "appleClientIds", label: "Apple bundle ids and Services ID", hint: "The iOS app bundle id, plus the web Services ID if the website offers Apple sign-in.", textarea: true, wide: true, placeholder: "com.quickdrop.app, com.quickdrop.web" },
+        ]}
+        noTest
+        saveNote="Sign-ins from apps not listed here will be refused from now on. Continue?"
         onSaved={onSaved}
       />
     </div>

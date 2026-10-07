@@ -379,6 +379,19 @@ export const supportInboxAPI = {
     apiClient.patch(`/platform/support/tickets/${encodeURIComponent(source)}/${encodeURIComponent(id)}`, data, { contextModule: "admin" }),
 };
 
+/** Master > Admin Activity Log: every admin write on every panel (superadmins only). */
+export const adminAuditLogAPI = {
+  list: (params) => apiClient.get("/platform/audit-log", { params, contextModule: "admin" }),
+  admins: () => apiClient.get("/platform/audit-log/admins", { contextModule: "admin" }),
+};
+
+/** Master > Refunds: every refund with its payment-gateway status (superadmins only). */
+export const platformRefundsAPI = {
+  list: (params) => apiClient.get("/platform/refunds", { params, contextModule: "admin" }),
+  retry: (id, data = {}) =>
+    apiClient.post(`/platform/refunds/${encodeURIComponent(id)}/retry`, data, { contextModule: "admin" }),
+};
+
 /** Admin orders base for a vertical: Food on /food/admin, Quick on /qc/admin. */
 const adminOrdersBase = (vertical) =>
   vertical === "quickCommerce" || vertical === "quick"

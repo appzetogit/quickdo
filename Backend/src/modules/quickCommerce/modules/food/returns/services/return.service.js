@@ -4,7 +4,7 @@ import { QCReturn } from '../models/qcReturn.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { incrementStock } from '../../orders/services/inventory.service.js';
-import { initiateRazorpayRefund } from '../../orders/helpers/razorpay.helper.js';
+import { refundGatewayPayment } from '../../../../../../core/payments/refund.service.js';
 import { recordReturnRefund } from '../../orders/services/foodTransaction.service.js';
 import { refundWalletBalance } from '../../user/services/userWallet.service.js';
 import { logger } from '../../../../utils/logger.js';
@@ -351,7 +351,19 @@ const payOut = async (destination, { order, doc, amount }) => {
     if (destination.to === 'gateway') {
         let result;
         try {
-            result = await initiateRazorpayRefund(destination.paymentId, amount);
+            // Keyed on the return: a retried payout after a failure retries the same
+            // Refund row instead of risking a second refund.
+            result = await refundGatewayPayment({
+                vertical: 'quickCommerce',
+                gatewayPaymentId: destination.paymentId,
+                amount,
+                idempotencyKey: `qc:return_refund:${doc._id}`,
+                orderId: order._id,
+                orderRef: doc.returnCode || order.orderId || '',
+                userId: order.userId,
+                reason: `Return ${doc.returnCode || ''}`.trim(),
+                source: 'qc_return',
+            });
         } catch (err) {
             result = { success: false, error: err?.message || String(err) };
         }

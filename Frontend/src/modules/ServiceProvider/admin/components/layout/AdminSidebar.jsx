@@ -19,7 +19,7 @@ import {
   FiStar,
   FiShield,
 } from "react-icons/fi";
-import { UtensilsCrossed, Truck, Wrench, ShoppingBasket, Pill, ChevronDown } from "lucide-react";
+import { UtensilsCrossed, Truck, Wrench, ShoppingBasket, ChevronDown } from "lucide-react";
 import adminMenu from "../../config/adminMenu.json";
 import dashboardService from "../../services/dashboardService";
 import { getSettings } from "../../services/settingsService";
@@ -535,13 +535,6 @@ const AdminSidebar = ({ isOpen, onClose }) => {
             className="flex-1 min-w-0 flex flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] leading-none font-bold rounded-lg transition-all duration-300 text-neutral-400 hover:text-neutral-200 hover:bg-white/5">
             <ShoppingBasket className="w-3.5 h-3.5 text-neutral-500" />
             Quick
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/admin/medical")}
-            className="flex-1 min-w-0 flex flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] leading-none font-bold rounded-lg transition-all duration-300 text-neutral-400 hover:text-neutral-200 hover:bg-white/5">
-            <Pill className="w-3.5 h-3.5 text-neutral-500" />
-            Medical
           </button>
         </div>
       </div>

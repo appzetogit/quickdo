@@ -207,6 +207,18 @@ export const config = {
     // permissions it names, confirm it stops growing, then flip this on.
     financePermissionsEnforced: process.env.FINANCE_PERMISSIONS_ENFORCED === 'true',
 
+    // Customer email + password sign-in (core/auth/emailAuth.service.js): wrong
+    // passwords in a row before the account is locked, and for how long.
+    authMaxLoginFailures: Number(process.env.AUTH_MAX_LOGIN_FAILURES || 5),
+    authLockoutMinutes: Number(process.env.AUTH_LOCKOUT_MINUTES || 15),
+
+    // Google / Apple sign-in (core/auth/socialAuth.service.js). Comma-separated
+    // lists of the client ids an ID token may be issued to: Google's web, Android
+    // and iOS OAuth client ids; Apple's app bundle id(s) and web Services ID.
+    // Master settings > Integrations overrides these when filled in.
+    googleClientIds: String(process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || ''),
+    appleClientIds: String(process.env.APPLE_CLIENT_IDS || process.env.APPLE_BUNDLE_ID || ''),
+
     // Run the master eligibility engine alongside each vertical's own gate and log
     // where they disagree. Decides nothing and changes no dispatch outcome — it
     // exists so the cutover is made from evidence rather than from confidence.

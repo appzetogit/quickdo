@@ -20,9 +20,9 @@ import {
     createRazorpayCheckoutOrder,
     verifyPaymentSignature,
     isRazorpayConfigured,
-    initiateRazorpayRefund,
     fetchRazorpayPayment
 } from '../helpers/razorpay.helper.js';
+import { refundGatewayPayment } from '../../../../core/payments/refund.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline } from '../utils/googleMaps.js';
@@ -965,7 +965,19 @@ async function processOrderRefundOnce(order, refundUserId) {
   let refundPatch;
   try {
     if (method === "razorpay") {
-      const refundResult = await initiateRazorpayRefund(order.payment.razorpay.paymentId, order.pricing.total);
+      // Through the platform refund service: one Refund row per order (the
+      // idempotency key), Razorpay's status tracked by the refund webhooks.
+      const refundResult = await refundGatewayPayment({
+        vertical: "food",
+        gatewayPaymentId: order.payment.razorpay.paymentId,
+        amount: order.pricing.total,
+        idempotencyKey: `food:order_refund:${order._id}`,
+        orderId: order._id,
+        orderRef: order.orderId || order.order_id || "",
+        userId: refundUserId || order.userId,
+        reason: "Order cancelled",
+        source: "order_cancelled",
+      });
       refundPatch = refundResult.success
         ? { "payment.status": "refunded", "payment.refund": { status: "processed", amount: order.pricing.total, refundId: refundResult.refundId, processedAt: new Date() } }
         : { "payment.refund": { status: "failed", amount: order.pricing.total } };

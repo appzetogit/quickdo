@@ -8,6 +8,7 @@ export const ORDER_QUEUE = 'order';
 export const PAYMENT_QUEUE = 'payment';
 export const TRACKING_QUEUE = 'tracking';
 export const MAINTENANCE_QUEUE = 'maintenance';
+export const EMAIL_QUEUE = 'email';
 
 export const QUEUE_NAMES = Object.freeze([
     OTP_QUEUE,
@@ -15,5 +16,6 @@ export const QUEUE_NAMES = Object.freeze([
     ORDER_QUEUE,
     PAYMENT_QUEUE,
     TRACKING_QUEUE,
-    MAINTENANCE_QUEUE
+    MAINTENANCE_QUEUE,
+    EMAIL_QUEUE
 ]);

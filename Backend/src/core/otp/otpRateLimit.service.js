@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { OtpRateLimit } from './otpRateLimit.model.js';
 import { config } from '../../config/env.js';
 import { normalizePhoneToTenDigits } from '../../utils/phone.util.js';
@@ -44,6 +45,24 @@ export const consumeOtpQuota = async (rawPhone, { service = 'unknown' } = {}) =>
         return { allowed: true, count: 0, limit, retryAfterSeconds: 0, windowSeconds };
     }
 
+    return consumeQuotaForKey(phone, { service, limit, windowSeconds });
+};
+
+/**
+ * The same budget for an emailed code (customer email verification and password
+ * reset). Keyed on a hash of the address, so the collection never holds the email
+ * itself, and prefixed so it can never collide with a phone's budget.
+ */
+export const consumeEmailOtpQuota = async (rawEmail, { service = 'email' } = {}) => {
+    const limit = config.otpRateLimit || 3;
+    const windowSeconds = config.otpRateWindow || 600;
+    const email = String(rawEmail || '').trim().toLowerCase();
+    if (!email) return { allowed: true, count: 0, limit, retryAfterSeconds: 0, windowSeconds };
+    const key = `email:${crypto.createHash('sha256').update(email).digest('hex').slice(0, 32)}`;
+    return consumeQuotaForKey(key, { service, limit, windowSeconds });
+};
+
+const consumeQuotaForKey = async (phone, { service, limit, windowSeconds }) => {
     const now = new Date();
     const windowFloor = new Date(now.getTime() - windowSeconds * 1000);
 

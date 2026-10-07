@@ -57,8 +57,10 @@ module.exports = {
       // nothing consumes -- they grow forever and no error appears anywhere, because
       // a producer succeeds whether or not a consumer exists.
       //
-      // src/queues/workers/index.js runs all six in one process; see the note there
-      // for why one process rather than six pm2 apps.
+      // src/queues/workers/index.js runs all of them in one process (OTP,
+      // notification, order, tracking, payment, maintenance and email -- the email
+      // worker sends everything queues/email.queue.js queues); see the note there
+      // for why one process rather than one pm2 app per queue.
       name: 'master-workers',
       cwd: '/opt/master/Backend',
       script: 'src/queues/workers/index.js',

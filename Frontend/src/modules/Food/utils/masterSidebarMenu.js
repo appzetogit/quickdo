@@ -55,6 +55,12 @@ export const masterSidebarMenu = [
         icon: "UserCog",
       },
       {
+        type: "link",
+        label: "Admin Activity Log",
+        path: "/admin/master/activity-log",
+        icon: "ClipboardList",
+      },
+      {
         type: "expandable",
         label: "Delivery Management",
         icon: "Truck",
@@ -86,6 +92,7 @@ export const masterSidebarMenu = [
         subItems: [
           { label: "Platform Earnings (all services)", path: "/admin/master/platform-earnings" },
           { label: "Commission Overview (all services)", path: "/admin/master/commission" },
+          { label: "Refunds (all services)", path: "/admin/master/refunds" },
           { label: "Food · Transactions", path: "/admin/food/transaction-report" },
           { label: "Food · Orders", path: "/admin/food/order-report/regular" },
           { label: "Food · Tax", path: "/admin/food/tax-report" },

@@ -33,6 +33,8 @@ const MasterDeliveryEarnings = lazy(() => import("@food/pages/admin/master/Deliv
 const MasterDeliveryIncentives = lazy(() => import("@food/pages/admin/master/DeliveryIncentives"))
 const MasterPromotions = lazy(() => import("@food/pages/admin/master/PromoCeiling"))
 const OrderBatching = lazy(() => import("@food/pages/admin/master/OrderBatching"))
+const AdminActivityLog = lazy(() => import("@food/pages/admin/master/AdminActivityLog"))
+const MasterRefunds = lazy(() => import("@food/pages/admin/master/MasterRefunds"))
 // Master's own Delivery Management pages: the same screens as the Food and Taxi
 // panels, opened inside Master (links between them stay in Master).
 const TaxiDriverList = lazy(() => import("@/modules/Taxi/modules/admin/pages/drivers/DriverList"))
@@ -42,7 +44,6 @@ const TaxiDriverCreate = lazy(() => import("@/modules/Taxi/modules/admin/pages/d
 const TaxiDriverEdit = lazy(() => import("@/modules/Taxi/modules/admin/pages/drivers/EditDriver"))
 const PartnerDocuments = lazy(() => import("@/modules/Taxi/modules/admin/pages/drivers/GlobalDocuments"))
 const PartnerDocumentForm = lazy(() => import("@/modules/Taxi/modules/admin/pages/drivers/DriverDocumentForm"))
-const NewRefundRequests = lazy(() => import("@food/pages/admin/refunds/NewRefundRequests"));
 const FoodApproval = lazy(() => import("@food/pages/admin/restaurant/FoodApproval"));
 const OrdersPage = lazy(() => import("@food/pages/admin/orders/OrdersPage"));
 const OrderDetectDelivery = lazy(() => import("@food/pages/admin/OrderDetectDelivery"));
@@ -240,7 +241,8 @@ const verticalAdminRoutes = (
             <Route path="orders/refunded" element={<OrdersPage statusKey="refunded" />} />
             <Route path="orders/offline-payments" element={<OrdersPage statusKey="offline-payments" />} />
             <Route path="order-detect-delivery" element={<OrderDetectDelivery />} />
-            <Route path="order-refunds/new" element={<NewRefundRequests />} />
+            {/* The old request list had no backend; every refund, with its gateway status, is on Master > Refunds. */}
+            <Route path="order-refunds/new" element={<Navigate to="/admin/master/refunds" replace />} />
 
             {/* RESTAURANT MANAGEMENT */}
             <Route path="zone-setup" element={<ZoneSetup />} />
@@ -448,6 +450,8 @@ export default function AdminRouter() {
           <Route path="master/delivery-incentives" element={<MasterDeliveryIncentives />} />
           <Route path="master/promotions" element={<MasterPromotions />} />
           <Route path="master/order-batching" element={<OrderBatching />} />
+          <Route path="master/activity-log" element={<AdminActivityLog />} />
+          <Route path="master/refunds" element={<MasterRefunds />} />
           <Route path="master/delivery-partners" element={<DeliverymanList />} />
           <Route path="master/delivery-partners/join-requests" element={<JoinRequest />} />
           <Route path="master/taxi-drivers" element={<TaxiDriverList />} />

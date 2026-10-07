@@ -82,6 +82,13 @@ const transactionSchema = new mongoose.Schema(
 
         module: { type: String, default: 'food', trim: true },
 
+        /**
+         * What makes this movement "the same one" on a retry (core/finance/idempotencyKeys.js).
+         * Optional so existing callers keep working. When it is set, a second write with
+         * the same key returns the first row instead of moving the money again (P0-4).
+         */
+        idempotencyKey: { type: String, default: undefined, trim: true },
+
         metadata: { type: mongoose.Schema.Types.Mixed, default: undefined }
     },
     { collection: 'transactions', timestamps: true }
@@ -90,5 +97,10 @@ const transactionSchema = new mongoose.Schema(
 transactionSchema.index({ entityType: 1, entityId: 1, createdAt: -1 });
 transactionSchema.index({ orderId: 1, entityType: 1 });
 transactionSchema.index({ paymentId: 1, type: 1 });
+// Unique only where a key was given: legacy rows have none and must not collide.
+transactionSchema.index(
+    { idempotencyKey: 1 },
+    { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } }, name: 'idempotencyKey_unique' }
+);
 
 export const Transaction = mongoose.model('Transaction', transactionSchema);

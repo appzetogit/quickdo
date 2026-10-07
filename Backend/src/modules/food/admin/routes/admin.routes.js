@@ -207,7 +207,7 @@ router.patch('/business-settings', upload.fields([
 
 // ----- Delivery Cash Limit -----
 router.get('/delivery-cash-limit', adminController.getDeliveryCashLimit);
-router.patch('/delivery-cash-limit', adminController.updateDeliveryCashLimit);
+router.patch('/delivery-cash-limit', requireFinancePermission('CASH_LIMIT_SET'), adminController.updateDeliveryCashLimit);
 router.get('/restaurant-withdrawal-setting', adminController.getRestaurantWithdrawalSetting);
 router.patch('/restaurant-withdrawal-setting', adminController.updateRestaurantWithdrawalSetting);
 
@@ -256,7 +256,8 @@ router.delete('/delivery/earning-addons/:id', adminController.deleteEarningAddon
 router.patch('/delivery/earning-addons/:id/status', adminController.toggleEarningAddonStatus);
 router.get('/delivery/earning-addon-history', adminController.getEarningAddonHistory);
 router.post('/delivery/earning-addon-history/:id/credit', requireFinancePermission('EARNING_CREDIT'), adminController.creditEarningToWallet);
-router.post('/delivery/earning-addon-history/:id/cancel', adminController.cancelEarningAddonHistory);
+// Cancelling a credited earning takes it back out of the rider's wallet.
+router.post('/delivery/earning-addon-history/:id/cancel', requireFinancePermission('EARNING_CREDIT'), adminController.cancelEarningAddonHistory);
 router.post('/delivery/earning-addon-completions/check', adminController.checkEarningAddonCompletions);
 router.get('/delivery/support-tickets/stats', adminController.getSupportTicketStats);
 router.get('/delivery/support-tickets', adminController.getSupportTickets);

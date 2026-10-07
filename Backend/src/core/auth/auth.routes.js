@@ -21,6 +21,23 @@ import {
 } from './unifiedAuth.controller.js';
 import { authMiddleware, requireAdmin } from './auth.middleware.js';
 import { authRateLimiter } from '../../middleware/rateLimit.js';
+import {
+    registerEmailController,
+    resendVerificationController,
+    verifyEmailController,
+    loginEmailController,
+    forgotPasswordController,
+    resetPasswordController,
+    addEmailController,
+    changePasswordController,
+    requestPhoneLinkController,
+    verifyPhoneLinkController,
+    accountSecurityController,
+    socialSignInController,
+    socialLinkController,
+    socialUnlinkController,
+    customerAuthGuards
+} from './customerAuth.controller.js';
 
 const router = express.Router();
 
@@ -33,6 +50,27 @@ router.post('/unified/verify-otp', authRateLimiter, verifyUnifiedOtpController);
 // User OTP login
 router.post('/user/request-otp', authRateLimiter, requestUserOtpController);
 router.post('/user/verify-otp', authRateLimiter, verifyUserOtpController);
+
+// Customer email + password (phone OTP above is unchanged). docs/flutter-auth-payments-api.md
+router.post('/user/email/register', authRateLimiter, registerEmailController);
+router.post('/user/email/resend-otp', authRateLimiter, resendVerificationController);
+router.post('/user/email/verify', authRateLimiter, verifyEmailController);
+router.post('/user/email/login', authRateLimiter, loginEmailController);
+router.post('/user/password/forgot', authRateLimiter, forgotPasswordController);
+router.post('/user/password/reset', authRateLimiter, resetPasswordController);
+
+// Customer Google / Apple sign-in: the app sends the provider's ID token.
+router.post('/user/social/:provider(google|apple)', authRateLimiter, socialSignInController);
+
+// Signed-in customer: add email sign-in, change password, add a phone, link providers.
+const signedInUser = [authMiddleware, customerAuthGuards.requireUser];
+router.get('/user/account', ...signedInUser, accountSecurityController);
+router.post('/user/email/add', authRateLimiter, ...signedInUser, addEmailController);
+router.post('/user/password/change', authRateLimiter, ...signedInUser, changePasswordController);
+router.post('/user/phone/request-otp', authRateLimiter, ...signedInUser, requestPhoneLinkController);
+router.post('/user/phone/verify', authRateLimiter, ...signedInUser, verifyPhoneLinkController);
+router.post('/user/social/:provider(google|apple)/link', authRateLimiter, ...signedInUser, socialLinkController);
+router.delete('/user/social/:provider(google|apple)', ...signedInUser, socialUnlinkController);
 
 // Restaurant OTP login
 router.post('/restaurant/request-otp', authRateLimiter, requestRestaurantOtpController);

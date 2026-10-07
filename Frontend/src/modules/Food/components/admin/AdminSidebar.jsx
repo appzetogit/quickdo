@@ -55,6 +55,7 @@ import {
   ShoppingBasket,
   Percent,
   ShieldCheck,
+  ClipboardList,
 } from "lucide-react"
 import { cn } from "@food/utils/utils"
 import { Input } from "@food/components/ui/input"
@@ -153,6 +154,7 @@ const iconMap = {
   PiggyBank,
   Lock,
   X,
+  ClipboardList,
 }
 
 /**

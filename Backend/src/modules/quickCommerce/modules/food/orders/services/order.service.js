@@ -28,9 +28,9 @@ import {
     verifyPaymentSignature,
     getRazorpayKeyId,
     isRazorpayConfigured,
-    initiateRazorpayRefund,
     fetchRazorpayPayment
 } from '../helpers/razorpay.helper.js';
+import { refundGatewayPayment } from '../../../../../../core/payments/refund.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline } from '../utils/googleMaps.js';
@@ -386,7 +386,18 @@ async function applyCancellationRefund(order, { cancelledBy = 'system', refundAm
       return { attempted: true, processed: false, reason: 'missing_razorpay_payment_id', method: paymentMethod };
     }
 
-    const refundResult = await initiateRazorpayRefund(paymentId, amount);
+    // One Refund row per order (idempotency key); Razorpay's status follows via webhook.
+    const refundResult = await refundGatewayPayment({
+      vertical: 'quickCommerce',
+      gatewayPaymentId: paymentId,
+      amount,
+      idempotencyKey: `qc:order_refund:${order._id}`,
+      orderId: order._id,
+      orderRef: order.orderId || '',
+      userId: order.userId,
+      reason: 'Order cancelled',
+      source: 'order_cancelled',
+    });
     if (refundResult.success) {
       order.payment.status = 'refunded';
       order.payment.refund = {

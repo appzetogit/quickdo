@@ -214,7 +214,7 @@ router.get('/restaurant-subscriptions/restaurants/:restaurantId/overview', subsc
 router.post('/restaurant-subscriptions/invoices/:invoiceId/deduct-wallet', requireFinancePermission('PARTNER_WALLET_ADJUST'), subscriptionBillingController.deductInvoiceFromWallet);
 router.post('/restaurant-subscriptions/invoices/:invoiceId/mark-paid', subscriptionBillingController.markInvoicePaid);
 router.post('/restaurant-subscriptions/invoices/:invoiceId/waive', subscriptionBillingController.waiveInvoice);
-router.post('/restaurant-subscriptions/invoices/:invoiceId/adjust', subscriptionBillingController.adjustInvoice);
+router.post('/restaurant-subscriptions/invoices/:invoiceId/adjust', requireFinancePermission('PARTNER_WALLET_ADJUST'), subscriptionBillingController.adjustInvoice);
 router.post('/restaurant-subscriptions/run-billing', subscriptionBillingController.runSubscriptionBilling);
 router.get('/feature-settings', adminController.getFeatureSettings);
 router.patch('/feature-settings/:key', adminController.updateFeatureSetting);
@@ -366,7 +366,7 @@ router.patch('/restaurant-settings/order-acceptance', businessSettingsController
 
 // ----- Delivery Cash Limit -----
 router.get('/delivery-cash-limit', adminController.getDeliveryCashLimit);
-router.patch('/delivery-cash-limit', adminController.updateDeliveryCashLimit);
+router.patch('/delivery-cash-limit', requireFinancePermission('CASH_LIMIT_SET'), adminController.updateDeliveryCashLimit);
 
 // ----- Delivery Emergency Help -----
 router.get('/delivery-emergency-help', adminController.getEmergencyHelp);
@@ -402,7 +402,7 @@ router.delete('/delivery/earning-addons/:id', adminController.deleteEarningAddon
 router.patch('/delivery/earning-addons/:id/status', adminController.toggleEarningAddonStatus);
 router.get('/delivery/earning-addon-history', adminController.getEarningAddonHistory);
 router.post('/delivery/earning-addon-history/:id/credit', requireFinancePermission('EARNING_CREDIT'), adminController.creditEarningToWallet);
-router.post('/delivery/earning-addon-history/:id/cancel', adminController.cancelEarningAddonHistory);
+router.post('/delivery/earning-addon-history/:id/cancel', requireFinancePermission('EARNING_CREDIT'), adminController.cancelEarningAddonHistory);
 router.post('/delivery/earning-addon-completions/check', adminController.checkEarningAddonCompletions);
 router.get('/delivery/support-tickets/stats', adminController.getSupportTicketStats);
 router.get('/delivery/support-tickets', adminController.getSupportTickets);
@@ -532,7 +532,7 @@ router.patch(
     requireAdminPermission('order_management', 'edit'),
     manualAssign.unassignRider
 );
-router.post('/orders/:orderId/refund', orderController.processRefundAdminController);
+router.post('/orders/:orderId/refund', requireFinancePermission('REFUND_ISSUE'), orderController.processRefundAdminController);
 router.delete('/orders/:orderId', orderController.deleteOrderAdminController);
 
 // ----- CMS Pages (About + legal) -----

@@ -1,113 +1,86 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Loader2, CheckCircle2, XCircle, AlertCircle } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { setAuthData } from "@food/utils/auth"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+import { socialSignIn } from "@/services/api/auth"
+import { takePendingSocialSignIn } from "@food/utils/socialSignIn"
 
+const PROVIDER_LABEL = { google: "Google", apple: "Apple" }
 
+/**
+ * Where Google / Apple send the browser back after sign-in (see
+ * @food/utils/socialSignIn startSocialSignIn).
+ *
+ * The provider puts the ID token in the URL fragment. This page checks the
+ * `state` it stored before leaving (so a link crafted by someone else cannot sign
+ * the visitor into the attacker's account), sends the token to the server, which
+ * verifies it with the provider, and stores the session exactly as the OTP login
+ * does. Nothing here trusts a token or user passed in the URL by anyone else.
+ */
 export default function AuthCallback() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState("loading") // "loading", "success", "error"
   const [error, setError] = useState("")
   const [provider, setProvider] = useState("")
+  const started = useRef(false)
 
   useEffect(() => {
+    // React strict mode runs effects twice in development; the pending sign-in
+    // can only be taken once.
+    if (started.current) return
+    started.current = true
+
     const handleAuthCallback = async () => {
-      try {
-        // Get provider from URL params
-        const providerParam = searchParams.get("provider") || "google"
-        setProvider(providerParam)
+      const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""))
+      const read = (key) => fragment.get(key) || searchParams.get(key)
+      // The token must not linger in the address bar or the history entry.
+      if (window.location.hash) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`)
+      }
 
-        // Get OAuth parameters from URL
-        const code = searchParams.get("code")
-        const errorParam = searchParams.get("error")
-        const state = searchParams.get("state")
+      const pending = takePendingSocialSignIn()
+      setProvider(PROVIDER_LABEL[pending?.provider] || "")
 
-        // Check for OAuth errors
-        if (errorParam) {
-          setStatus("error")
-          setError(
-            errorParam === "access_denied"
-              ? "You denied access to your account. Please try again."
-              : "Authentication failed. Please try again."
-          )
-          return
-        }
-
-        // Check for direct token from backend (Backend OAuth flow)
-        const token = searchParams.get("token")
-        const userStr = searchParams.get("user")
-
-        if (token) {
-          try {
-            const user = userStr ? JSON.parse(userStr) : null
-
-            // Save auth data
-            setAuthData("user", token, user)
-
-            // Notify app of auth change
-            window.dispatchEvent(new Event("userAuthChanged"))
-
-            setStatus("success")
-
-            // Redirect to home after short delay
-            setTimeout(() => {
-              navigate("/food/user", { replace: true })
-            }, 1000)
-            return
-          } catch (err) {
-            debugError("Error processing token from URL:", err)
-            throw new Error("Invalid user data received from server")
-          }
-        }
-
-        // If no code and no token, it might be a direct redirect (for demo purposes)
-        if (!code) {
-          // Simulate OAuth flow for demo
-          await new Promise((resolve) => setTimeout(resolve, 2000))
-
-          // In a real app, you would:
-          // 1. Exchange the code for tokens
-          // 2. Get user info from the provider
-          // 3. Create/login user in your backend
-          // 4. Set authentication tokens
-
-          // For now, if we don't have a token, we can't really log them in properly
-          // unless this is just a mockup
-
-          // Store auth success in sessionStorage
-          sessionStorage.setItem("oauthSuccess", JSON.stringify({
-            provider: providerParam,
-            timestamp: Date.now(),
-          }))
-
-          // Redirect to home after short delay
-          setTimeout(() => {
-            navigate("/food/user")
-          }, 1500)
-          return
-        }
-
-        // Backend disconnected - new backend in progress. OAuth callback disabled.
-        setStatus("error")
-        setError("OAuth is temporarily disabled. Backend is being rebuilt.")
-      } catch (err) {
+      const errorParam = read("error")
+      if (errorParam) {
         setStatus("error")
         setError(
-          err.message || "An error occurred during authentication. Please try again."
+          errorParam === "access_denied" || errorParam === "user_cancelled_authorize"
+            ? "You cancelled the sign-in. Please try again."
+            : "Authentication failed. Please try again."
         )
+        return
+      }
+
+      const idToken = read("id_token")
+      const state = read("state")
+      if (!pending || !idToken || !state || state !== pending.state) {
+        setStatus("error")
+        setError("This sign-in link is no longer valid. Please start the sign-in again.")
+        return
+      }
+
+      try {
+        const res = await socialSignIn(pending.provider, { idToken, nonce: pending.nonce })
+        const data = res?.data?.data || {}
+        if (!data.accessToken || !data.user) throw new Error("The server did not return a session")
+        setAuthData("user", data.accessToken, data.user, data.refreshToken || null)
+        window.dispatchEvent(new Event("userAuthChanged"))
+        setStatus("success")
+        const target = typeof pending.redirectTo === "string" && pending.redirectTo.startsWith("/") ? pending.redirectTo : "/food/user"
+        setTimeout(() => navigate(target, { replace: true }), 800)
+      } catch (err) {
+        setStatus("error")
+        setError(err?.response?.data?.message || err?.message || "An error occurred during authentication. Please try again.")
       }
     }
 
     handleAuthCallback()
   }, [navigate, searchParams])
-
   const handleRetry = () => {
     navigate("/food/user/auth/login")
   }

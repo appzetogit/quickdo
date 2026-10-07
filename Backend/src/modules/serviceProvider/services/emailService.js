@@ -124,6 +124,18 @@ const createTransporter = () => {
 };
 
 /**
+ * Every email here goes through the platform email queue (queues/email.queue.js):
+ * queued when BullMQ is on, sent directly otherwise -- with the shared, reused SMTP
+ * transport. The queue module is ESM, so it is loaded on first use. Throws like
+ * nodemailer did, so each sender's own try/catch keeps working.
+ */
+let emailQueue = null;
+const deliverEmail = async (mail) => {
+  if (!emailQueue) emailQueue = await import('../../../queues/email.queue.js');
+  return emailQueue.sendEmail(mail);
+};
+
+/**
  * Send OTP Email - Professional Style
  */
 const sendOTPEmail = async (email, otp, purpose = 'verification') => {
@@ -133,7 +145,6 @@ const sendOTPEmail = async (email, otp, purpose = 'verification') => {
       return { success: true };
     }
 
-    const transporter = createTransporter();
     const subjectPrefix = purpose === 'password_reset' ? 'Reset Password' : 'Verify Email';
 
     const content = `
@@ -151,7 +162,8 @@ const sendOTPEmail = async (email, otp, purpose = 'verification') => {
       </div>
     `;
 
-    await transporter.sendMail({
+    await deliverEmail({
+      kind: 'otp', sensitive: true,
       from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
       to: email,
       subject: `${subjectPrefix} - Homster`,
@@ -170,7 +182,6 @@ const sendOTPEmail = async (email, otp, purpose = 'verification') => {
 const sendWelcomeEmail = async (email, name) => {
   try {
     if (!emailCredentials().user || !emailCredentials().pass) return { success: true };
-    const transporter = createTransporter();
 
     const content = `
       <div style="text-align: center;">
@@ -199,7 +210,8 @@ const sendWelcomeEmail = async (email, name) => {
       </div>
     `;
 
-    await transporter.sendMail({
+    await deliverEmail({
+      kind: 'welcome',
       from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
       to: email,
       subject: 'Welcome to Homster!',
@@ -218,7 +230,6 @@ const sendWelcomeEmail = async (email, name) => {
 const sendBookingEmails = async (booking, user, vendor, service) => {
   try {
     if (!emailCredentials().user || !emailCredentials().pass) return;
-    const transporter = createTransporter();
     const bookingId = booking.bookingNumber || booking._id;
 
     if (user && user.email) {
@@ -245,7 +256,8 @@ const sendBookingEmails = async (booking, user, vendor, service) => {
         </div>
       `;
 
-      await transporter.sendMail({
+      await deliverEmail({
+        kind: 'booking_confirmation',
         from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
         to: user.email,
         subject: `Booking Confirmed #${bookingId} - Homster`,
@@ -273,7 +285,8 @@ const sendBookingEmails = async (booking, user, vendor, service) => {
         </div>
       `;
 
-      await transporter.sendMail({
+      await deliverEmail({
+        kind: 'booking_confirmation',
         from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
         to: vendor.email,
         subject: `New Job Assigned #${bookingId} - Homster`,
@@ -289,7 +302,6 @@ const sendBookingEmails = async (booking, user, vendor, service) => {
 const sendBookingCompletionEmails = async (booking) => {
   try {
     if (!emailCredentials().user || !emailCredentials().pass) return;
-    const transporter = createTransporter();
     const user = booking.userId;
     const bookingId = booking.bookingNumber || booking._id;
 
@@ -324,7 +336,8 @@ const sendBookingCompletionEmails = async (booking) => {
         </div>
       `;
 
-      await transporter.sendMail({
+      await deliverEmail({
+        kind: 'booking_completed',
         from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
         to: user.email,
         subject: `Service Invoice #${bookingId} - Homster`,
@@ -335,12 +348,50 @@ const sendBookingCompletionEmails = async (booking) => {
 };
 
 /**
+ * Onboarding status for a vendor or worker: approved, rejected or suspended.
+ * @param {{email?: string, name?: string}} recipient
+ * @param {{role: 'vendor'|'worker', status: 'approved'|'rejected'|'suspended', reason?: string}} info
+ */
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sendOnboardingStatusEmail = async (recipient, { role = 'vendor', status, reason = '' } = {}) => {
+  try {
+    if (!emailCredentials().user || !emailCredentials().pass || !recipient?.email) return { success: true, skipped: true };
+    const who = role === 'worker' ? 'worker' : 'service partner';
+    const copy = {
+      approved: { badge: 'badge-success', title: 'You are approved', body: `Your ${who} account has been approved. You can now sign in and start accepting jobs.` },
+      rejected: { badge: 'badge-primary', title: 'Registration not approved', body: `Your ${who} registration was not approved.` },
+      suspended: { badge: 'badge-primary', title: 'Account suspended', body: `Your ${who} account has been suspended.` },
+    }[status];
+    if (!copy) return { success: false, error: `unknown status ${status}` };
+    const content = `
+      <div style="text-align: center;">
+        <div class="badge ${copy.badge}">Account status</div>
+        <h2>${copy.title}</h2>
+        <p>Hi ${escapeHtml(recipient.name || 'there')}, ${copy.body}</p>
+        ${reason ? `<p><strong>Reason:</strong> ${escapeHtml(reason)}</p>` : ''}
+        <p style="font-size: 14px;">If you have questions, reply to this email or contact support.</p>
+      </div>
+    `;
+    await deliverEmail({
+      kind: 'onboarding_status',
+      from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
+      to: recipient.email,
+      subject: `${copy.title} - Homster`,
+      html: emailWrapper(content, copy.title, copy.body)
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Onboarding status email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
  * Send Withdrawal Approved Email
  */
 const sendWithdrawalApprovedEmail = async (vendor, amount, transactionId) => {
   try {
     if (!emailCredentials().user || !emailCredentials().pass || !vendor.email) return;
-    const transporter = createTransporter();
 
     const content = `
       <div style="text-align: center;">
@@ -359,7 +410,8 @@ const sendWithdrawalApprovedEmail = async (vendor, amount, transactionId) => {
       </div>
     `;
 
-    await transporter.sendMail({
+    await deliverEmail({
+      kind: 'withdrawal_approved',
       from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
       to: vendor.email,
       subject: 'Withdrawal Success - Homster',
@@ -374,7 +426,6 @@ const sendWithdrawalApprovedEmail = async (vendor, amount, transactionId) => {
 const sendDuesPaymentApprovedEmail = async (vendor, amount, balanceAfter) => {
   try {
     if (!emailCredentials().user || !emailCredentials().pass || !vendor.email) return;
-    const transporter = createTransporter();
 
     const content = `
       <div style="text-align: center;">
@@ -392,7 +443,8 @@ const sendDuesPaymentApprovedEmail = async (vendor, amount, balanceAfter) => {
       </div>
     `;
 
-    await transporter.sendMail({
+    await deliverEmail({
+      kind: 'dues_payment_approved',
       from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
       to: vendor.email,
       subject: 'Dues Payment Verified - Homster',
@@ -411,7 +463,6 @@ const sendInvoiceEmail = async (email, data, pdfBuffer) => {
       console.log(`[EMAIL SERVICE] Invoice ${data.invoiceNumber} for ${email} (email not configured)`);
       return { success: true, skipped: true };
     }
-    const transporter = createTransporter();
     const content = `
       <div style="text-align: center; margin-bottom: 24px;">
         <h2>Your invoice</h2>
@@ -422,7 +473,8 @@ const sendInvoiceEmail = async (email, data, pdfBuffer) => {
         <div class="data-row"><span class="data-label">Booking</span><span class="data-value">${data.bookingNumber}</span></div>
         <div class="total-row"><span class="total-label">Total</span><span class="total-value">₹${Number(data.total || 0).toFixed(2)}</span></div>
       </div>`;
-    await transporter.sendMail({
+    await deliverEmail({
+      kind: 'invoice',
       from: emailCredentials().from || 'Quick Drop <noreply@quickdropsindia.com>',
       to: email,
       subject: `Invoice ${data.invoiceNumber} for booking ${data.bookingNumber}`,
@@ -442,6 +494,7 @@ module.exports = {
   _createTransporter: createTransporter,
   sendOTPEmail,
   sendWelcomeEmail,
+  sendOnboardingStatusEmail,
   sendBookingEmails,
   sendBookingCompletionEmails,
   sendWithdrawalApprovedEmail,

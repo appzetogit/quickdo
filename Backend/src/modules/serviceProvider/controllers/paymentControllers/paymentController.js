@@ -789,6 +789,17 @@ const processRefund = async (req, res) => {
         {
           bookingId: booking._id.toString(),
           reason: 'Booking cancellation'
+        },
+        {
+          // One admin refund per booking: the claim above already guarantees a
+          // single caller; the key makes a retry after a failure reuse the same
+          // Refund row instead of creating a second refund at the gateway.
+          idempotencyKey: `sp:admin_refund:${booking._id}`,
+          bookingId: booking._id.toString(),
+          bookingNumber: booking.bookingNumber || '',
+          userId: claimed.userId ? String(claimed.userId) : null,
+          source: 'admin_refund',
+          initiatedBy: req.user?.id || null
         }
       );
 

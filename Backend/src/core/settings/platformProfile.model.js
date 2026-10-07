@@ -66,6 +66,12 @@ const schema = new mongoose.Schema(
         pass: secret,
         from: { type: String, default: '', trim: true },
       },
+      // Google / Apple sign-in: which client ids an ID token may be issued to.
+      // Public identifiers, not secrets (they ship inside the apps).
+      social: {
+        googleClientIds: { type: String, default: '', trim: true },
+        appleClientIds: { type: String, default: '', trim: true },
+      },
     },
     updatedBy: { type: String, default: '' },
   },

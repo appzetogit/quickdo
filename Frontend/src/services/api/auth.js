@@ -336,3 +336,20 @@ export function verifyDeliveryOtp(phone, otp, fcmToken = null, platform = "web")
     ...(fcmToken ? { fcmToken, platform } : {}),
   });
 }
+
+/**
+ * Google / Apple sign-in: exchange the provider's ID token for a session
+ * (POST /food/auth/user/social/:provider). Same response as the OTP login.
+ */
+export function socialSignIn(provider, { idToken, nonce, name } = {}) {
+  if (provider !== "google" && provider !== "apple") {
+    return Promise.reject(new Error("Unknown sign-in provider"));
+  }
+  if (!idToken) return Promise.reject(new Error("Sign-in token missing"));
+  return apiClient.post(`/food/auth/user/social/${provider}`, {
+    idToken,
+    ...(nonce ? { nonce } : {}),
+    ...(name ? { name } : {}),
+    platform: "web",
+  });
+}

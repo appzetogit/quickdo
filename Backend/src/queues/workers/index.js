@@ -1,7 +1,7 @@
 /**
  * Runs every BullMQ worker in one process.
  *
- * Why this file exists: package.json declares six worker entrypoints, and
+ * Why this file exists: package.json declares the worker entrypoints, and
  * deploy/ecosystem.config.cjs started none of them. With BULLMQ_ENABLED=true the API
  * would keep enqueuing OTP sends, order dispatch retries, tracking updates and
  * payment reconciliation into queues that nothing consumed -- growing forever, with
@@ -75,6 +75,7 @@ const modules = [
     './tracking.worker.js',
     './payment.worker.js',
     './maintenance.worker.js',
+    './email.worker.js',
 ];
 
 const loaded = await Promise.allSettled(modules.map((m) => import(m)));

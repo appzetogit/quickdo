@@ -3,6 +3,7 @@ const router = express.Router();
 const { body } = require('express-validator');
 const { authenticate } = require('../../middleware/authMiddleware');
 const { isUser, isAdmin } = require('../../middleware/roleMiddleware');
+const { requireFinancePermission } = require('../../middleware/financePermission');
 const {
   createPaymentOrder,
   verifyPaymentWebhook,
@@ -40,7 +41,7 @@ router.post('/create-order', authenticate, isUser, createOrderValidation, create
 router.post('/verify', authenticate, isUser, verifyPaymentValidation, verifyPaymentWebhook);
 router.post('/wallet', authenticate, isUser, walletPaymentValidation, processWalletPayment);
 // Refunds move money out of the platform — admin only, never the customer
-router.post('/refund', authenticate, isAdmin, refundValidation, processRefund);
+router.post('/refund', authenticate, isAdmin, requireFinancePermission('REFUND_ISSUE'), refundValidation, processRefund);
 router.post('/pay-at-home', authenticate, isUser, walletPaymentValidation, confirmPayAtHome);
 router.get('/history', authenticate, isUser, getPaymentHistory);
 router.post('/plan/create-order', authenticate, isUser, createPlanOrder);

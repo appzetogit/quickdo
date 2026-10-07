@@ -3,6 +3,8 @@ import { logger } from '../../utils/logger.js';
 import { config } from '../../config/env.js';
 import { decide, FINANCE_ACTIONS } from './financeAuthz.js';
 import { AdminAudit } from './models/adminAudit.model.js';
+import { redactForAudit, collectTargetIds } from './auditRedact.js';
+import { moduleForPath } from './adminActivityLog.middleware.js';
 
 /**
  * Mount this on anything that moves money.
@@ -74,6 +76,8 @@ export const requireFinancePermission = (actionKey) => {
     }
 
     return async (req, res, next) => {
+        // This row is the audit for the request; the generic activity log skips it.
+        req.adminAuditHandled = true;
         const enforcing = Boolean(config.financePermissionsEnforced);
         const actorId = resolveActorId(req);
         const spec = FINANCE_ACTIONS[actionKey];
@@ -102,7 +106,12 @@ export const requireFinancePermission = (actionKey) => {
             requireReason: enforcing,
         });
 
+        const fullPath = req.originalUrl || req.url || '';
         const row = {
+            kind: 'finance',
+            module: moduleForPath(fullPath),
+            targetIds: collectTargetIds({ path: fullPath, params: req.params, body: req.body }),
+            bodySummary: redactForAudit(req.body),
             actorId: admin?._id || (actorId || undefined),
             actorEmail: admin?.email || '',
             actorRole: admin?.role || req.user?.role || '',

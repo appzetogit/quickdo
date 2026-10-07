@@ -160,6 +160,9 @@ const approveVendor = async (req, res) => {
     vendor.approvalDate = new Date();
     await vendor.save();
 
+    // Onboarding status email, through the email queue. Never blocks the response.
+    require('../../services/emailService').sendOnboardingStatusEmail(vendor, { role: 'vendor', status: 'approved', reason: '' }).catch(() => {});
+
     // Send notification to vendor
     await createNotification({
       vendorId: vendor._id,
@@ -213,6 +216,9 @@ const rejectVendor = async (req, res) => {
     vendor.approvalStatus = VENDOR_STATUS.REJECTED;
     vendor.rejectedReason = reason || 'Registration rejected by admin';
     await vendor.save();
+
+    // Onboarding status email, through the email queue. Never blocks the response.
+    require('../../services/emailService').sendOnboardingStatusEmail(vendor, { role: 'vendor', status: 'rejected', reason: vendor.rejectedReason }).catch(() => {});
 
     // Send notification to vendor
     await createNotification({

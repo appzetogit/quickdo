@@ -59,6 +59,14 @@ export async function getBalance(entityType, entityId) {
     };
 }
 
+/** Mongo marks write conflicts inside a transaction as retryable. */
+const isTransientTxnError = (err) =>
+    Boolean(err?.hasErrorLabel?.('TransientTransactionError'))
+    || err?.code === 112 // WriteConflict
+    || /write conflict/i.test(String(err?.message || ''));
+
+const MAX_TXN_ATTEMPTS = 3;
+
 /**
  * CORE ATOMIC OPERATION: Record a transaction AND update wallet balance
  * in a single MongoDB transaction. This is the ONLY way to change wallet balances.
@@ -73,18 +81,54 @@ export async function getBalance(entityType, entityId) {
  * @param {string} [payload.orderId] - linked order
  * @param {string} [payload.paymentId] - linked payment
  * @param {Object} [payload.metadata] - extra data
- * @returns {Object} { transaction, wallet }
+ * @param {string} [payload.idempotencyKey] - names the movement (core/finance/idempotencyKeys.js).
+ *        A second call with the same key returns the first row with `duplicate: true`
+ *        and moves no money. This is what makes a retry safe (P0-4).
+ * @returns {Object} { transaction, wallet, duplicate? }
  */
 export async function recordTransaction(payload) {
+    const { type, amount } = payload;
+    if (!['credit', 'debit'].includes(type)) throw new Error('type must be credit or debit');
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount must be positive');
+
+    /*
+     * A write conflict used to abort the transaction and surface as an error, which
+     * every caller in payment.processor.js caught and logged -- a lost credit (P0-3).
+     * Mongo labels these as transient: running the whole transaction again is the
+     * documented fix, and with an idempotency key it is safe even if the first
+     * attempt's commit actually landed.
+     */
+    let lastErr;
+    for (let attempt = 1; attempt <= MAX_TXN_ATTEMPTS; attempt += 1) {
+        try {
+            return await recordTransactionOnce(payload);
+        } catch (err) {
+            lastErr = err;
+            if (!isTransientTxnError(err) || attempt === MAX_TXN_ATTEMPTS) break;
+            logger.warn(`recordTransaction: transient conflict, retrying (${attempt}/${MAX_TXN_ATTEMPTS}): ${err.message}`);
+        }
+    }
+    logger.error(`recordTransaction failed: ${lastErr?.message}`);
+    throw lastErr;
+}
+
+const findByKey = async (idempotencyKey) =>
+    (idempotencyKey ? Transaction.findOne({ idempotencyKey }).lean() : null);
+
+async function recordTransactionOnce(payload) {
     const {
         entityType, entityId, type, amount,
         description = '', category = 'other',
         orderId = null, paymentId = null,
         metadata = undefined, module = 'food'
     } = payload;
+    const idempotencyKey = payload.idempotencyKey ? String(payload.idempotencyKey).trim() : '';
 
-    if (!['credit', 'debit'].includes(type)) throw new Error('type must be credit or debit');
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount must be positive');
+    // Fast path for a retry: the movement already happened, report it.
+    const prior = await findByKey(idempotencyKey);
+    if (prior) {
+        return { transaction: prior, wallet: { balance: prior.balanceAfter }, duplicate: true };
+    }
 
     const { Model, filter } = resolveWallet(entityType, entityId);
 
@@ -109,7 +153,9 @@ export async function recordTransaction(payload) {
             throw new Error(`Insufficient balance. Current: ${currentBalance}, Debit: ${amount}`);
         }
 
-        // 3. Create transaction row
+        // 3. Create transaction row. The unique index on idempotencyKey is the real
+        // guard: two concurrent first attempts both pass the fast path above, and the
+        // loser's insert fails here, rolling its balance change back with it.
         const entityOid = entityType === 'admin'
             ? ADMIN_ENTITY_OID
             : new mongoose.Types.ObjectId(entityId);
@@ -127,13 +173,11 @@ export async function recordTransaction(payload) {
             description,
             category,
             module,
-            metadata
+            metadata,
+            ...(idempotencyKey ? { idempotencyKey } : {})
         }], { session });
 
         // 4. Update wallet balance atomically
-        const updateFields = { balance: newBalance };
-
-        // Update lifetime totals based on entity + type
         if (type === 'credit') {
             if (entityType === 'restaurant' || entityType === 'deliveryBoy') {
                 await Model.updateOne(filter, {
@@ -161,14 +205,18 @@ export async function recordTransaction(payload) {
             wallet: { balance: newBalance }
         };
     } catch (err) {
-        await session.abortTransaction();
-        logger.error(`recordTransaction failed: ${err.message}`);
+        await session.abortTransaction().catch(() => {});
+        if (err?.code === 11000 && idempotencyKey) {
+            const winner = await findByKey(idempotencyKey);
+            if (winner) {
+                return { transaction: winner, wallet: { balance: winner.balanceAfter }, duplicate: true };
+            }
+        }
         throw err;
     } finally {
         session.endSession();
     }
 }
-
 /**
  * List transactions for an entity with pagination.
  */

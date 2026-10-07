@@ -49,6 +49,9 @@ import { getPublicAppLegal } from '../core/settings/appLegal.js';
 import { adminZoneScope } from '../core/admin/adminZoneScope.js';
 import { requireModuleEnabled } from '../middleware/moduleEnabled.js';
 import { MODULES } from '../core/modules/moduleRegistry.js';
+import { adminActivityLog } from '../core/admin/adminActivityLog.middleware.js';
+import adminAuditLogRoutes from '../core/admin/adminAuditLog.routes.js';
+import platformRefundRoutes from '../core/payments/routes/platformRefunds.routes.js';
 
 const router = express.Router();
 
@@ -94,6 +97,14 @@ router.use((req, _res, next) => {
     next();
 });
 
+/*
+ * Admin activity log (2.7). Ahead of every panel's routes so it sees every admin
+ * write -- food, quick commerce, taxi, service provider and master. It records on
+ * response finish, after each panel's own auth has identified the admin, and skips
+ * everyone who is not one. See core/admin/adminActivityLog.middleware.js.
+ */
+router.use(adminActivityLog);
+
 // The kill-switch lives at the platform root, NOT under a vertical's /admin: it
 // exists to act on a misbehaving vertical, so it must not depend on one.
 router.use('/v1/platform/modules', platformModuleRoutes);
@@ -128,6 +139,10 @@ router.use('/v1/platform/pnl', platformPnlRoutes);
 router.use('/v1/platform/home-content', homeContentRoutes);
 // What the platform takes from every partner (Master > Commission Overview).
 router.use('/v1/platform/commission', commissionOverviewRoutes);
+// Every admin write on every panel (Master > Admin Activity Log). Superadmins only.
+router.use('/v1/platform/audit-log', adminAuditLogRoutes);
+// Every refund on the platform with its gateway status (Master > Refunds).
+router.use('/v1/platform/refunds', platformRefundRoutes);
 // The customer's orders from every service, in one list (the app's My Orders).
 router.use('/v1/platform/me', authMiddleware, requireRoles('USER'), myOrdersRoutes);
 // Terms and privacy for one app, public (shown before sign-in).

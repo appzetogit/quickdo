@@ -90,3 +90,30 @@ export const linkSatellite = async (model, satelliteId, { phone, name, email } =
         return null;
     }
 };
+
+/**
+ * The platform user who signs in with this email address -- the email half of the
+ * identity spine, used to link a Google / Apple sign-in to an existing account
+ * (core/auth/socialAuth.service.js).
+ *
+ * Matches ONLY the sign-in address (`loginEmail`), never the free-text `email`
+ * contact field: that one was never verified or unique, so linking on it would let
+ * anyone who typed a victim's address into their own profile receive the victim's
+ * Google sign-in.
+ *
+ * @param {string} email
+ * @param {{includeUnverified?: boolean}} [opts]  include an address registered but
+ *        not yet verified (the caller then decides what proof replaces it)
+ * @returns {Promise<object|null>} lean user { _id, loginEmail, emailVerified } or null
+ */
+export const findUserByVerifiedEmail = async (email, { includeUnverified = false } = {}) => {
+    const address = String(email || '').trim().toLowerCase();
+    if (!address) return null;
+    const { FoodUser } = await import('../users/user.model.js');
+    const user = await FoodUser.findOne({ loginEmail: address })
+        .select('_id loginEmail emailVerified isActive')
+        .lean();
+    if (!user) return null;
+    if (!user.emailVerified && !includeUnverified) return null;
+    return user;
+};

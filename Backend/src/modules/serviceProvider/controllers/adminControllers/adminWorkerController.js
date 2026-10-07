@@ -154,6 +154,9 @@ const approveWorker = async (req, res) => {
     worker.isActive = true;
     await worker.save();
 
+    // Onboarding status email, through the email queue. Never blocks the response.
+    require('../../services/emailService').sendOnboardingStatusEmail(worker, { role: 'worker', status: 'approved', reason: '' }).catch(() => {});
+
     // Send notification to worker
     /*
     // Note: Assuming notification system supports 'worker' type or we treat them as users for now
@@ -202,6 +205,9 @@ const rejectWorker = async (req, res) => {
     worker.isActive = false;
     // worker.rejectedReason = reason; // If we want to store reason
     await worker.save();
+
+    // Onboarding status email, through the email queue. Never blocks the response.
+    require('../../services/emailService').sendOnboardingStatusEmail(worker, { role: 'worker', status: 'rejected', reason: reason || '' }).catch(() => {});
 
     res.status(200).json({
       success: true,
