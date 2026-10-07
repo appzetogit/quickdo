@@ -4,6 +4,7 @@ const { validationResult } = require('express-validator');
 const { BOOKING_STATUS, PAYMENT_STATUS } = require('../../utils/constants');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { effectiveCashLimit } = require('../../utils/cashLimit');
+const { billSplit } = require('../../utils/commission');
 
 /**
  * Get assigned jobs for worker
@@ -673,14 +674,18 @@ const collectCash = async (req, res) => {
 
       // Update Wallet based on Booking Model
       if (booking.bookingModel === 'worker') {
-        // In Direct Worker Model, Worker keeps 100% of cash — tracked for reporting.
+        // In Direct Worker Model the worker keeps the cash less the booking's
+        // commissionSnapshot (0 under the threshold with an active subscription,
+        // and for bills made before snapshots existed); the commission becomes dues.
         // No 'balance' update for cash because worker ALREADY has the cash.
+        const { partnerEarning: workerEarning, platformCommission } = billSplit(booking, bill);
         const workerDoc = await Worker.findByIdAndUpdate(
           workerId,
           {
             $inc: {
               'wallet.totalCashCollected': grandTotal,
-              'wallet.earnings': grandTotal
+              'wallet.earnings': workerEarning,
+              'wallet.dues': platformCommission
             }
           },
           { new: true, session }
@@ -698,7 +703,10 @@ const collectCash = async (req, res) => {
             metadata: {
               type: 'cash_reporting',
               billId: bill._id.toString(),
-              grandTotal
+              grandTotal,
+              workerEarning,
+              platformCommission,
+              commissionModel: booking.commissionSnapshot?.model || null
             }
           }], { session });
         }

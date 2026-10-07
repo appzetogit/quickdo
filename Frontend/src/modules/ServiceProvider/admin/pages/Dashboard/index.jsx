@@ -100,6 +100,7 @@ const AdminDashboard = () => {
             totalRevenue: s.totalRevenue,
             bookingRevenue: s.bookingRevenue,
             workerSubscriptionRevenue: s.workerSubscriptionRevenue,
+            subscriptionPlatformFeeRevenue: s.subscriptionPlatformFeeRevenue,
             todayRevenue: 0,
           });
           setRecentBookingsList(statsRes.data.recentBookings || []);
@@ -175,8 +176,10 @@ const AdminDashboard = () => {
       link: '/admin/reports/revenue'
     },
     {
-      title: 'Worker Plan Revenue',
-      value: formatCurrency(stats.workerSubscriptionRevenue || 0),
+      // Only the platform fee is platform revenue; the rest of each subscription
+      // is a separate ledger line (Settings > Financial > Remainder Ledger Account).
+      title: `Subscription Fees (of ${formatCurrency(stats.workerSubscriptionRevenue || 0)})`,
+      value: formatCurrency(stats.subscriptionPlatformFeeRevenue || 0),
       change: 0,
       icon: FiDollarSign,
       color: 'text-white',

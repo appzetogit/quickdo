@@ -3,7 +3,7 @@ const Booking = require('../../models/Booking');
 const Worker = require('../../models/Worker');
 const { validationResult } = require('express-validator');
 const { BOOKING_STATUS, PAYMENT_STATUS } = require('../../utils/constants');
-const { DEFAULT_SERVICE_PAYOUT_PCT } = require('../../utils/commission');
+const { resolveCommission, round2 } = require('../../utils/commission');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { effectiveCashLimit } = require('../../utils/cashLimit');
 const { createNotification } = require('../notificationControllers/notificationController');
@@ -1051,7 +1051,6 @@ const completeSelfJob = async (req, res) => {
     // ── Fetch Settings (frozen snapshot for this bill) ──
     const Settings = require('../../models/Settings');
     const settings = await Settings.findOne({ type: 'global' });
-    const serviceSplitPct = settings?.servicePayoutPercentage ?? DEFAULT_SERVICE_PAYOUT_PCT;
     const partsSplitPct = settings?.partsPayoutPercentage ?? 10;
     const serviceGstPct = settings?.serviceGstPercentage ?? 18;
     const partsGstPct = settings?.partsGstPercentage ?? 18;
@@ -1126,9 +1125,14 @@ const completeSelfJob = async (req, res) => {
     // ═══════════════════════════════════════════
     // STEP 5: REVENUE SPLIT (internal only)
     // ═══════════════════════════════════════════
-    // Vendor % is applied ONLY on base — never on GST
+    // Service commission comes from the commission engine (subscription under
+    // the threshold, CommissionRules above it), charged on the service base.
+    // Parts keep their % split. Never on GST.
 
-    const vendorServiceEarning = parseFloat(((totalServiceBase * serviceSplitPct) / 100).toFixed(2));
+    const commissionSnapshot = await resolveCommission(booking, { total: grandTotal, base: totalServiceBase });
+    const vendorServiceEarning = round2(totalServiceBase - commissionSnapshot.amount);
+    // Effective share, kept in payoutConfig for the invoice/back-office views.
+    const serviceSplitPct = totalServiceBase > 0 ? round2((vendorServiceEarning / totalServiceBase) * 100) : 100;
     const vendorPartsEarning = parseFloat(((totalPartsBase * partsSplitPct) / 100).toFixed(2));
     const vendorTotalEarning = parseFloat((vendorServiceEarning + vendorPartsEarning).toFixed(2));
     const companyRevenue = parseFloat((grandTotal - vendorTotalEarning).toFixed(2));
@@ -1201,6 +1205,7 @@ const completeSelfJob = async (req, res) => {
     booking.finalAmount = grandTotal;
     booking.userPayableAmount = grandTotal; // Ensure consistency
     booking.vendorBillId = bill._id;
+    booking.commissionSnapshot = commissionSnapshot;
 
     // Reuse existing Payment OTP for cash collection or generate new one
     const payOtp = booking.paymentOtp || Math.floor(1000 + Math.random() * 9000).toString();

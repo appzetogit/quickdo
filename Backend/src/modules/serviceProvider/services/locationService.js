@@ -74,6 +74,10 @@ const _buildVendorQuery = (filters = {}) => {
   const baseQuery = {
     approvalStatus: VENDOR_STATUS.APPROVED,
     isActive: true,
+    // Vendors subscribe like workers do (SOW §8): only an active, unexpired
+    // subscription gets a vendor offered jobs. Same gate as findNearbyWorkers.
+    'subscription.isActive': true,
+    'subscription.expiryDate': { $gt: new Date() },
     ...queryFilters
   };
 

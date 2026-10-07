@@ -7,7 +7,7 @@ const User = require('../../models/User');
 const Settings = require('../../models/Settings');
 const PlatformEarning = require('../../models/PlatformEarning');
 const { BOOKING_STATUS, PAYMENT_STATUS } = require('../../utils/constants');
-const { getCommissionRates } = require('../../utils/commission');
+const { getCommissionRates, billSplit, hasSnapshot } = require('../../utils/commission');
 
 /**
  * Get Financial Dashboard Overview
@@ -164,7 +164,7 @@ const getPaymentTransactions = async (req, res) => {
       .populate('userId', 'name phone')
       .populate(providerIdField, isWorker ? 'name phone' : 'businessName phone')
       .populate('serviceId', 'title')
-      .select('bookingNumber finalAmount paymentMethod paymentStatus status createdAt completedAt razorpayPaymentId vendorBillId')
+      .select('bookingNumber finalAmount paymentMethod paymentStatus status createdAt completedAt razorpayPaymentId vendorBillId bookingModel commissionSnapshot')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -178,12 +178,26 @@ const getPaymentTransactions = async (req, res) => {
     const billMap = {};
     bills.forEach(b => { billMap[b.bookingId.toString()] = b; });
 
-    // Bills are the source of truth; these rates only cover bookings billed before
-    // a VendorBill existed, so they must match the configured split, not a literal.
+    // The booking's commissionSnapshot is the source of truth (via its bill when
+    // there is one). These rates only cover bookings settled before snapshots
+    // existed, so they must match the configured split, not a literal.
     const { vendorShare, platformShare } = await getCommissionRates();
 
     const reportData = bookings.map(b => {
       const bill = billMap[b._id.toString()];
+      const snap = hasSnapshot(b) ? b.commissionSnapshot : null;
+      let platformFee;
+      let vendorEarnings;
+      if (snap && bill) {
+        ({ platformCommission: platformFee, partnerEarning: vendorEarnings } = billSplit(b, bill));
+      } else if (snap) {
+        const amount = b.finalAmount || 0;
+        platformFee = Math.min(snap.amount || 0, amount);
+        vendorEarnings = amount - platformFee;
+      } else {
+        platformFee = bill?.companyRevenue || (b.finalAmount ? b.finalAmount * platformShare : 0);
+        vendorEarnings = bill?.vendorTotalEarning || (b.finalAmount ? b.finalAmount * vendorShare : 0);
+      }
       return {
         date: b.createdAt,
         bookingNumber: b.bookingNumber,
@@ -191,8 +205,17 @@ const getPaymentTransactions = async (req, res) => {
         customer: b.userId?.name || 'Guest',
         providerName: b[providerIdField]?.name || b[providerIdField]?.businessName || 'Unassigned',
         amount: bill?.grandTotal || b.finalAmount || 0,
-        platformFee: bill?.companyRevenue || (b.finalAmount ? b.finalAmount * platformShare : 0),
-        vendorEarnings: bill?.vendorTotalEarning || (b.finalAmount ? b.finalAmount * vendorShare : 0),
+        platformFee,
+        vendorEarnings,
+        // Which model priced this booking (SOW §8): 'subscription' (0 commission)
+        // or 'commission', and the rule behind it. 'legacy' = settled pre-engine.
+        commissionModel: snap?.model || 'legacy',
+        commissionScope: snap?.scope || null,
+        commissionType: snap?.type || null,
+        commissionValue: snap ? snap.value : null,
+        commissionAmount: snap ? snap.amount : null,
+        commissionRuleId: snap?.ruleId ? String(snap.ruleId) : null,
+        commissionFlag: snap?.flag || null,
         tax: bill?.totalGST || 0,
         paymentMethod: b.paymentMethod || 'N/A',
         paymentStatus: b.paymentStatus || 'N/A',
@@ -214,10 +237,27 @@ const getPaymentTransactions = async (req, res) => {
       return sendCSV(res, reportData, 'payment_transactions');
     }
 
+    // Per-model / per-scope split across the whole filter (not just this page).
+    const commissionSplit = await Booking.aggregate([
+      { $match: query },
+      {
+        $group: {
+          _id: {
+            model: { $ifNull: ['$commissionSnapshot.model', 'legacy'] },
+            scope: { $ifNull: ['$commissionSnapshot.scope', null] }
+          },
+          bookings: { $sum: 1 },
+          commission: { $sum: { $ifNull: ['$commissionSnapshot.amount', 0] } }
+        }
+      },
+      { $sort: { '_id.model': 1, '_id.scope': 1 } }
+    ]);
+
     res.status(200).json({
       success: true,
       data: reportData,
       totals: totalsResult,
+      commissionSplit: commissionSplit.map((r) => ({ model: r._id.model, scope: r._id.scope, bookings: r.bookings, commission: Math.round(r.commission * 100) / 100 })),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),

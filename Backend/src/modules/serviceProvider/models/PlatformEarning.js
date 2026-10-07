@@ -13,6 +13,8 @@ const platformEarningSchema = new mongoose.Schema({
   totalTDS: { type: Number, default: 0 },
   platformCommission: { type: Number, default: 0 },
   totalWorkerSubscriptionRevenue: { type: Number, default: 0 },
+  // Platform-fee part of subscription payments (the rest is the remainder ledger line).
+  totalSubscriptionPlatformFee: { type: Number, default: 0 },
   vendorEarnings: { type: Number, default: 0 },
 
   // Vendor-to-Platform Payments (Clearing negative balance)

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '@sp/services/api';
 import { FiPlus, FiEdit2, FiTrash2, FiCheck, FiX, FiInfo, FiClock, FiTag } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
+import { getSettings } from '../../services/settingsService';
 
 const WorkerPlans = () => {
   const [plans, setPlans] = useState([]);
@@ -13,11 +14,17 @@ const WorkerPlans = () => {
     description: '',
     price: '',
     durationDays: 30,
-    isActive: true
+    isActive: true,
+    providerType: 'all'
   });
+  // New plans start at the configured monthly subscription (Settings > Financial).
+  const [defaultPrice, setDefaultPrice] = useState(1000);
 
   useEffect(() => {
     fetchPlans();
+    getSettings()
+      .then((res) => { if (res?.settings?.subscriptionPrice !== undefined) setDefaultPrice(res.settings.subscriptionPrice); })
+      .catch(() => {});
   }, []);
 
   const fetchPlans = async () => {
@@ -74,7 +81,8 @@ const WorkerPlans = () => {
       description: plan.description || '',
       price: plan.price,
       durationDays: plan.durationDays,
-      isActive: plan.isActive
+      isActive: plan.isActive,
+      providerType: plan.providerType || 'all'
     });
     setIsModalOpen(true);
   };
@@ -96,9 +104,10 @@ const WorkerPlans = () => {
     setFormData({
       title: '',
       description: '',
-      price: '',
+      price: defaultPrice,
       durationDays: 30,
-      isActive: true
+      isActive: true,
+      providerType: 'all'
     });
     setIsModalOpen(true);
   };
@@ -107,8 +116,8 @@ const WorkerPlans = () => {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Worker Subscription Plans</h1>
-          <p className="text-gray-500">Manage plans that workers purchase to receive job alerts</p>
+          <h1 className="text-2xl font-bold text-gray-800">Provider Subscription Plans</h1>
+          <p className="text-gray-500">Plans that workers and vendors purchase to receive jobs</p>
         </div>
         <button
           onClick={openCreateModal}
@@ -239,6 +248,20 @@ const WorkerPlans = () => {
               </div>
 
               <div className="space-y-1.5">
+                <label className="text-sm font-bold text-gray-700">Available To</label>
+                <select
+                  name="providerType"
+                  value={formData.providerType}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                >
+                  <option value="all">Workers and vendors</option>
+                  <option value="worker">Workers only</option>
+                  <option value="vendor">Vendors only</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
                 <label className="text-sm font-bold text-gray-700">Description</label>
                 <textarea
                   name="description"
@@ -258,7 +281,7 @@ const WorkerPlans = () => {
                   onChange={handleInputChange}
                   className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
                 />
-                <label htmlFor="isActive" className="text-sm font-bold text-gray-700">Active (Visible to Workers)</label>
+                <label htmlFor="isActive" className="text-sm font-bold text-gray-700">Active (Visible to Providers)</label>
               </div>
 
               <button

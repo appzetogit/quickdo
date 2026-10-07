@@ -67,6 +67,8 @@ class BookingScheduler {
     if (this.intervalId) clearTimeout(this.intervalId);
     this.intervalId = setTimeout(async () => {
       const hadWork = await this.processWaves();
+      // Subscription expiry reminders ride on this tick; throttled to hourly inside.
+      require('./subscriptionReminder').maybeSendSubscriptionReminders();
       // Adaptive interval: if idle, slow down; if active, stay fast
       this.scheduleNext(hadWork ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS);
     }, intervalMs);

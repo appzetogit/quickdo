@@ -31,6 +31,7 @@ router.use('/scrap', require('./scrap.routes'));
 
 // ─── Vendor ────────────────────────────────────────────────────────────────
 router.use('/vendors/auth', require('./vendor-routes/auth.routes'));
+router.use('/vendors/subscription', require('./vendor-routes/subscription.routes'));
 router.use('/vendors', require('./vendor-routes/profile.routes'));
 router.use('/vendors', require('./vendor-routes/settings.routes'));
 router.use('/vendors', require('./vendor-routes/wallet.routes'));
@@ -69,6 +70,7 @@ router.use('/admin', require('./admin-routes/transactionManagement.routes'));
 router.use('/admin', require('./admin-routes/upload.routes'));
 router.use('/admin', require('./admin-routes/planManagement.routes'));
 router.use('/admin/worker-plans', require('./admin-routes/workerPlanManagement.routes'));
+router.use('/admin/commission-rules', require('./admin-routes/commissionRules.routes'));
 router.use('/admin', require('./admin-routes/settings.routes'));
 router.use('/admin', require('./admin-routes/reviewManagement.routes'));
 router.use('/admin', require('./admin-routes/reportManagement.routes'));

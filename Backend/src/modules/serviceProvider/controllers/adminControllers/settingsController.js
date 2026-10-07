@@ -81,6 +81,11 @@ exports.updateSettings = async (req, res, next) => {
       cloudinaryCloudName,
       cloudinaryApiKey,
       cloudinaryApiSecret,
+      // Subscription & commission engine
+      subscriptionPrice,
+      subscriptionPlatformFee,
+      subscriptionRemainderLabel,
+      commissionThreshold,
       // Billing Settings
       companyName, companyGSTIN, companyPAN, companyAddress, companyCity, companyState, companyPincode, companyPhone, companyEmail, invoicePrefix, sacCode,
       // Support Settings
@@ -95,10 +100,27 @@ exports.updateSettings = async (req, res, next) => {
       supportPageContent
     } = req.body;
 
+    // The platform fee is carved out of the subscription price, so it cannot exceed it.
+    const current = await Settings.findOne({ type: 'global' }).select('subscriptionPrice subscriptionPlatformFee').lean();
+    const nextPrice = subscriptionPrice !== undefined ? Number(subscriptionPrice) : (current?.subscriptionPrice ?? 1000);
+    const nextFee = subscriptionPlatformFee !== undefined ? Number(subscriptionPlatformFee) : (current?.subscriptionPlatformFee ?? 100);
+    for (const [name, value] of [['subscriptionPrice', subscriptionPrice], ['subscriptionPlatformFee', subscriptionPlatformFee], ['commissionThreshold', commissionThreshold]]) {
+      if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+        return res.status(400).json({ success: false, message: `${name} must be a number of 0 or more` });
+      }
+    }
+    if (nextFee > nextPrice) {
+      return res.status(400).json({ success: false, message: 'Subscription platform fee cannot exceed the subscription price' });
+    }
+
     let settings = await Settings.findOne({ type: 'global' });
 
     if (!settings) {
       settings = await Settings.create({
+        subscriptionPrice,
+        subscriptionPlatformFee,
+        subscriptionRemainderLabel,
+        commissionThreshold,
         type: 'global',
         visitedCharges,
         serviceGstPercentage,
@@ -130,6 +152,10 @@ exports.updateSettings = async (req, res, next) => {
       if (platformFeePercentage !== undefined) settings.platformFeePercentage = platformFeePercentage;
       if (vendorCashLimit !== undefined) settings.vendorCashLimit = vendorCashLimit; // Add this
       if (cancellationPenalty !== undefined) settings.cancellationPenalty = cancellationPenalty;
+      if (subscriptionPrice !== undefined) settings.subscriptionPrice = subscriptionPrice;
+      if (subscriptionPlatformFee !== undefined) settings.subscriptionPlatformFee = subscriptionPlatformFee;
+      if (subscriptionRemainderLabel !== undefined && String(subscriptionRemainderLabel).trim()) settings.subscriptionRemainderLabel = String(subscriptionRemainderLabel).trim();
+      if (commissionThreshold !== undefined) settings.commissionThreshold = commissionThreshold;
       if (razorpayKeyId !== undefined) settings.razorpayKeyId = razorpayKeyId;
       if (razorpayKeySecret !== undefined) settings.razorpayKeySecret = razorpayKeySecret;
       if (razorpayWebhookSecret !== undefined) settings.razorpayWebhookSecret = razorpayWebhookSecret;

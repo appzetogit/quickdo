@@ -5,7 +5,7 @@ const Worker = require('../../models/Worker');
 const Transaction = require('../../models/Transaction');
 const { PAYMENT_STATUS, BOOKING_STATUS } = require('../../utils/constants');
 const { recordBookingEarning } = require('../../services/earningTrackerService');
-const { getCommissionRates } = require('../../utils/commission');
+const { bookingSplit } = require('../../utils/commission');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { effectiveCashLimit } = require('../../utils/cashLimit');
 const { createQRCode, getQRCodePayments } = require('../../services/razorpayService');
@@ -333,12 +333,14 @@ exports.confirmCashCollection = async (req, res) => {
       // Fetch VendorBill (single source of truth for earnings)
       const bill = await VendorBill.findOne({ bookingId: booking._id }).session(session);
 
-      let vendorEarning = 0;
+      // Partner share from the booking's commissionSnapshot (bill, or resolved
+      // here when there is no bill). See utils/commission.js bookingSplit.
+      const split = await bookingSplit({ booking, bill, amount: collectionAmount, session });
+      const vendorEarning = split.partnerEarning;
+      const platformCommission = split.platformCommission;
       let grandTotal = collectionAmount;
 
       if (bill) {
-        const isWorkerBookingLocal = booking.bookingModel === 'worker';
-        vendorEarning = isWorkerBookingLocal ? Number(bill.grandTotal) : (Number(bill.vendorTotalEarning) || 0);
         grandTotal = Number(bill.grandTotal) || 0;
 
         // Sync booking fields from bill to ensure data consistency
@@ -352,10 +354,6 @@ exports.confirmCashCollection = async (req, res) => {
         bill.status = 'paid';
         bill.paidAt = new Date();
         await bill.save({ session });
-      } else {
-        const isWorkerBookingLocal = booking.bookingModel === 'worker';
-        const { vendorShare } = await getCommissionRates();
-        vendorEarning = isWorkerBookingLocal ? collectionAmount : collectionAmount * vendorShare;
       }
 
       // Update Booking
@@ -462,14 +460,13 @@ exports.confirmCashCollection = async (req, res) => {
         const worker = await Worker.findById(workerId).session(session).lean();
         if (worker) {
           // For cash collection: Worker gets the money in hand, so they owe Admin the difference (Total - Earning)
-          const isWorkerBookingLocal = booking.bookingModel === 'worker';
-          const workerEarning = isWorkerBookingLocal ? grandTotal : vendorEarning;
-          const adminShare = isWorkerBookingLocal ? 0 : (grandTotal - workerEarning);
+          const workerEarning = vendorEarning;
+          const adminShare = Math.max(0, grandTotal - workerEarning);
 
           // LOGIC:
           // 1. Worker collected CASH: They have their share (workerEarning) in hand.
-          //    For worker bookings, dues remain 0 because they keep 100% of cash.
-          //    Otherwise they owe Admin the commission.
+          //    They owe Admin the snapshot's commission: 0 under the threshold with
+          //    an active subscription (and for pre-snapshot worker bills).
           //    We do NOT increase 'balance' (withdrawable money) because they already have it.
           // 2. We still track 'earnings' for lifetime reporting.
           const walletUpdate = {
@@ -511,7 +508,7 @@ exports.confirmCashCollection = async (req, res) => {
         }
       }
 
-      return { booking, bill, vendorEarning, collectionAmount, grandTotal };
+      return { booking, bill, vendorEarning, platformCommission, collectionAmount, grandTotal };
     });
 
     if (outcome.notFound) {
@@ -528,16 +525,14 @@ exports.confirmCashCollection = async (req, res) => {
       });
     }
 
-    const { booking, bill, vendorEarning, collectionAmount, grandTotal } = outcome;
+    const { booking, bill, vendorEarning, platformCommission, collectionAmount, grandTotal } = outcome;
 
     // Record stats in the Daily Earning Tracker (Async, post-commit)
-    const isWorkerBooking = booking.bookingModel === 'worker';
-    const trackerRates = await getCommissionRates();
     recordBookingEarning({
       date: new Date(),
       totalRevenue: bill ? bill.grandTotal : collectionAmount,
-      platformCommission: isWorkerBooking ? 0 : (bill ? (bill.companyRevenue || 0) : (collectionAmount * trackerRates.platformShare)),
-      vendorEarnings: isWorkerBooking ? (bill ? bill.vendorTotalEarning : collectionAmount) : (vendorEarning > 0 ? vendorEarning : (collectionAmount * trackerRates.vendorShare)),
+      platformCommission,
+      vendorEarnings: vendorEarning,
       totalGST: bill ? (bill.totalGST || 0) : 0,
       totalTDS: 0 // Captured separately during withdrawal
     }).catch(err => console.error('[ConfirmCash] Daily tracker failed:', err));
@@ -649,10 +644,9 @@ exports.verifyOnlinePayment = async (req, res) => {
           // Handle Earnings & Wallet
           const bill = await VendorBill.findOne({ bookingId: bk._id }).session(session);
 
-          let vendorEarning = 0;
+          const split = await bookingSplit({ booking: bk, bill, amount: bk.finalAmount, session });
+          const vendorEarning = split.partnerEarning;
           if (bill) {
-            const isWorkerBooking = bk.bookingModel === 'worker';
-            vendorEarning = isWorkerBooking ? bill.grandTotal : bill.vendorTotalEarning;
 
             // Sync booking fields from bill to ensure data consistency
             bk.basePrice = bill.originalServiceBase;
@@ -664,10 +658,6 @@ exports.verifyOnlinePayment = async (req, res) => {
             bill.status = 'paid';
             bill.paidAt = new Date();
             await bill.save({ session });
-          } else {
-            const isWorkerBooking = bk.bookingModel === 'worker';
-            const { vendorShare } = await getCommissionRates();
-            vendorEarning = isWorkerBooking ? bk.finalAmount : bk.finalAmount * vendorShare;
           }
 
           // Update Booking. This save now happens AFTER the bill sync above —
@@ -739,7 +729,7 @@ exports.verifyOnlinePayment = async (req, res) => {
             }], { session });
           }
 
-          return { booking: bk, bill, vendorEarning };
+          return { booking: bk, bill, vendorEarning, platformCommission: split.platformCommission };
         });
 
         if (outcome.alreadyProcessed) {
@@ -750,14 +740,13 @@ exports.verifyOnlinePayment = async (req, res) => {
           });
         }
 
-        const { booking: bk, bill, vendorEarning } = outcome;
+        const { booking: bk, bill, vendorEarning, platformCommission } = outcome;
 
         // 4. Record Stats (Async, post-commit)
-        const trackerRates = await getCommissionRates();
         recordBookingEarning({
           date: new Date(),
           totalRevenue: Number(bill ? bill.grandTotal : bk.finalAmount) || 0,
-          platformCommission: Number(bill ? bill.companyRevenue : (bk.bookingModel === 'worker' ? 0 : bk.finalAmount * trackerRates.platformShare)) || 0,
+          platformCommission: Number(platformCommission) || 0,
           vendorEarnings: Number(vendorEarning) || 0,
           totalGST: Number(bill ? bill.totalGST : 0) || 0,
           totalTDS: 0
@@ -867,10 +856,9 @@ exports.confirmManualOnlinePayment = async (req, res) => {
       // Handle Earnings & Wallet (Reuse logic)
       const bill = await VendorBill.findOne({ bookingId: booking._id }).session(session);
 
-      let vendorEarning = 0;
+      const split = await bookingSplit({ booking, bill, amount: booking.finalAmount, session });
+      const vendorEarning = split.partnerEarning;
       if (bill) {
-        const isWorkerBooking = booking.bookingModel === 'worker';
-        vendorEarning = isWorkerBooking ? bill.grandTotal : bill.vendorTotalEarning;
 
         // Sync booking fields from bill to ensure data consistency
         booking.basePrice = bill.originalServiceBase;
@@ -882,10 +870,6 @@ exports.confirmManualOnlinePayment = async (req, res) => {
         bill.status = 'paid';
         bill.paidAt = new Date();
         await bill.save({ session });
-      } else {
-        const isWorkerBooking = booking.bookingModel === 'worker';
-        const { vendorShare } = await getCommissionRates();
-        vendorEarning = isWorkerBooking ? booking.finalAmount : booking.finalAmount * vendorShare;
       }
 
       // Update Booking. Saved AFTER the bill sync so the copied amounts persist —
@@ -941,7 +925,7 @@ exports.confirmManualOnlinePayment = async (req, res) => {
         }], { session });
       }
 
-      return { booking, bill, vendorEarning };
+      return { booking, bill, vendorEarning, platformCommission: split.platformCommission };
     });
 
     if (outcome.notFound) {
@@ -954,14 +938,13 @@ exports.confirmManualOnlinePayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Booking already completed' });
     }
 
-    const { booking, bill, vendorEarning } = outcome;
+    const { booking, bill, vendorEarning, platformCommission } = outcome;
 
     // 4. Record Stats (Async)
-    const manualTrackerRates = await getCommissionRates();
     recordBookingEarning({
       date: new Date(),
       totalRevenue: Number(bill ? bill.grandTotal : booking.finalAmount) || 0,
-      platformCommission: Number(bill ? bill.companyRevenue : (booking.bookingModel === 'worker' ? 0 : booking.finalAmount * manualTrackerRates.platformShare)) || 0,
+      platformCommission: Number(platformCommission) || 0,
       vendorEarnings: Number(vendorEarning) || 0,
       totalGST: Number(bill ? bill.totalGST : 0) || 0,
       totalTDS: 0

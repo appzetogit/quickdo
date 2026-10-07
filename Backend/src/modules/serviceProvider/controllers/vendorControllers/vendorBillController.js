@@ -4,18 +4,20 @@ const VendorServiceCatalog = require('../../models/VendorServiceCatalog');
 const VendorPartsCatalog = require('../../models/VendorPartsCatalog');
 const Settings = require('../../models/Settings');
 const { BILL_STATUS } = require('../../utils/constants');
-const { DEFAULT_SERVICE_PAYOUT_PCT } = require('../../utils/commission');
+const { resolveCommission, round2 } = require('../../utils/commission');
 
 /**
  * Create or Update Vendor Bill
  * ────────────────────────────
  * Revenue Model:
- *   Vendor → 70% of total service BASE (excl GST)
- *   Vendor → 10% of total parts BASE  (excl GST)
+ *   Vendor → total service BASE less the commission engine's amount
+ *            (utils/commission.js resolveCommission; 0 under the threshold
+ *            with an active subscription)
+ *   Vendor → partsPayoutPercentage of total parts BASE (excl GST)
  *   GST   → 100% retained by company
  *
- * VendorBill is the SINGLE source of truth for earnings.
- * Booking does NOT store vendorEarnings/adminCommission.
+ * VendorBill is the SINGLE source of truth for earnings. The booking only
+ * keeps the frozen commissionSnapshot the bill was built from.
  *
  * POST /api/vendors/bookings/:bookingId/bill
  */
@@ -45,10 +47,10 @@ const createOrUpdateBill = async (req, res) => {
     // ── Fetch Settings (frozen snapshot) ──
     const settings = await Settings.findOne({ type: 'global' });
 
-    // Check if it's a Direct Worker flow to apply 100% payout
+    // Direct Worker flow: worker keeps 100% of parts. The service commission for
+    // both flows comes from the commission engine (see section 5).
     const isDirectWorkerFlow = booking.bookingModel === 'worker';
 
-    const serviceSplitPct = isDirectWorkerFlow ? 100 : (settings?.servicePayoutPercentage ?? DEFAULT_SERVICE_PAYOUT_PCT);
     const partsSplitPct = isDirectWorkerFlow ? 100 : (settings?.partsPayoutPercentage ?? 10);
     const serviceGstPct = 0;
     const partsGstPct = 0;
@@ -190,9 +192,17 @@ const createOrUpdateBill = async (req, res) => {
     const grandTotal = parseFloat((totalServiceBaseForBill + totalPartsBase + totalGST + visitingCharges + finalTransportCharges).toFixed(2));
 
     // ═══════════════════════════════════════
-    // 5. REVENUE SPLIT (% applied on BASE only)
+    // 5. REVENUE SPLIT (commission engine on the service BASE; parts by %)
     // ═══════════════════════════════════════
-    const vendorServiceEarning = parseFloat(((totalServiceBaseForEarnings * serviceSplitPct) / 100).toFixed(2));
+    // Booking value for the threshold includes a plan-covered original service,
+    // since the provider is still paid on it.
+    const bookingValue = round2(grandTotal + (originalServiceBaseForEarnings - originalServiceBaseForBill));
+    const commissionSnapshot = await resolveCommission(booking, { total: bookingValue, base: totalServiceBaseForEarnings });
+    const vendorServiceEarning = round2(totalServiceBaseForEarnings - commissionSnapshot.amount);
+    // Effective share, kept in payoutConfig for the invoice/back-office views.
+    const serviceSplitPct = totalServiceBaseForEarnings > 0
+      ? round2((vendorServiceEarning / totalServiceBaseForEarnings) * 100)
+      : 100;
     const vendorPartsEarning = parseFloat(((totalPartsBase * partsSplitPct) / 100).toFixed(2));
     const vendorTotalEarning = parseFloat((vendorServiceEarning + vendorPartsEarning).toFixed(2));
     const companyRevenue = parseFloat((grandTotal - vendorTotalEarning).toFixed(2));
@@ -263,6 +273,7 @@ const createOrUpdateBill = async (req, res) => {
     booking.finalAmount = grandTotal;
     booking.userPayableAmount = grandTotal;
     booking.vendorBillId = bill._id;
+    booking.commissionSnapshot = commissionSnapshot;
     await booking.save();
 
     res.status(200).json({

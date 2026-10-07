@@ -400,6 +400,30 @@ const bookingSchema = new mongoose.Schema({
     enum: ['PENDING', 'DONE'],
     default: 'PENDING'
   },
+  // Frozen result of utils/commission.js resolveCommission, written when the
+  // commission is worked out (bill generation, or settlement when there is no
+  // bill). Settlement, wallet credits and reports read this, so later edits to
+  // CommissionRules or Settings never rewrite a past booking. Absent on bookings
+  // settled before the engine existed; readers fall back to the old global rate.
+  commissionSnapshot: {
+    type: new mongoose.Schema({
+      model: { type: String, enum: ['subscription', 'commission'] },
+      flag: { type: String, default: null }, // e.g. 'no_active_subscription'
+      ruleId: { type: mongoose.Schema.Types.ObjectId, ref: 'SPCommissionRule', default: null },
+      scope: { type: String, enum: ['global', 'category', 'provider', 'settings', null], default: null },
+      type: { type: String, enum: ['fixed', 'percentage', null], default: null },
+      value: { type: Number, default: 0 },
+      base: { type: Number, default: 0 },     // amount the commission is charged on
+      total: { type: Number, default: 0 },    // booking value compared with the threshold
+      threshold: { type: Number, default: 0 },
+      amount: { type: Number, default: 0 },   // platform commission in rupees
+      providerType: { type: String, default: null },
+      providerId: { type: mongoose.Schema.Types.ObjectId, default: null },
+      subscriptionActive: { type: Boolean, default: false },
+      resolvedAt: { type: Date, default: null }
+    }, { _id: false }),
+    default: undefined
+  },
 
   // ==========================================
   // 13. NOTES

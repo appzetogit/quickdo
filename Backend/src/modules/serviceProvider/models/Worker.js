@@ -56,6 +56,21 @@ const workerSchema = new mongoose.Schema({
   serviceCategories: [{
     type: String
   }],
+  // workerProfileController has always written `skills` and workerWalletController
+  // has always fallen back to `bankDetails`, but neither was declared here, so
+  // mongoose dropped the first silently and the second was always undefined.
+  skills: {
+    type: [String],
+    default: []
+  },
+  // Same shape as Withdrawal.bankDetails, so a saved account copies straight across.
+  bankDetails: {
+    accountNumber: String,
+    ifscCode: String,
+    accountHolderName: String,
+    bankName: String,
+    upiId: String
+  },
   status: {
     type: String,
     enum: Object.values(WORKER_STATUS),
@@ -216,7 +231,15 @@ const workerSchema = new mongoose.Schema({
     transactionId: {
       type: String,
       default: null
-    }
+    },
+    // Written by subscriptionPaymentController but missing from the schema, so
+    // strict mode used to drop them (the status endpoint always saw planName null).
+    planName: { type: String, default: null },
+    durationDays: { type: Number, default: null },
+    lastPaymentId: { type: String, default: null },
+    lastOrderId: { type: String, default: null },
+    // Set by services/subscriptionReminder.js so each term is reminded once.
+    reminderSentFor: { type: Date, default: null }
   }
 }, {
   timestamps: true

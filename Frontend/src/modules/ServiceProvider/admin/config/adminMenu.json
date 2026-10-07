@@ -147,6 +147,14 @@
     "children": []
   },
   {
+    "title": "Commission Rules",
+    "route": "/admin/sp/commission-rules",
+    "allowedRoles": [
+      "super_admin"
+    ],
+    "children": []
+  },
+  {
     "title": "Legal",
     "route": "/admin/sp/legal",
     "allowedRoles": [

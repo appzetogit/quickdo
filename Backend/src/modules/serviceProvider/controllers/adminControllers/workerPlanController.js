@@ -1,4 +1,5 @@
 const WorkerSubscriptionPlan = require('../../models/WorkerSubscriptionPlan');
+const Settings = require('../../models/Settings');
 
 /**
  * Get all worker subscription plans
@@ -40,7 +41,14 @@ exports.getPlan = async (req, res) => {
  */
 exports.createPlan = async (req, res) => {
   try {
-    const plan = await WorkerSubscriptionPlan.create(req.body);
+    // Price defaults to the configured monthly subscription (Settings.subscriptionPrice,
+    // seeded at ₹1,000 per D7) instead of a literal.
+    const body = { ...req.body };
+    if (body.price === undefined || body.price === null || body.price === '') {
+      const settings = await Settings.findOne({ type: 'global' }).select('subscriptionPrice').lean();
+      body.price = settings?.subscriptionPrice ?? 1000;
+    }
+    const plan = await WorkerSubscriptionPlan.create(body);
     res.status(201).json({
       success: true,
       data: plan

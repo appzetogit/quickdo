@@ -28,6 +28,7 @@ const getProfile = async (req, res) => {
         serviceCategories: worker.serviceCategories || [],
         serviceCategory: worker.serviceCategories?.[0] || '', // Legacy support
         skills: worker.skills || [],
+        bankDetails: worker.bankDetails || null,
         address: worker.address || null,
         rating: worker.rating || 0,
         totalJobs: worker.totalJobs || 0,
@@ -66,7 +67,7 @@ const updateProfile = async (req, res) => {
     }
 
     const workerId = req.user.id;
-    const { name, serviceCategories, serviceCategory, skills, address, status, profilePhoto } = req.body;
+    const { name, serviceCategories, serviceCategory, skills, address, status, profilePhoto, bankDetails } = req.body;
 
     const worker = await Worker.findById(workerId);
 
@@ -88,6 +89,16 @@ const updateProfile = async (req, res) => {
     }
 
     if (skills && Array.isArray(skills)) worker.skills = skills;
+    if (bankDetails && typeof bankDetails === 'object') {
+      const pick = (key) => (typeof bankDetails[key] === 'string' ? bankDetails[key].trim() : worker.bankDetails?.[key]);
+      worker.bankDetails = {
+        accountNumber: pick('accountNumber'),
+        ifscCode: pick('ifscCode')?.toUpperCase(),
+        accountHolderName: pick('accountHolderName'),
+        bankName: pick('bankName'),
+        upiId: pick('upiId')
+      };
+    }
     if (address) {
       worker.address = {
         addressLine1: address.addressLine1 || worker.address?.addressLine1 || '',
@@ -132,6 +143,7 @@ const updateProfile = async (req, res) => {
         serviceCategories: worker.serviceCategories,
         serviceCategory: worker.serviceCategories?.[0] || '',
         skills: worker.skills,
+        bankDetails: worker.bankDetails || null,
         address: worker.address,
         rating: worker.rating,
         totalJobs: worker.totalJobs,

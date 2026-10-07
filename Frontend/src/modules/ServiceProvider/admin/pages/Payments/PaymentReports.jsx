@@ -186,6 +186,8 @@ const PaymentReports = () => {
   const [activeReport, setActiveReport] = useState('transactions');
   const [reportData, setReportData] = useState([]);
   const [reportSummary, setReportSummary] = useState(null);
+  // Per-model / per-scope commission split for the transaction report (SOW §8)
+  const [commissionSplit, setCommissionSplit] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(null);
 
@@ -271,6 +273,7 @@ const PaymentReports = () => {
       if (data.success) {
         setReportData(data.data || []);
         setReportSummary(data.summary || data.totals || null);
+        setCommissionSplit(data.commissionSplit || []);
       }
     } catch (error) {
       console.error('Failed to fetch report:', error);
@@ -375,6 +378,28 @@ const PaymentReports = () => {
           { key: 'providerName', header: providerLabel },
           { key: 'amount', header: 'Amount', render: (val) => `₹${(val || 0).toLocaleString('en-IN')}` },
           { key: 'platformFee', header: 'Platform Fee', render: (val) => `₹${(val || 0).toLocaleString('en-IN')}` },
+          {
+            // Which model priced the booking: subscription (no commission) or a commission rule
+            key: 'commissionModel', header: 'Model', render: (val, row) => (
+              <div className="flex flex-col gap-0.5">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium w-fit ${val === 'subscription' ? 'bg-purple-100 text-purple-700' :
+                  val === 'commission' ? 'bg-blue-100 text-blue-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>{val === 'legacy' ? 'pre-engine' : val}</span>
+                {row.commissionFlag === 'no_active_subscription' && (
+                  <span className="text-[10px] text-amber-600">no active subscription</span>
+                )}
+              </div>
+            )
+          },
+          {
+            key: 'commissionScope', header: 'Rule', render: (val, row) => {
+              if (!val) return '-';
+              const scopeLabel = val === 'settings' ? 'default %' : val;
+              const amount = row.commissionType === 'fixed' ? `₹${row.commissionValue}` : `${row.commissionValue}%`;
+              return <span className="text-xs">{scopeLabel} · {amount}</span>;
+            }
+          },
           { key: 'paymentMethod', header: 'Method' },
           {
             key: 'bookingStatus', header: 'Status', render: (val) => (
@@ -612,6 +637,17 @@ const PaymentReports = () => {
                   <div><span className="text-gray-500">Total Amount:</span> <span className="font-semibold">₹{(reportSummary.totalAmount || 0).toLocaleString('en-IN')}</span></div>
                   <div><span className="text-gray-500">Platform Commission:</span> <span className="font-semibold text-green-600">₹{(reportSummary.totalCommission || 0).toLocaleString('en-IN')}</span></div>
                   <div><span className="text-gray-500">{providerLabel} Earnings:</span> <span className="font-semibold">₹{(reportSummary.totalVendorEarnings || 0).toLocaleString('en-IN')}</span></div>
+                  {commissionSplit.length > 0 && (
+                    <div className="w-full flex flex-wrap gap-2 pt-2">
+                      {commissionSplit.map((row) => (
+                        <span key={`${row.model}-${row.scope}`} className="px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-xs">
+                          <span className="font-semibold capitalize">{row.model === 'legacy' ? 'pre-engine' : row.model}</span>
+                          {row.scope ? <span className="text-gray-500"> / {row.scope === 'settings' ? 'default %' : row.scope}</span> : null}
+                          <span className="text-gray-500"> · {row.bookings} bookings · ₹{(row.commission || 0).toLocaleString('en-IN')}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>

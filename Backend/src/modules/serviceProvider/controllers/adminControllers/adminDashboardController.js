@@ -10,7 +10,8 @@ const Scrap = require('../../models/Scrap');
 // "ReferenceError: Transaction is not defined" on every call. Hoisted to module scope.
 const Transaction = require('../../models/Transaction');
 const { BOOKING_STATUS, PAYMENT_STATUS, VENDOR_STATUS } = require('../../utils/constants');
-const { getCommissionRates } = require('../../utils/commission');
+const { getCommissionRates, commissionExpr } = require('../../utils/commission');
+const { subscriptionRevenue } = require('../../services/subscriptionLedger');
 
 /**
  * Get overall dashboard stats
@@ -62,6 +63,7 @@ const getDashboardStats = async (req, res) => {
     });
 
     // Revenue stats
+    const { platformShare } = await getCommissionRates();
     const revenueResult = await Booking.aggregate([
       {
         $match: {
@@ -74,14 +76,15 @@ const getDashboardStats = async (req, res) => {
         $group: {
           _id: null,
           totalRevenue: { $sum: '$finalAmount' },
-          totalBookings: { $sum: 1 }
+          totalBookings: { $sum: 1 },
+          // Snapshot amount per booking; legacy rate only for pre-snapshot bookings.
+          platformCommission: { $sum: commissionExpr(platformShare) }
         }
       }
     ]);
 
-    const revenue = revenueResult[0] || { totalRevenue: 0, totalBookings: 0 };
-    const { platformShare } = await getCommissionRates();
-    const platformCommission = revenue.totalRevenue * platformShare;
+    const revenue = revenueResult[0] || { totalRevenue: 0, totalBookings: 0, platformCommission: 0 };
+    const platformCommission = revenue.platformCommission || 0;
 
     // Vendor approval stats
     const pendingVendors = await Vendor.countDocuments({ approvalStatus: VENDOR_STATUS.PENDING, ...dateFilter });
@@ -115,23 +118,11 @@ const getDashboardStats = async (req, res) => {
       workerPaymentStatus: b.workerPaymentStatus
     }));
 
-    // Transaction is required at module scope (see top of file).
-    const subscriptionRevenueResult = await Transaction.aggregate([
-      {
-        $match: {
-          type: 'worker_subscription',
-          status: 'completed',
-          ...dateFilter
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount' }
-        }
-      }
-    ]);
-    const workerSubscriptionRevenue = subscriptionRevenueResult[0]?.total || 0;
+    // Subscriptions: gross collected, and the part that is platform revenue.
+    // Only the platform fee is the platform's; the remainder is a separate ledger
+    // line whose destination is still to be agreed (D7). Used to book 100%.
+    const subs = await subscriptionRevenue(dateFilter);
+    const workerSubscriptionRevenue = subs.gross;
 
     res.status(200).json({
       success: true,
@@ -146,8 +137,11 @@ const getDashboardStats = async (req, res) => {
           cancelledBookings,
           totalRevenue: revenue.totalRevenue + workerSubscriptionRevenue,
           bookingRevenue: revenue.totalRevenue,
-          workerSubscriptionRevenue,
+          workerSubscriptionRevenue, // gross subscription money in (workers + vendors)
+          subscriptionPlatformFeeRevenue: subs.platformFee,
+          subscriptionRemainder: subs.remainder,
           platformCommission,
+          platformRevenue: platformCommission + subs.platformFee,
           pendingVendors,
           approvedVendors,
           pendingWithdrawals,
@@ -209,34 +203,17 @@ const getRevenueAnalytics = async (req, res) => {
           },
           revenue: { $sum: '$finalAmount' },
           bookings: { $sum: 1 },
-          platformCommission: { $sum: { $multiply: ['$finalAmount', platformShare] } }
+          platformCommission: { $sum: commissionExpr(platformShare) }
         }
       },
       { $sort: { _id: 1 } }
     ]);
 
     // 2. Transaction (Subscription) analytics
-    const subscriptionData = await Transaction.aggregate([
-      {
-        $match: {
-          type: 'worker_subscription',
-          status: 'completed',
-          createdAt: dateFilter.completedAt || {}
-        }
-      },
-      {
-        $group: {
-          _id: {
-            $dateToString: {
-              format: groupFormat,
-              date: '$createdAt'
-            }
-          },
-          revenue: { $sum: '$amount' },
-          bookings: { $sum: 1 }
-        }
-      }
-    ]);
+    const subscriptionData = await subscriptionRevenue(
+      dateFilter.completedAt ? { createdAt: dateFilter.completedAt } : {},
+      { $dateToString: { format: groupFormat, date: '$createdAt' } }
+    );
 
     // 3. Merge data
     const mergedData = {};
@@ -252,15 +229,17 @@ const getRevenueAnalytics = async (req, res) => {
 
     subscriptionData.forEach(item => {
       if (mergedData[item._id]) {
-        mergedData[item._id].revenue += item.revenue;
+        mergedData[item._id].revenue += item.gross;
+        // Only the subscription platform fee is platform revenue.
+        mergedData[item._id].platformCommission += item.platformFee;
         // We don't necessarily want to count subscriptions as "bookings" for the booking chart,
         // but we can add them to total revenue.
       } else {
         mergedData[item._id] = {
           date: item._id,
-          revenue: item.revenue,
+          revenue: item.gross,
           bookings: 0,
-          platformCommission: item.revenue // For subscriptions, platform takes 100% of it
+          platformCommission: item.platformFee
         };
       }
     });

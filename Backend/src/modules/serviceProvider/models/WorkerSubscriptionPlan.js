@@ -26,6 +26,12 @@ const workerSubscriptionPlanSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  // Who can buy this plan. Plans were worker-only; vendors subscribe too now.
+  providerType: {
+    type: String,
+    enum: ['all', 'worker', 'vendor'],
+    default: 'all'
   }
 }, {
   timestamps: true

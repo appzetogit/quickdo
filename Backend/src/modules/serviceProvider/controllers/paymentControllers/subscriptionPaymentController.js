@@ -1,9 +1,23 @@
 const { razorpayKeyId, razorpayKeySecret } = require('../../../../core/settings/platformCredentials.cjs');
 const { createOrder, verifyPayment } = require('../../services/razorpayService');
 const Worker = require('../../models/Worker');
+const Vendor = require('../../models/Vendor');
 const WorkerSubscriptionPlan = require('../../models/WorkerSubscriptionPlan');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { confirmGatewayPayment } = require('../../utils/confirmGatewayPayment');
+const { USER_ROLES } = require('../../utils/constants');
+const { recordSubscriptionPayment, SUBSCRIPTION_TX_TYPES } = require('../../services/subscriptionLedger');
+
+/*
+ * Workers and vendors both subscribe (SOW §8). The same handlers serve
+ * /api/workers/subscription/* and /api/vendors/subscription/*; the caller's
+ * role picks the model. Payments stay one-off Razorpay orders for now.
+ */
+const providerFor = (req) => (req.userRole === USER_ROLES.VENDOR
+  ? { type: 'vendor', Model: Vendor, label: 'Vendor' }
+  : { type: 'worker', Model: Worker, label: 'Worker' });
+
+const planOpenTo = (plan, type) => !plan.providerType || plan.providerType === 'all' || plan.providerType === type;
 
 /**
  * POST /api/workers/subscription/create-order
@@ -12,8 +26,9 @@ const { confirmGatewayPayment } = require('../../utils/confirmGatewayPayment');
 exports.createSubscriptionOrder = async (req, res) => {
   try {
     const { planId } = req.body;
-    const workerId = req.user.id;
-    console.log(`[SubscriptionPayment] Creating order for Plan: ${planId}, Worker: ${workerId}`);
+    const provider = providerFor(req);
+    const workerId = req.user.id; // the provider's id (worker or vendor)
+    console.log(`[SubscriptionPayment] Creating order for Plan: ${planId}, ${provider.label}: ${workerId}`);
 
     const plan = await WorkerSubscriptionPlan.findById(planId);
     if (!plan) {
@@ -25,11 +40,14 @@ exports.createSubscriptionOrder = async (req, res) => {
       console.warn(`[SubscriptionPayment] Plan ${planId} is inactive`);
       return res.status(400).json({ success: false, message: 'Plan is currently inactive' });
     }
+    if (!planOpenTo(plan, provider.type)) {
+      return res.status(400).json({ success: false, message: `This plan is not available for ${provider.type}s` });
+    }
 
-    const worker = await Worker.findById(workerId).select('name phone');
+    const worker = await provider.Model.findById(workerId).select('name businessName phone');
     if (!worker) {
-      console.warn(`[SubscriptionPayment] Worker ${workerId} not found`);
-      return res.status(404).json({ success: false, message: 'Worker not found' });
+      console.warn(`[SubscriptionPayment] ${provider.label} ${workerId} not found`);
+      return res.status(404).json({ success: false, message: `${provider.label} not found` });
     }
 
     console.log(`[SubscriptionPayment] Fetching Razorpay order for amount: ${plan.price}`);
@@ -40,10 +58,13 @@ exports.createSubscriptionOrder = async (req, res) => {
       'INR',
       `S_${workerId}_${Date.now().toString().slice(-6)}`, // Short receipt ID (max 40 chars)
       {
+        // `workerId` keeps its name for orders already in flight; it holds the
+        // provider id for vendors too, and providerType says which.
         workerId: workerId.toString(),
+        providerType: provider.type,
         planId: planId.toString(),
         planTitle: plan.title,
-        type: 'worker_subscription'
+        type: `${provider.type}_subscription`
       }
     );
 
@@ -63,7 +84,7 @@ exports.createSubscriptionOrder = async (req, res) => {
         keyId: razorpayKeyId(),
         planTitle: plan.title,
         durationDays: plan.durationDays,
-        workerName: worker.name,
+        workerName: worker.name || worker.businessName,
         workerPhone: worker.phone
       }
     });
@@ -80,7 +101,8 @@ exports.createSubscriptionOrder = async (req, res) => {
 exports.verifySubscriptionPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-    const workerId = req.user.id;
+    const provider = providerFor(req);
+    const workerId = req.user.id; // the provider's id (worker or vendor)
 
     if (!razorpay_order_id || !razorpay_payment_id) {
       return res.status(400).json({ success: false, message: 'Missing payment details' });
@@ -114,6 +136,10 @@ exports.verifySubscriptionPayment = async (req, res) => {
     if (!confirmed.mock && notes.workerId && String(notes.workerId) !== String(workerId)) {
       return res.status(403).json({ success: false, message: 'This order belongs to a different account' });
     }
+    // Orders made before vendors could subscribe carry no providerType: worker.
+    if (!confirmed.mock && (notes.providerType || 'worker') !== provider.type) {
+      return res.status(403).json({ success: false, message: 'This order belongs to a different account' });
+    }
 
     // Get plan details
     const plan = await WorkerSubscriptionPlan.findById(planId);
@@ -125,18 +151,18 @@ exports.verifySubscriptionPayment = async (req, res) => {
     const now = new Date();
     const paidAmount = confirmed.mock ? plan.price : confirmed.amount;
 
-    // Subscription activation and its ledger row commit together. The referenceId
+    // Subscription activation and its ledger rows commit together. The referenceId
     // lookup makes a replayed request a no-op — without it, re-posting the same
     // payment extended the subscription by another full term, for free.
     const outcome = await withTransaction(async (session) => {
       const already = await Transaction.findOne({
         referenceId: razorpay_payment_id,
-        type: 'worker_subscription'
+        type: { $in: SUBSCRIPTION_TX_TYPES }
       }).session(session);
       if (already) abort({ alreadyApplied: true });
 
       // Read inside the transaction so a retry sees fresh state
-      const worker = await Worker.findById(workerId).session(session);
+      const worker = await provider.Model.findById(workerId).session(session);
       if (!worker) abort({ notFound: true });
 
       // Calculate new expiry date
@@ -159,45 +185,42 @@ exports.verifySubscriptionPayment = async (req, res) => {
         expiryDate,
         durationDays: plan.durationDays,
         lastPaymentId: razorpay_payment_id,
-        lastOrderId: razorpay_order_id
+        lastOrderId: razorpay_order_id,
+        reminderSentFor: null
       };
 
       await worker.save({ session });
 
-      // --- RECORD TRANSACTION ---
-      await Transaction.create([{
-        workerId: worker._id,
-        type: 'worker_subscription',
+      // --- RECORD TRANSACTIONS: platform fee + remainder (services/subscriptionLedger.js) ---
+      const split = await recordSubscriptionPayment({
+        session,
+        providerType: provider.type,
+        providerId: worker._id,
         amount: paidAmount,
-        status: 'completed',
-        paymentMethod: 'razorpay',
-        description: `Subscription: ${plan.title} (${plan.durationDays} days)`,
         referenceId: razorpay_payment_id,
-        metadata: {
-          orderId: razorpay_order_id,
-          planId: plan._id,
-          expiryDate: expiryDate
-        }
-      }], { session });
+        orderId: razorpay_order_id,
+        plan,
+        expiryDate
+      });
 
-      return { expiryDate };
+      return { expiryDate, platformFee: split.fee };
     });
 
     if (outcome.notFound) {
-      return res.status(404).json({ success: false, message: 'Worker not found' });
+      return res.status(404).json({ success: false, message: `${provider.label} not found` });
     }
     if (outcome.alreadyApplied) {
       return res.status(400).json({ success: false, message: 'This payment has already been applied' });
     }
 
-    const { expiryDate } = outcome;
+    const { expiryDate, platformFee } = outcome;
 
     // --- UPDATE PLATFORM EARNINGS (post-commit: analytics must not fail the sale) ---
     const { recordWorkerSubscription } = require('../../services/earningTrackerService');
-    recordWorkerSubscription(now, paidAmount)
+    recordWorkerSubscription(now, paidAmount, platformFee)
       .catch(err => console.error('[SubscriptionPayment] Earnings tracker failed:', err));
 
-    console.log(`[SubscriptionPayment] ✅ Worker ${workerId} subscribed to ${plan.title} until ${expiryDate}. Revenue recorded: ₹${paidAmount}`);
+    console.log(`[SubscriptionPayment] ✅ ${provider.label} ${workerId} subscribed to ${plan.title} until ${expiryDate}. Revenue recorded: ₹${paidAmount}`);
 
     res.status(200).json({
       success: true,

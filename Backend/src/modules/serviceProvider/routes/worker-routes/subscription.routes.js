@@ -19,7 +19,7 @@ router.post('/verify-payment', authenticate, isWorker, verifySubscriptionPayment
  */
 router.get('/plans', authenticate, isWorker, async (req, res) => {
   try {
-    const plans = await WorkerSubscriptionPlan.find({ isActive: true }).sort({ price: 1 });
+    const plans = await WorkerSubscriptionPlan.find({ isActive: true, providerType: { $in: ['all', 'worker', null] } }).sort({ price: 1 });
     res.status(200).json({ success: true, data: plans });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server Error' });

@@ -115,6 +115,8 @@ const main = async () => {
         const _id = oid();
         await Vendor.collection.insertOne({ _id, name: 'V', businessName: 'B', email: `cl${seq}@t.test`, phone: String(seq++),
             approvalStatus: 'approved', isActive: true, address: { city: 'Pune' }, service: ['Plumbing'], wallet,
+            // Vendors need an active subscription to be offered jobs (SOW §8).
+            subscription: { isActive: true, expiryDate: new Date(Date.now() + 30 * 864e5) },
             // KYC the schema requires, so the controllers' own vendor.save() validates.
             pan: { number: 'ABCDE1234F', document: 'pan.jpg' }, aadhar: { number: '123412341234', document: 'a.jpg', backDocument: 'b.jpg' } });
         return _id;

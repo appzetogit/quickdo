@@ -122,9 +122,11 @@ const updatePendingSnapshots = async (dateStr) => {
 };
 
 /**
- * Records a worker subscription payment
+ * Records a provider (worker or vendor) subscription payment.
+ * `platformFee` is the part that is platform revenue (see services/subscriptionLedger.js);
+ * the gross still goes to totalRevenue / totalWorkerSubscriptionRevenue as before.
  */
-const recordWorkerSubscription = async (date, amount) => {
+const recordWorkerSubscription = async (date, amount, platformFee = 0) => {
   try {
     const dateStr = getTodayDateString(date);
     await PlatformEarning.findOneAndUpdate(
@@ -132,7 +134,8 @@ const recordWorkerSubscription = async (date, amount) => {
       {
         $inc: { 
           totalRevenue: amount,
-          totalWorkerSubscriptionRevenue: amount 
+          totalWorkerSubscriptionRevenue: amount,
+          totalSubscriptionPlatformFee: platformFee
         }
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }

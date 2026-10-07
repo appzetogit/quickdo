@@ -4,7 +4,7 @@ const Worker = require('../../models/Worker');
 const User = require('../../models/User');
 const Service = require('../../models/UserService');
 const { BOOKING_STATUS, PAYMENT_STATUS, VENDOR_STATUS } = require('../../utils/constants');
-const { getCommissionRates } = require('../../utils/commission');
+const { getCommissionRates, commissionExpr } = require('../../utils/commission');
 
 /**
  * Get Booking Report Data
@@ -286,7 +286,8 @@ exports.getRevenueReport = async (req, res) => {
         $group: {
           _id: { $dateToString: { format: groupFormat, date: '$completedAt' } },
           revenue: { $sum: '$finalAmount' },
-          commission: { $sum: { $multiply: ['$finalAmount', platformShare] } }
+          // Snapshot amount per booking; legacy rate only for pre-snapshot bookings.
+          commission: { $sum: commissionExpr(platformShare) }
         }
       },
       { $sort: { _id: 1 } }

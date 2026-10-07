@@ -48,7 +48,8 @@ const server = app.listen(0);
 console.log('\n[1] model registry');
 
 const spModels = Object.keys(mongoose.models).filter((n) => n.startsWith('SP'));
-check(`29 SP* models registered (got ${spModels.length})`, () => assert.equal(spModels.length, 29));
+// 30 since SPCommissionRule (subscription & commission engine, SOW §8).
+check(`30 SP* models registered (got ${spModels.length})`, () => assert.equal(spModels.length, 30));
 
 check('no SP model landed on a master-owned collection', () => {
     const bad = spModels

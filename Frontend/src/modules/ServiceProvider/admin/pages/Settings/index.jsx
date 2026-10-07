@@ -24,7 +24,12 @@ const AdminSettings = () => {
     maxSearchTime: 5,
     waveDuration: 60,
     searchRadius: 10,
-    isOnlinePaymentEnabled: true
+    isOnlinePaymentEnabled: true,
+    // Subscription & commission engine (SOW §8)
+    subscriptionPrice: 1000,
+    subscriptionPlatformFee: 100,
+    subscriptionRemainderLabel: 'subscription_remainder',
+    commissionThreshold: 1000
   });
 
   // Billing Configuration State
@@ -131,7 +136,11 @@ const AdminSettings = () => {
             cancellationPenalty: res.settings.cancellationPenalty !== undefined ? res.settings.cancellationPenalty : 49,
             searchRadius: res.settings.searchRadius || 10,
             isOnlinePaymentEnabled: res.settings.isOnlinePaymentEnabled !== undefined ? res.settings.isOnlinePaymentEnabled : true,
-            bookingModel: res.settings.bookingModel || 'worker'
+            bookingModel: res.settings.bookingModel || 'worker',
+            subscriptionPrice: res.settings.subscriptionPrice ?? 1000,
+            subscriptionPlatformFee: res.settings.subscriptionPlatformFee ?? 100,
+            subscriptionRemainderLabel: res.settings.subscriptionRemainderLabel || 'subscription_remainder',
+            commissionThreshold: res.settings.commissionThreshold ?? 1000
           });
           // Load billing settings
           setBillingSettings({
@@ -212,6 +221,12 @@ const AdminSettings = () => {
     }));
   };
 
+  // Text fields in the financial form (handleFinancialChange coerces to Number)
+  const handleFinancialTextChange = (e) => {
+    const { name, value } = e.target;
+    setFinancialSettings(prev => ({ ...prev, [name]: value }));
+  };
+
   const handleProfileChange = (e) => {
     const { name, value } = e.target;
     setProfile(prev => ({ ...prev, [name]: value }));
@@ -224,7 +239,7 @@ const AdminSettings = () => {
       await updateSettings(financialSettings);
       toast.success('Financial settings updated');
     } catch (error) {
-      toast.error('Failed to update settings');
+      toast.error(error?.response?.data?.message || 'Failed to update settings');
     } finally {
       setLoading(false);
     }
@@ -659,7 +674,7 @@ const AdminSettings = () => {
                       <input type="number" name="servicePayoutPercentage" value={financialSettings.servicePayoutPercentage} onChange={handleFinancialChange}
                         min="0" max="100"
                         className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
-                      <p className="text-[10px] text-gray-400 mt-1">{providerLabel} keeps this % of service charges</p>
+                      <p className="text-[10px] text-gray-400 mt-1">{providerLabel} keeps this % of service charges until a global Commission Rule is set</p>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Parts Payout (%)</label>
@@ -683,6 +698,38 @@ const AdminSettings = () => {
                       <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Cancellation Penalty (₹)</label>
                       <input type="number" name="cancellationPenalty" value={financialSettings.cancellationPenalty} onChange={handleFinancialChange}
                         className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                    </div>
+                    <div className="pt-4 border-t border-gray-100 md:col-span-2">
+                      <h4 className="text-xs font-bold text-gray-700 uppercase mb-3">Subscription &amp; Commission</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Monthly Subscription (₹)</label>
+                          <input type="number" name="subscriptionPrice" value={financialSettings.subscriptionPrice} onChange={handleFinancialChange}
+                            min="0"
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Default price for new subscription plans</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Platform Fee per Subscription (₹)</label>
+                          <input type="number" name="subscriptionPlatformFee" value={financialSettings.subscriptionPlatformFee} onChange={handleFinancialChange}
+                            min="0"
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Only this part counts as platform revenue</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Remainder Ledger Account</label>
+                          <input type="text" name="subscriptionRemainderLabel" value={financialSettings.subscriptionRemainderLabel} onChange={handleFinancialTextChange}
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Subscription minus platform fee is recorded under this name</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Commission Threshold (₹)</label>
+                          <input type="number" name="commissionThreshold" value={financialSettings.commissionThreshold} onChange={handleFinancialChange}
+                            min="0"
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Bookings above this pay commission (Commission Rules) on the whole amount</p>
+                        </div>
+                      </div>
                     </div>
                     <div className="pt-4 border-t border-gray-100 md:col-span-2">
                       <h4 className="text-xs font-bold text-gray-700 uppercase mb-3">Booking Timing & Waves</h4>

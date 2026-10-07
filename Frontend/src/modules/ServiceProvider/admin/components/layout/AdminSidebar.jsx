@@ -46,6 +46,7 @@ const iconMap = {
   Settings: FiSettings,
   Plans: FiPackage,
   "Worker Plans": FiBriefcase,
+  "Commission Rules": FiDollarSign,
   Legal: FiShield,
 };
 

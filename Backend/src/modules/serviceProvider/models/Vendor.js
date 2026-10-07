@@ -257,6 +257,20 @@ const vendorSchema = new mongoose.Schema({
   loginSessionId: {
     type: String,
     default: null
+  },
+  // Monthly platform subscription (SOW §8). Same shape as Worker.subscription;
+  // when Settings.bookingModel is 'vendor', locationService only assigns vendors
+  // whose subscription is active and unexpired.
+  subscription: {
+    isActive: { type: Boolean, default: false },
+    planId: { type: mongoose.Schema.Types.ObjectId, ref: 'SPWorkerSubscriptionPlan', default: null },
+    planName: { type: String, default: null },
+    startDate: { type: Date, default: null },
+    expiryDate: { type: Date, default: null },
+    durationDays: { type: Number, default: null },
+    lastPaymentId: { type: String, default: null },
+    lastOrderId: { type: String, default: null },
+    reminderSentFor: { type: Date, default: null }
   }
 }, {
   timestamps: true

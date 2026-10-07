@@ -35,6 +35,35 @@ const settingsSchema = new mongoose.Schema({
     min: 0,
     max: 100
   },
+  // ── Provider subscription & commission engine (SOW §8, plan §3.2) ──
+  // Monthly subscription every provider pays. Also the default price offered
+  // when admin creates a new subscription plan.
+  subscriptionPrice: {
+    type: Number,
+    default: 1000,
+    min: 0
+  },
+  // Part of each subscription payment the platform keeps as its fee.
+  subscriptionPlatformFee: {
+    type: Number,
+    default: 100,
+    min: 0
+  },
+  // The rest of the subscription (price - fee) is recorded as its own ledger line
+  // under this account name. Where that money goes is still to be agreed (D7), so
+  // the code only labels it; it does not route it anywhere.
+  subscriptionRemainderLabel: {
+    type: String,
+    default: 'subscription_remainder',
+    trim: true
+  },
+  // Bookings above this value leave the subscription model and pay commission
+  // (on the whole booking, D8) under the CommissionRule set.
+  commissionThreshold: {
+    type: Number,
+    default: 1000,
+    min: 0
+  },
   tdsPercentage: {
     type: Number,
     default: 1, // 1% default TDS u/s 194-O

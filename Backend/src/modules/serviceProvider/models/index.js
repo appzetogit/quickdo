@@ -40,3 +40,4 @@ require('./Withdrawal');
 require('./Worker');
 require('./SpPaymentReceipt');
 require('./WorkerSubscriptionPlan');
+require('./CommissionRule');

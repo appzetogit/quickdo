@@ -10,6 +10,7 @@ const { createNotification } = require('../notificationControllers/notificationC
 const { recordBookingEarning } = require('../../services/earningTrackerService');
 const { withTransaction, abort } = require('../../utils/withTransaction');
 const { confirmGatewayPayment } = require('../../utils/confirmGatewayPayment');
+const { billSplit } = require('../../utils/commission');
 
 /**
  * Create Razorpay order for booking payment
@@ -200,7 +201,9 @@ const verifyPaymentWebhook = async (req, res) => {
       const isWorkerBooking = booking.bookingModel === 'worker';
 
       if (bill) {
-        const partnerEarning = isWorkerBooking ? bill.grandTotal : bill.vendorTotalEarning;
+        // Worker: bill total less the booking's commissionSnapshot; vendor: the bill's
+        // vendorTotalEarning (already net of it). See utils/commission.js billSplit.
+        const { partnerEarning } = billSplit(booking, bill);
 
         // Mark bill as paid
         bill.status = 'paid';
@@ -293,8 +296,8 @@ const verifyPaymentWebhook = async (req, res) => {
     recordBookingEarning({
       date: new Date(),
       totalRevenue: Number(bill ? bill.grandTotal : booking.finalAmount) || 0,
-      platformCommission: Number(bill ? bill.companyRevenue : 0) || 0,
-      vendorEarnings: Number(bill ? bill.vendorTotalEarning : 0) || 0,
+      platformCommission: Number(bill ? billSplit(booking, bill).platformCommission : 0) || 0,
+      vendorEarnings: Number(bill ? billSplit(booking, bill).partnerEarning : 0) || 0,
       totalGST: Number(bill ? bill.totalGST : 0) || 0,
       totalTDS: 0 // Tracked in withdrawals
     }).catch(err => console.error('[Payment] Daily tracker failed:', err));
@@ -480,7 +483,9 @@ const processWalletPayment = async (req, res) => {
       const isWorkerBooking = booking.bookingModel === 'worker';
 
       if (bill) {
-        const partnerEarning = isWorkerBooking ? bill.grandTotal : bill.vendorTotalEarning;
+        // Worker: bill total less the booking's commissionSnapshot; vendor: the bill's
+        // vendorTotalEarning (already net of it). See utils/commission.js billSplit.
+        const { partnerEarning } = billSplit(booking, bill);
 
         // Mark bill as paid
         bill.status = 'paid';
@@ -563,8 +568,8 @@ const processWalletPayment = async (req, res) => {
     recordBookingEarning({
       date: new Date(),
       totalRevenue: Number(bill ? bill.grandTotal : booking.finalAmount) || 0,
-      platformCommission: Number(bill ? bill.companyRevenue : 0) || 0,
-      vendorEarnings: Number(bill ? bill.vendorTotalEarning : 0) || 0,
+      platformCommission: Number(bill ? billSplit(booking, bill).platformCommission : 0) || 0,
+      vendorEarnings: Number(bill ? billSplit(booking, bill).partnerEarning : 0) || 0,
       totalGST: Number(bill ? bill.totalGST : 0) || 0,
       totalTDS: 0 // Tracked in withdrawals
     }).catch(err => console.error('[Wallet Payment] Daily tracker failed:', err));
