@@ -38,6 +38,7 @@ let fssaiExpiryInterval = null;
 let spScheduler = null;
 let ledgerNightlyInterval = null;
 let insightsNightlyInterval = null;
+let auditRetentionInterval = null;
 let taxiScheduledDispatchWorker = null;
 let storeScheduledDispatchWorker = null;
 
@@ -58,6 +59,7 @@ const gracefulShutdown = async (signal) => {
             if (spScheduler) spScheduler.stop();
             if (ledgerNightlyInterval) clearInterval(ledgerNightlyInterval);
             if (insightsNightlyInterval) clearInterval(insightsNightlyInterval);
+            if (auditRetentionInterval) clearInterval(auditRetentionInterval);
             if (taxiScheduledDispatchWorker) await taxiScheduledDispatchWorker.close().catch(() => {});
             if (storeScheduledDispatchWorker) await storeScheduledDispatchWorker.close().catch(() => {});
             logger.info('Graceful shutdown complete');
@@ -284,6 +286,13 @@ const startServer = async () => {
             import('./src/core/analytics/insights.service.js')
                 .then(({ startInsightsNightly }) => { insightsNightlyInterval = startInsightsNightly(); })
                 .catch((err) => logger.error(`Insights nightly failed to start: ${err.message}`));
+
+            // Admin activity log retention: deletes rows past audit.retentionDays
+            // (finance rows: audit.financeRetentionDays) once a night, claimed in the
+            // database. AUDIT_RETENTION_ENABLED=false turns it off. See core/admin/auditRetention.js.
+            import('./src/core/admin/auditRetention.js')
+                .then(({ startAuditRetentionNightly }) => { auditRetentionInterval = startAuditRetentionNightly(); })
+                .catch((err) => logger.error(`Audit retention failed to start: ${err.message}`));
 
             // Releases new orders to the restaurant when their cancellation hold ends.
             // Not tied to BACKGROUND_JOBS_ENABLED: a held order must always reach the

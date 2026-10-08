@@ -433,7 +433,7 @@ export const SETTINGS = Object.freeze({
         max: 240,
         scopes: NOT_PER_PARTNER,
         label: 'Start rider search this many minutes before a delivery slot',
-        help: 'Scheduled quick-commerce orders wait until then; the store can still accept and pack earlier.',
+        help: 'Scheduled quick-commerce orders wait until then; the store can still accept and pack earlier. Taxi reads its vertical value for scheduled rides (driver search starts this long before pickup) and keeps its own transport-ride setting until one is set.',
     },
 
     // --- loyalty points (plan §5.7, core/loyalty) -----------------------------
@@ -478,6 +478,25 @@ export const SETTINGS = Object.freeze({
         scopes: GLOBAL_AND_VERTICAL,
         label: 'Days before earned points expire',
         help: '0 means points never expire.',
+    },
+
+    // --- GST invoice numbers (core/documents/invoiceSeries.js) ----------------
+    'invoice.numberFormat': {
+        type: 'string',
+        default: '{prefix}/{fyShort}/{seq:5}',
+        maxLength: 64,
+        pattern: /\{seq(?::\d{1,2})?\}/,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Invoice number format',
+        help: 'Must contain {seq} or {seq:N}. Tokens: {prefix}, {fy} (2026-27), {fyShort} (2627), {fyStart} (2026). Numbers run per seller per financial year (April-March). GST allows at most 16 characters (letters, digits, / and -); a format that renders anything else falls back to the default R<id4>/2627/00045.',
+    },
+    'invoice.prefix': {
+        type: 'string',
+        default: 'R{code}',
+        maxLength: 32,
+        scopes: ALL_SCOPES,
+        label: 'Invoice number prefix',
+        help: '{code} is the last 4 characters of the seller id. Set per restaurant (partner level) to give it its own, e.g. ST123. A number longer than 16 characters or with characters other than letters, digits, / and - falls back to the default.',
     },
 
     // --- platform ------------------------------------------------------------
@@ -562,6 +581,71 @@ export const SETTINGS = Object.freeze({
         scopes: NOT_PER_PARTNER,
         label: 'Earliest a scheduled order or ride may be (minutes from now)',
         help: 'Unset: each service keeps its own minimum.',
+    },
+
+    // --- settings moved out of the per-service models (Phase 6) --------------
+    /*
+     * Each of these still has an older copy on a service's own settings screen
+     * (core/config/legacySettings.js maps which). Readers resolve here first and
+     * fall back to that copy, so nothing changes until a value is saved here or
+     * scripts/migrate-settings-to-resolver.mjs copies the old one across as a
+     * vertical override. Default null = "keep the service's own".
+     */
+    'fees.itemGstRate': {
+        type: 'number',
+        default: null,
+        min: 0,
+        max: 100,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'GST on items (%)',
+        help: 'Food: the GST charged on the food. Quick Commerce: the rate used for a product with no GST of its own. Unset keeps each service’s own fee settings.',
+    },
+    'fees.flatDeliveryFee': {
+        type: 'number',
+        default: null,
+        min: 0,
+        max: 10000,
+        scopes: NOT_PER_PARTNER,
+        label: 'Flat delivery fee',
+        help: 'Quick Commerce: the delivery fee when no distance formula or bands price it. Unset keeps the service’s own.',
+    },
+    'orders.maxQuantityPerItem': {
+        type: 'number',
+        default: null,
+        min: 1,
+        max: 9999,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Most of one item in an order',
+        help: 'The ceiling a restaurant’s own per-dish limit cannot exceed. Unset keeps the service’s own (Food fee settings).',
+    },
+    'delivery.maxRadiusKm': {
+        type: 'number',
+        default: null,
+        min: 1,
+        max: 100,
+        scopes: GLOBAL_AND_VERTICAL,
+        label: 'Largest delivery radius a store may set (km)',
+        help: 'The platform ceiling on a restaurant’s own delivery radius. Unset keeps the service’s own (Food: 20 km unless changed).',
+    },
+
+    // --- admin activity log retention (core/admin/auditRetention.js) ---------
+    'audit.retentionDays': {
+        type: 'number',
+        default: 365,
+        min: 30,
+        max: 3650,
+        scopes: GLOBAL_ONLY,
+        label: 'Keep admin activity log rows (days)',
+        help: 'Rows older than this are deleted by the nightly purge. Money moves are kept for the finance period below instead.',
+    },
+    'audit.financeRetentionDays': {
+        type: 'number',
+        default: 2555,
+        min: 365,
+        max: 3650,
+        scopes: GLOBAL_ONLY,
+        label: 'Keep money-move audit rows (days)',
+        help: 'Finance rows (who moved money, on what authority). 2555 days is about 7 years. Never shorter than the activity period.',
     },
 });
 

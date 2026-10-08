@@ -12,7 +12,7 @@ The detailed request and response examples live in the module documents. This gu
 | [flutter-integration.md](./flutter-integration.md) | Food menu and checkout: per-size limits, combos, free delivery, the ₹99 store cap, the itemised bill |
 | [flutter-stock-and-cancel-guide.md](./flutter-stock-and-cancel-guide.md) | Store stock screen, low-stock pushes, the food order-cancel window |
 | [flutter-qc-api.md](./flutter-qc-api.md) | Quick commerce (SOW §5): multi-store cart, pickup, delivery slots, proof of delivery, search suggestions, barcode, loyalty, FAQs, store customer analytics |
-| [flutter-food-api.md](./flutter-food-api.md) | Food (SOW §6): restaurant analytics, reports, settlements, GSTIN check, email sign-in, onboarding menu step, invoice PDF |
+| [flutter-food-api.md](./flutter-food-api.md) | Food (SOW §6): restaurant analytics, reports, settlements, GSTIN check, email sign-in, onboarding menu step, invoice PDF and invoice numbers, loyalty at checkout, proof of delivery |
 | [flutter-platform-api.md](./flutter-platform-api.md) | Platform (SOW §7): recommendations, demand, global settings, admin broadcasts |
 | [../SOW_IMPLEMENTATION_PLAN.md](../SOW_IMPLEMENTATION_PLAN.md) | The backend plan and decisions D1 to D8 |
 
@@ -297,6 +297,7 @@ The flow is the same in every vertical:
 | Taxi ride (paid after the ride) | `POST /taxi/rides/:rideId/complete-payment/razorpay/order` `{ tipAmount?, rating? }` | `data.keyId`, `data.orderId`, `data.amount` | `POST /taxi/rides/:rideId/complete-payment/razorpay/verify` | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature, rating?, comment?, tipAmount? }` (snake_case) |
 | SP booking | `POST /sp/payments/create-order` `{ bookingId }` | `data.key`, `data.orderId`, `data.amount` (rupees) | `POST /sp/payments/verify` | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }` (snake_case; the booking is found from the order) |
 | SP provider subscription | `POST /sp/vendors/subscription/create-order` or `POST /sp/workers/subscription/create-order` | see the response | `POST /sp/vendors/subscription/verify-payment` or `POST /sp/workers/subscription/verify-payment` | Razorpay fields |
+| SP provider subscription, auto-renewing | `POST /sp/{vendors\|workers}/subscription/recurring { planId }` | `data.subscriptionId`, `data.keyId` (open Checkout with `subscription_id`) | none: activation and every renewal arrive by webhook; poll `GET /subscription/status` (`autoRenew`) | 503 `PAYMENTS_NOT_CONFIGURED` without Razorpay keys |
 | Wallets and plans | food `POST /food/user/wallet/topup/order` and `/verify`; taxi `/taxi/users/wallet/razorpay/order` and `/verify`; driver `/taxi/drivers/wallet/top-up/razorpay/order` and `/verify`; delivery partner `/food/delivery/wallet/deposit/order` and `/verify`; SP **customer** plans `/sp/payments/plan/create-order` and `/plan/verify` | | | |
 
 The key field name and the verify body casing differ between verticals (`key`, `keyId`, `razorpay.key`; camelCase or snake_case). Wrap each in its own repository method.
@@ -337,7 +338,7 @@ POST /api/v1/auth/user/verify-otp
 | Profile | `GET/PATCH /v1/food/user/profile`, `POST /v1/food/user/profile/profile-image` (multipart `file`), `GET /v1/auth/user/account` (sign-in methods) |
 | Addresses | `GET/POST /v1/food/user/addresses`, `PATCH /v1/food/user/addresses/:id`, `PATCH /v1/food/user/addresses/:id/default` |
 | Wallet (food/QC) | `GET /v1/food/user/wallet`, top-up `POST /v1/food/user/wallet/topup/order` and `/verify` |
-| My Orders (every service) | `GET /v1/platform/me/orders` |
+| My Orders (every service) | `GET /v1/platform/me/orders` (a QC multi-store checkout is one entry with `children`; `?groupByParent=false` for the flat list, see [flutter-qc-api.md](./flutter-qc-api.md) §1) |
 | Activity / spend | `GET /v1/me/activity`, `GET /v1/me/spend` |
 | Notifications inbox | `GET /v1/food/notifications/inbox` |
 | Support | `POST /v1/food/user/support/ticket`, `GET /v1/food/user/support/my-tickets` |
@@ -394,8 +395,9 @@ Details: [flutter-sp-api.md §2–§4](./flutter-sp-api.md#2-booking-customer-ap
 |---|---|
 | Catalogue | `GET /v1/sp/public/categories`, `GET /v1/sp/public/services`, `GET /v1/sp/public/home-data`, `GET /v1/sp/public/config` |
 | Cart (optional) | `/v1/sp/users/...` cart routes |
-| Choose a provider (optional) | `GET /v1/sp/users/providers?categoryId=&lat=&lng=&date=&time=` |
-| Book | `POST /v1/sp/users/bookings` with optional `addOns[]` and `preferredProviderId` |
+| Packages (optional) | `GET /v1/sp/users/packages?categoryId=` (or `/v1/sp/public/packages`) |
+| Choose a provider (optional) | `GET /v1/sp/users/providers?categoryId=&lat=&lng=&date=&time=&serviceId=` (with `serviceId`, each provider carries the `price` the booking will be locked at) |
+| Book | `POST /v1/sp/users/bookings` with optional `addOns[]` and `preferredProviderId`, or `packageId` instead of `serviceId` (priced from the package on the server). Read `data.pricing.source` and `data.finalAmount` from the response. |
 | Quote categories (`isConsultancy: true`) | `POST /v1/sp/users/quotes/requests`, then `GET /v1/sp/users/quotes/requests/:bookingId`, then `POST /v1/sp/users/quotes/:quoteId/accept` |
 | Track | Socket `/sp`, `join_tracking`, `booking_updated`, `live_location_update` |
 | Details | `GET /v1/sp/users/bookings/:id`, including `workPhotos.before[]` / `after[]`, `addOns`, `preferredOffer` and `invoiceNumber` |
@@ -461,7 +463,7 @@ All under `/api/v1/food/delivery` unless stated.
 | Profile | `PATCH /profile` (`vehicleRcPhoto` can be updated here too), `PATCH /profile/bank-details`, `DELETE /profile/account` |
 | Help | `GET/POST /support-tickets`, `GET/POST /order-emergency-requests`, `GET /emergency-help` |
 
-**Proof-of-delivery photo** (QC 5.4, `dropProof { photoUrl, lat, lng, at }` at completion, required when there is no OTP) applies to quick-commerce orders only. See [6.5](#65-proof-of-delivery-delivery-app).
+**Proof-of-delivery photo** (`dropProof { photoUrl, lat, lng, at }` at completion, required when there is no OTP) applies to quick-commerce **and food** orders. For food, `reached-drop` returns `order.dropPhotoRequired`; open the photo step first when it is true. See [6.5](#65-proof-of-delivery-delivery-app).
 
 ---
 
@@ -476,7 +478,8 @@ Details: [flutter-sp-api.md](./flutter-sp-api.md). Prefix: `/api/v1/sp`. Use `/v
 | Pending | A pending (or rejected) vendor gets a limited **onboarding token**: verify-login answers 200 with `vendor.adminApproval`, `tokenScope: "onboarding"`, `onboardingToken` and `onboardingRefreshToken` (no `accessToken`). It works only on onboarding, bank details, email OTP, availability, `POST /upload`, profile read and logout; other vendor routes return 403 `ONBOARDING_ONLY`. Show "Under review" with the checklist. After approval, `POST /vendors/auth/refresh-token` with the onboarding refresh token returns a full token (`tokenScope: "full"`). See `flutter-sp-api.md` section 1. | Pending workers do get a token and can complete onboarding. |
 | Onboarding | `GET/PUT /vendors/onboarding` (GST, certifications, categories), `PUT /bank-details`, `POST /email/send-otp`, `POST /email/verify` | same, plus worker `pan` and `serviceRadiusKm` |
 | Availability | `GET/PUT /availability`, `POST /availability/overrides`, `DELETE /availability/overrides/:date` | same |
-| Subscription | `GET /vendors/subscription/plans`, `GET /vendors/subscription/status`, `POST /vendors/subscription/create-order`, then Razorpay, then `POST /vendors/subscription/verify-payment` | same under `/workers/subscription`, plus `POST /workers/subscription/activate` |
+| Subscription | `GET /vendors/subscription/plans` (each plan has `billingMode`), `GET /vendors/subscription/status` (`autoRenew`, `gatewayStatus`). One-time: `POST /vendors/subscription/create-order`, then Razorpay, then `POST /vendors/subscription/verify-payment`. Auto-renewing: `POST /vendors/subscription/recurring`, Razorpay Checkout with `subscription_id`, then poll status; `GET /recurring`, `POST /recurring/cancel` | same under `/workers/subscription`, plus `POST /workers/subscription/activate` |
+| Own prices | `PUT /vendors/services/:serviceId/pricing { customPrice }` (`null` clears it); `GET /vendors/services` shows `customPrice`, `effectivePrice`, `customPricingEnabled` | — |
 | Incoming jobs | Socket `/sp`: `new_booking_request`. REST: `GET /vendors/bookings/pending`. Accept with `POST /vendors/bookings/:id/accept`, reject with `/reject`. | `GET /workers/jobs/pending-requests`, `PUT /workers/jobs/:id/respond` |
 | Assign to a worker | `POST /vendors/bookings/:id/assign-worker` | — |
 | Do the job | `POST /vendors/bookings/:id/self/start`, then `/self/reached`, then `/self/visit/verify { otp, location, beforePhotos? }`, then `/self/photos`, then `/self/complete { afterPhotos? }`, then `/self/payment/collect` | `POST /workers/jobs/:id/start`, then `/reached`, `/visit/verify`, `/photos`, `/complete`, `/payment/collect`; bill `POST/GET /workers/jobs/:id/bill` |
@@ -508,7 +511,7 @@ The React web panel covers restaurants and stores today. The existing Flutter pa
 | Orders | `GET /orders`, `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/resend-notification`. Socket `new_order`, `order_status_update`. | same on `/qc`, plus `GET /orders?fulfilmentType=pickup` and pickup hand-over `POST /orders/:orderId/pickup/verify { otp }` ([6.3](#63-self-pickup)) |
 | Offers | `/my-offers` (alias `/my-deals`), `/freebie-offer`, `/bogo-offer` | |
 | Money | `GET /finance`, `POST /withdraw`, `GET /withdrawals`, `GET /commission`, settlements `GET /settlements`, `/settlements/:cycleId`, `/settlements/:cycleId/download` (SOW 6.3) | subscription `GET /subscription/overview`, `/subscription/invoices`, `/subscription-history` |
-| Reports | `GET /analytics/sales?from&to&groupBy` (alias `/insights/sales`), `GET /reports?type&format&from&to` (CSV/PDF file) (SOW 6.1–6.2) | `GET /analytics` (now with new/returning/repeat and top customers, SOW 5.9). No `/reports`, `/analytics/sales` or `/settlements` yet: they return 404 on `/qc`. |
+| Reports | `GET /analytics/sales?from&to&groupBy` (alias `/insights/sales`), `GET /reports?type&format&from&to` (CSV/PDF file) (SOW 6.1–6.2) | `GET /analytics` (now with new/returning/repeat and top customers, SOW 5.9). `GET /analytics/sales`, `GET /reports` and `/settlements…` as on food, same shapes ([flutter-qc-api.md](./flutter-qc-api.md) §11). |
 | Support | `GET /complaints`, `POST/GET /support/tickets` | |
 | Push | `POST /v1/fcm-tokens/mobile/save` (QC: `/v1/qc/fcm-tokens/mobile/save`). Handle `new_order`, `order_cancelled`, `stock_low` and `stock_out` taps. | |
 
@@ -603,7 +606,9 @@ PATCH /api/v1/food/delivery/orders/FOD-…/complete
 400 { "success": false, "message": "Take a photo of the delivery to complete it (no handover code on this order)." }
 ```
 
-The order then carries `dropProof { photoUrl, lat, lng, at }`, which the customer sees in `GET /qc/orders/:orderId`.
+The order then carries `dropProof { photoUrl, lat, lng, at }`, which the customer sees in `GET /qc/orders/:orderId` (or `GET /food/orders/:orderId`).
+
+Food orders follow the same rule, with `delivery.dropOtpRequired` resolved for the `food` vertical and the order's zone (food has no contactless option). `PATCH /api/v1/food/delivery/orders/:orderId/reached-drop` returns `order.dropPhotoRequired: true` when the code is off, so the app can open the photo step first. See [flutter-food-api.md §9](./flutter-food-api.md).
 
 ### 6.6 Search suggestions, recent searches and barcode
 
@@ -624,7 +629,7 @@ Voice search and the camera scan run on the device. Store apps can send `barcode
 |---|---|---|
 | Balance, rules, history | `GET /api/v1/qc/loyalty/me` | `GET /api/v1/platform/loyalty/me` |
 | What a basket may redeem | `GET /api/v1/qc/loyalty/quote?points=200&orderValue=450` | `GET /api/v1/platform/loyalty/quote?…` |
-| Redeem | `"loyaltyPoints": <n>` on `/qc/orders/calculate` and `/qc/orders`. The server caps it at the balance and `maxRedeemPercent`; read the applied `pricing.loyaltyPoints` and `pricing.loyaltyDiscount`. | **Not yet**: food checkout ignores `loyaltyPoints` ([section 11](#11-known-gaps-and-doccode-mismatches)). Show the balance only. |
+| Redeem | `"loyaltyPoints": <n>` on `/qc/orders/calculate` and `/qc/orders`. The server caps it at the balance and `maxRedeemPercent`; read the applied `pricing.loyaltyPoints` and `pricing.loyaltyDiscount`. | `"loyaltyPoints": <n>` on `/food/orders/calculate` and `/food/orders`, same rules and response fields as QC ([flutter-food-api.md §8](./flutter-food-api.md)). |
 
 When `enabled` is false in `/loyalty/me`, hide the points row at checkout. Cancelling an order that used points returns them.
 
@@ -673,8 +678,8 @@ All under `/api/v1/food`, customer token unless marked public. Build in this ord
 | Track | Socket `join-tracking`, `order_status_update`, `location-update`; `GET /orders/:orderId/route`; `GET /orders/:orderId/drop-otp` |
 | Cancel | `PATCH /orders/:orderId/cancel`, subject to the admin cancel window; show the 400 message as-is |
 | Rate and instructions | `PATCH /orders/:orderId/ratings`, `PATCH /orders/:orderId/instructions` |
-| **Invoice PDF** (SOW 6.7) | `GET /orders/:orderId/invoice` (`FOD-…` or Mongo id) returns `application/pdf`, filename `invoice-<orderId>.pdf`. Only once delivered: before that it returns **409** "The invoice is available once the order has been delivered". Show the button only on delivered orders. |
-| Loyalty balance | `GET /api/v1/platform/loyalty/me` (redeem at food checkout is not wired yet) |
+| **Invoice PDF** (SOW 6.7) | `GET /orders/:orderId/invoice` (`FOD-…` or Mongo id) returns `application/pdf`, filename `invoice-<orderId>.pdf`. Only once delivered: before that it returns **409** "The invoice is available once the order has been delivered". Show the button only on delivered orders. The GST invoice number is `invoice.number` on the order (sequential per restaurant per financial year, given on delivery); older orders have none and print `FD-<orderId>`. |
+| Loyalty points | `GET /api/v1/platform/loyalty/me` for the balance; `loyaltyPoints` on calculate and place, then show `pricing.loyaltyDiscount` as its own line after GST ([flutter-food-api.md §8](./flutter-food-api.md)) |
 | Help | `GET /api/v1/platform/faqs?vertical=food` |
 | Favourites | `GET /user/favorites`, `POST /user/favorites/restaurants/:id`, `POST /user/favorites/foods/:id` |
 | Refund history | `GET /user/refunds` |
@@ -685,7 +690,7 @@ Already required by [flutter-integration.md](./flutter-integration.md): per-size
 
 ### 7.2 Restaurant partner app
 
-All under `/api/v1/food`. These exist **only for food**: on `/qc/restaurant` the reports, sales analytics and settlement routes return 404, so show "not available" for stores.
+All under `/api/v1/food`. Sales analytics, reports and settlements also exist for stores under `/api/v1/qc/restaurant` with the same shapes ([flutter-qc-api.md](./flutter-qc-api.md) §11); the rest of this table is food only.
 
 | Feature | Endpoint | Notes |
 |---|---|---|
@@ -749,11 +754,12 @@ Old enum values (`pooling`, `bus`, parcel fields) are still accepted when old do
 | QC multi-store | Cart lines carry `storeId`. Baskets from 2–5 stores create a parent `MSO-…` order with one payment and one child `FOD-…` order per store. Delivery fee = the **highest single-store fee**, split by item value. No `quick` (express) mode on multi-store. Verify payment with the parent id. | `7d89993`, [6.2](#62-multi-store-cart-and-parent-orders-mso-) |
 | QC orders | New optional request fields `fulfilmentType`, `slotId`, `loyaltyPoints`, `contactlessDelivery`, top-level `couponCode`. New response fields `pickupOtp`, `deliverySlot`, `dropProof`, `parentOrderId`, `parentOrder`, `fulfilmentType`. `address` is optional for pickup. | `7d89993` |
 | QC scheduled orders | Where a zone has slots, `scheduledAt` must match an open slot with room, or the order is refused (400) | `7d89993`, [6.4](#64-delivery-slots-and-scheduledat) |
-| Rider completion | `PATCH /food/delivery/orders/:orderId/complete` takes `dropProof` for QC orders. It is **required** when the handover code is not used (`dropOtpRequired` off, or contactless). QC orders reach riders through the food rider endpoints with `vertical`, `pickList` and `storeName`. | `7d89993`, [6.5](#65-proof-of-delivery-delivery-app) |
+| Rider completion | `PATCH /food/delivery/orders/:orderId/complete` takes `dropProof` for QC and food orders. It is **required** when the handover code is not used (`dropOtpRequired` off, or contactless). QC orders reach riders through the food rider endpoints with `vertical`, `pickList` and `storeName`. | `7d89993`, [6.5](#65-proof-of-delivery-delivery-app) |
 | QC products | `barcode` / `ean` accepted on create and update, check digit validated | `7d89993` |
 | QC store analytics | `GET /qc/restaurant/analytics` adds new, returning and repeat customers and `topCustomers` (phones masked) | `7d89993` |
 | Food restaurant registration | Runs the GSTIN check and refuses an `invalid` GSTIN with 400. Optional `firstItems` / `menuSheet`. | `e106ce3`, [7.2](#72-restaurant-partner-app) |
 | Food invoice | `GET /food/orders/:orderId/invoice` (PDF, 409 until delivered) | `e106ce3` |
+| Food orders | New optional request field `loyaltyPoints` (calculate and place). New response fields `pricing.loyaltyPoints`, `pricing.loyaltyDiscount`, `loyalty`, `invoice { number, fy, seq, issuedAt }`, `dropProof`; `reached-drop` returns `dropPhotoRequired`. | this branch, [flutter-food-api.md §7–§9](./flutter-food-api.md) |
 | Restaurant sign-in | Email OTP for existing outlets | `e106ce3` |
 | Admin broadcasts | Now also reach taxi drivers and SP vendors and workers (push `admin_broadcast`, inbox `source: ADMIN_BROADCAST`) | `76d434b` |
 
@@ -769,7 +775,7 @@ Old enum values (`pooling`, `bus`, parcel fields) are still accepted when old do
 | `POST /taxi/rides` (round trip) | `tripType: "round_trip"`. `returnAt` is optional but must be after arrival and within 7 days. | round trip |
 | SP quote accept | `paymentMethod` | always |
 | SP `PUT /bank-details` | account + IFSC + holder name, or `upiId` | always |
-| `PATCH /food/delivery/orders/:orderId/complete` | `dropProof { photoUrl, lat, lng }` | a QC order where the handover code is not used (`delivery.dropOtpRequired` off, or the customer chose contactless) |
+| `PATCH /food/delivery/orders/:orderId/complete` | `dropProof { photoUrl, lat, lng }` | a QC or food order where the handover code is not used (`delivery.dropOtpRequired` off, or the customer chose contactless on QC) |
 | `POST /qc/orders` (multi-store) | `storeId` on every item | the basket has items from more than one store |
 | `POST /qc/orders` (slots) | `scheduledAt` equal to an available slot's `scheduledAt` | scheduling in a zone that has slots |
 | `POST /qc/restaurant/orders/:orderId/pickup/verify` | `otp` (the customer's 4-digit code) | always |
@@ -808,6 +814,8 @@ Each switch defaults to today's behaviour. The app must handle both states.
 | `requireVendorSubscription` and `vendorSubscriptionGraceUntil` | SP settings | **Off** | When on, vendors without an active subscription stop receiving jobs (after the grace date). The vendor app must show the subscription state and a "Subscribe" call to action. |
 | `bookingModel` | SP settings | — | Jobs go to vendors or to workers. `GET /users/providers` returns `providerType`. |
 | `preferredProviderTimeoutSec` | SP settings | 120 | How long a chosen provider has to accept before the normal waves start |
+| `allowVendorCustomPricing` (+ `vendorCustomPriceMinPct` / `MaxPct`) | SP settings | **Off** | When on (vendor booking model), a booking made with a chosen vendor is priced from that vendor's own price and locked; otherwise the catalogue price. Show the `price` from `GET /users/providers?serviceId=`. |
+| Plan `billingMode` | Admin → Worker Plans | `one_time` | `recurring` plans refuse `create-order` (`RECURRING_ONLY`); `one_time` plans refuse `/recurring` (`ONE_TIME_ONLY`); `both` allows either. |
 | Required verification items | SP settings | Vendor: aadhaar, pan, address. Worker: aadhaar, address. | What `verification.missing` lists |
 | `FINANCE_PERMISSIONS_ENFORCED` | Server env | Off (log only) | Admin-only. The apps are not affected. |
 | `UNIFIED_DISPATCH_ENABLED` | Server env | Off | When on, one driver is offered rides, food and grocery jobs on one `job:offer` feed and holds one job at a time (section 3.1) |
@@ -855,8 +863,8 @@ Each switch defaults to today's behaviour. The app must handle both states.
 - [ ] QC: multi-store cart with `storeId` per line (up to 5 stores); one delivery fee (the highest single-store fee); express hidden on multi-store; verify with the parent id; `groupByParent=true` order list with per-child tracking and cancel.
 - [ ] QC: delivery or pickup toggle; pickup code shown on the order; slot picker that falls back to free time when `slotsEnabled` is false; contactless option.
 - [ ] QC: search suggestions and recent searches; barcode scan; FAQs screen.
-- [ ] Loyalty: balance and redeem row on QC checkout, hidden when `enabled` is false (the default). Food shows the balance only until food checkout accepts points.
-- [ ] Food: invoice PDF download on delivered orders (handle 409 before delivery).
+- [ ] Loyalty: balance and redeem row on QC and food checkout, hidden when `enabled` is false (the default).
+- [ ] Food: invoice PDF download on delivered orders (handle 409 before delivery); show `invoice.number` when present; show `dropProof` on order detail.
 
 **Driver app**
 
@@ -882,7 +890,7 @@ Each switch defaults to today's behaviour. The app must handle both states.
 - [ ] Stock screen and low-stock push taps (stores only).
 - [ ] No dining screens. No pharmacy sign-up.
 - [ ] Stores: pickup-orders filter and the pickup-code hand-over screen; `barcode` field on products; customer analytics on the analytics screen.
-- [ ] Restaurants: email OTP sign-in (handle `409 EMAIL_MULTIPLE_OUTLETS`); GSTIN check at 15 characters during onboarding; optional menu step; sales analytics chart, report downloads (CSV/PDF) and settlement statements. Show "not available" for reports and settlements on store accounts.
+- [ ] Restaurants: email OTP sign-in (handle `409 EMAIL_MULTIPLE_OUTLETS`); GSTIN check at 15 characters during onboarding; optional menu step; sales analytics chart, report downloads (CSV/PDF) and settlement statements, for stores too (same screens on `/qc`, plus top customers from `customerInsights`).
 
 **Release**
 
@@ -908,9 +916,11 @@ These were found while writing this guide. Raise them with the backend team befo
 10. **Intercity leftovers.** The intercity screens were removed (D3), but `GET /taxi/users/intercity-packages` and the `transport_type: "intercity"` / `rideType: "outstation"` pricing still exist. Treat "outstation" as a pricing flag on a normal one-way or round-trip ride, not as a separate flow.
 11. **The SP doc says "the legacy `/api/...` prefixes still work".** That is true (`SP_LEGACY_PREFIXES` in `routes/index.js`), but they exist only for shipped builds. New apps should not use them.
 12. **Committed: SOW §5–§7.** Restaurant email sign-in, the food invoice PDF, `/v1/platform/faqs`, `/v1/platform/loyalty`, `/v1/platform/delivery-slots`, restaurant reports, settlements and GST verification, QC parent orders, pickup, slots and drop proof, recommendations and global settings are all committed (up to `6b31463`). Their module documents ([flutter-qc-api.md](./flutter-qc-api.md), [flutter-food-api.md](./flutter-food-api.md), [flutter-platform-api.md](./flutter-platform-api.md)) are authoritative.
-13. **Loyalty cannot be redeemed at food checkout yet.** Food customers can read `GET /v1/platform/loyalty/me` and `/quote`, and food deliveries earn points, but `POST /food/orders/calculate` and `POST /food/orders` ignore `loyaltyPoints`. Only QC checkout redeems. Loyalty is also off by default (`loyalty.enabled`).
-14. **QC stores have no reports or settlements yet.** `/restaurant/reports`, `/restaurant/analytics/sales` and `/restaurant/settlements…` exist only under `/food`; on `/qc/restaurant` they return 404. Stores get only the extended `GET /qc/restaurant/analytics` (customer analytics).
+13. **Fixed: loyalty can be redeemed at food checkout.** `POST /food/orders/calculate` and `POST /food/orders` take `loyaltyPoints`, with the same rules as QC (clamped, taken off after GST, returned on cancel). Loyalty is still off by default (`loyalty.enabled`). An unpaid online order keeps its points until it is cancelled or replaced by a newer order; there is no timed release yet. See [flutter-food-api.md §8](./flutter-food-api.md).
+14. **Fixed: QC stores have reports and settlements.** `/qc/restaurant/analytics/sales`, `/qc/restaurant/reports` and `/qc/restaurant/settlements…` answer with the food shapes (one shared pipeline). Store GST is the stored goods GST (`pricing.tax`), multi-store children count per store, and pickup orders are included with no delivery fee. `analytics/sales` also returns `customerInsights` (repeat rate, top customers). See [flutter-qc-api.md](./flutter-qc-api.md) §11. My Orders (`/v1/platform/me/orders`) now groups a multi-store checkout into one entry by default (`?groupByParent=false` for the old flat list).
 15. **Multi-store limits.** At most 5 stores per basket; the `quick` (express) mode is not offered (every child is `basic`); the customer pays the highest single-store delivery fee, split by item value. If one store cannot accept, the whole checkout is refused.
-16. **Pickup, slots and drop proof are QC only.** Food orders do not take `fulfilmentType: "pickup"` or slot validation, and food completion ignores `dropProof` (the photo is stored and enforced only for QC orders, even though both go through the same rider completion route).
+16. **Pickup and slots are QC only; food invoice numbers.** Food orders do not take `fulfilmentType: "pickup"` or slot validation. Drop proof now applies to food too (required when `delivery.dropOtpRequired` is off for food); food has no contactless option. **Food GST invoice numbers are sequential per restaurant per financial year** (given on delivery, `invoice.number`). The default format is GST-compliant (`R<id4>/2627/00045`, 16 characters); a configured `invoice.numberFormat` / `invoice.prefix` that would exceed 16 characters or use other characters falls back to it. Orders delivered before this change keep `FD-<orderId>`.
 17. **GST lookup needs a provider.** With `GST_VERIFY_PROVIDER` unset the check is offline only (`offline_valid`); `verified`, `not_found` and `inactive` appear only once a provider is configured.
 18. **Recommendations start empty.** The nightly job fills them after 02:00 IST; until the first run every list is empty.
+19. **`/v1/platform/global-settings` returns only the global values.** Item GST, the QC flat delivery fee, Food's per-item quantity ceiling and radius ceiling and taxi's scheduled-ride search lead now resolve on the server per service (and per zone where allowed) through Master settings, falling back to each service's own screen. They can differ by service, so the app must not read them from `global-settings`. Keep taking prices from the cart/quote endpoints and limits from the item and restaurant payloads, as before; nothing in the app contract changed.
+20. **SP packages, vendor prices and auto-renewing subscriptions are new** (`flutter-sp-api.md` §6–§8). Packages and vendor custom pricing work today; custom pricing is off until the admin turns it on. Auto-renewing subscriptions need Razorpay keys and the `subscription.*` events enabled on the Razorpay webhook; **the current server has no Razorpay keys**, so `/subscription/recurring` answers 503 `PAYMENTS_NOT_CONFIGURED` there. Hide the auto-renew option when `GET /subscription/recurring` returns `paymentsConfigured: false`. The one-time flow is unchanged.

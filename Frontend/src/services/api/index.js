@@ -204,6 +204,13 @@ export const platformSettingsAPI = {
   feesOverview: () =>
     apiClient.get("/platform/settings/fees/overview", { contextModule: "admin" }),
   /** Master > Cancellation Policy: the rule each service uses now, and who set it. */
+  /**
+   * Config provenance: each setting moved out of a service's own screen, with the
+   * value in effect and where it comes from (zone / vertical / global / the
+   * service's own). `{ vertical, zoneId }` both optional.
+   */
+  provenance: (context = {}) =>
+    apiClient.get("/platform/settings/provenance", { params: context, contextModule: "admin" }),
   cancellationOverview: () =>
     apiClient.get("/platform/settings/cancellation/overview", { contextModule: "admin" }),
   /**
@@ -383,6 +390,8 @@ export const supportInboxAPI = {
 export const adminAuditLogAPI = {
   list: (params) => apiClient.get("/platform/audit-log", { params, contextModule: "admin" }),
   admins: () => apiClient.get("/platform/audit-log/admins", { contextModule: "admin" }),
+  /** How long rows are kept and when the nightly purge last ran. */
+  retention: () => apiClient.get("/platform/audit-log/retention", { contextModule: "admin" }),
 };
 
 /** Master > Refunds: every refund with its payment-gateway status (superadmins only). */
