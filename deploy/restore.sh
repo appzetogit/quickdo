@@ -18,7 +18,14 @@ fi
 [ -s "$ARCHIVE" ] || { echo "archive not found or empty: $ARCHIVE"; exit 1; }
 gzip -t "$ARCHIVE" || { echo "archive is corrupt: $ARCHIVE"; exit 1; }
 
-ARGS=(--uri="$TARGET" --archive="$ARCHIVE" --gzip)
+# mongorestore reads a database name in the URI path (".../admin?...") as --db
+# and then restores ONLY that database -- every other namespace in the archive
+# is skipped and it still prints "restore complete". Strip the path; auth keeps
+# working through authSource in the query string.
+TARGET_NOPATH="$(echo "$TARGET" | sed -E 's#^(mongodb(\+srv)?://[^/]+)/[^?]*#\1/#')"
+case "$TARGET_NOPATH" in *authSource=*) ;; *) [ "$TARGET_NOPATH" != "$TARGET" ] &&   echo "warning: the URI had a database path and no authSource; add ?authSource=<db> if auth fails" ;; esac
+
+ARGS=(--uri="$TARGET_NOPATH" --archive="$ARCHIVE" --gzip)
 [ "$DROP" = "--drop" ] && ARGS+=(--drop)
 if [ -n "${NS_FROM:-}" ] && [ -n "${NS_TO:-}" ]; then
   ARGS+=(--nsFrom="${NS_FROM}.*" --nsTo="${NS_TO}.*")
@@ -28,5 +35,12 @@ echo "Restoring $(basename "$ARCHIVE") into $(echo "$TARGET" | sed -E 's#//[^@]*
 read -r -p "Type RESTORE to continue: " ok
 [ "$ok" = "RESTORE" ] || { echo "aborted"; exit 1; }
 
-mongorestore "${ARGS[@]}"
-echo "restore complete"
+LOG="$(mktemp)"
+mongorestore "${ARGS[@]}" 2>&1 | tee "$LOG"
+RESTORED="$(grep -oE '[0-9]+ document\(s\) restored successfully' "$LOG" | grep -oE '^[0-9]+' | tail -1)"
+rm -f "$LOG"
+# An archive that restores zero documents is a failed restore, whatever exit code it had.
+if [ -z "$RESTORED" ] || [ "$RESTORED" -eq 0 ]; then
+  echo "ERROR: 0 documents restored -- check the archive and the target URI"; exit 1
+fi
+echo "restore complete: $RESTORED document(s)"
