@@ -7,6 +7,12 @@
  * and available at the slot (no date = now). Vendors or workers depending on
  * Settings.bookingModel. Pass the chosen _id to createBooking as
  * preferredProviderId.
+ *
+ * With &serviceId=, each provider also carries `price` (before GST) and
+ * `priceSource`: the vendor's custom price when Settings.allowVendorCustomPricing
+ * is on (clamped to the admin's bounds), else the catalogue price. That is the
+ * price a booking made with this provider as preferredProviderId is locked at
+ * (services/bookingPricing.js).
  */
 const mongoose = require('mongoose');
 const Category = require('../../models/Category');
@@ -35,7 +41,7 @@ const listProviders = async (req, res) => {
     const category = await Category.findById(categoryId).select('title').lean();
     if (!category) return res.status(404).json({ success: false, message: 'Category not found' });
 
-    const settings = (await Settings.findOne({ type: 'global' }).select('bookingModel searchRadius').lean()) || {};
+    const settings = (await Settings.findOne({ type: 'global' }).select('bookingModel searchRadius allowVendorCustomPricing vendorCustomPriceMinPct vendorCustomPriceMaxPct').lean()) || {};
     const bookingModel = settings.bookingModel || 'worker';
     const radiusKm = settings.searchRadius || 10;
     const { bookingSlot } = require('../../services/providerEligibility');
@@ -51,6 +57,34 @@ const listProviders = async (req, res) => {
       .select('experienceYears completedJobs totalReviews certifications.name').lean();
     const extraById = new Map(extra.map((e) => [String(e._id), e]));
 
+    // Price per provider for one service (optional).
+    let service = null;
+    let customPrices = new Map();
+    if (req.query.serviceId !== undefined) {
+      if (!mongoose.isValidObjectId(req.query.serviceId)) return res.status(400).json({ success: false, message: 'serviceId is not valid' });
+      const UserService = require('../../models/UserService');
+      service = await UserService.findById(req.query.serviceId).select('basePrice gstPercentage').lean();
+      if (!service) return res.status(404).json({ success: false, message: 'Service not found' });
+      if (bookingModel === 'vendor') {
+        const { customPricingConfig, vendorCustomPrices } = require('../../services/bookingPricing');
+        customPrices = await vendorCustomPrices({
+          vendorIds: found.map((p) => p._id),
+          serviceIds: [service._id],
+          catalogById: new Map([[String(service._id), service]]),
+          config: customPricingConfig(settings)
+        });
+      }
+    }
+    const priceOf = (providerId) => {
+      if (!service) return {};
+      const custom = customPrices.get(`${providerId}:${service._id}`);
+      return {
+        price: custom ? custom.price : (Number(service.basePrice) || 0),
+        catalogPrice: Number(service.basePrice) || 0,
+        priceSource: custom ? 'vendor_custom' : 'catalog'
+      };
+    };
+
     const data = rank(found, radiusKm).slice(0, 30).map(({ p, score }) => {
       const e = extraById.get(String(p._id)) || {};
       return {
@@ -64,7 +98,8 @@ const listProviders = async (req, res) => {
         experienceYears: e.experienceYears ?? null,
         certifications: (e.certifications || []).map((c) => c.name),
         distanceKm: typeof p.distance === 'number' ? Math.round(p.distance * 10) / 10 : null,
-        score
+        score,
+        ...priceOf(p._id)
       };
     });
     return res.json({ success: true, data, meta: { providerType: bookingModel, slot } });

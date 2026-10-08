@@ -1,4 +1,5 @@
 const Service = require('../../models/UserService');
+const VendorService = require('../../models/VendorService');
 const { validationResult } = require('express-validator');
 const { SERVICE_STATUS } = require('../../utils/constants');
 
@@ -29,7 +30,8 @@ const getVendorServices = async (req, res) => {
       status: SERVICE_STATUS.ACTIVE
     })
       .populate('categoryId', 'title slug')
-      .populate('categoryIds', 'title slug')
+      // (populating 'categoryIds', a path UserService does not have, made this
+      // endpoint fail with StrictPopulateError on every call)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -39,9 +41,13 @@ const getVendorServices = async (req, res) => {
       status: SERVICE_STATUS.ACTIVE
     });
 
+    const rows = await VendorService.find({ vendorId, serviceId: { $in: services.map((x) => x._id) } }).lean();
+    const rowById = new Map(rows.map((r) => [String(r.serviceId), r]));
+    const cfg = await customPricingSettings();
+
     res.status(200).json({
       success: true,
-      data: services,
+      data: services.map((svc) => withVendorFields(svc, rowById.get(String(svc._id)), cfg)),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -59,7 +65,40 @@ const getVendorServices = async (req, res) => {
 };
 
 /**
- * Update service availability (enable/disable)
+ * The vendor's own row for a service (VendorService). Vendors used to edit the
+ * shared catalogue here: PUT /services/:id/pricing rewrote Service.basePrice
+ * and /availability flipped Service.status, for every customer and every
+ * vendor. Both now write the vendor's own VendorService row instead.
+ */
+
+const customPricingSettings = async () => {
+  const Settings = require('../../models/Settings');
+  const s = await Settings.findOne({ type: 'global' })
+    .select('allowVendorCustomPricing vendorCustomPriceMinPct vendorCustomPriceMaxPct')
+    .lean();
+  return {
+    enabled: Boolean(s?.allowVendorCustomPricing),
+    minPct: s?.vendorCustomPriceMinPct ?? null,
+    maxPct: s?.vendorCustomPriceMaxPct ?? null
+  };
+};
+
+const withVendorFields = (service, row, cfg) => {
+  const { clampCustomPrice } = require('../../services/bookingPricing');
+  const out = typeof service.toObject === 'function' ? service.toObject() : { ...service };
+  const customPrice = row?.customPrice ?? null;
+  out.customPrice = customPrice;
+  out.isAvailableForVendor = row ? row.isAvailable !== false : true;
+  // What a customer who picks this vendor pays (before GST) under the current settings.
+  out.effectivePrice = cfg.enabled && customPrice !== null && out.isAvailableForVendor
+    ? clampCustomPrice(customPrice, out.basePrice, cfg.minPct, cfg.maxPct)
+    : (Number(out.basePrice) || 0);
+  out.customPricingEnabled = cfg.enabled;
+  return out;
+};
+
+/**
+ * Update service availability for this vendor (enable/disable)
  */
 const updateServiceAvailability = async (req, res) => {
   try {
@@ -76,11 +115,7 @@ const updateServiceAvailability = async (req, res) => {
     const { serviceId } = req.params;
     const { isAvailable } = req.body;
 
-    // TODO: Verify vendor owns this service
-    // For now, just update the service
-
-    const service = await Service.findById(serviceId);
-
+    const service = await Service.findById(serviceId).lean();
     if (!service) {
       return res.status(404).json({
         success: false,
@@ -88,19 +123,16 @@ const updateServiceAvailability = async (req, res) => {
       });
     }
 
-    // Update availability (using status field)
-    if (isAvailable) {
-      service.status = SERVICE_STATUS.ACTIVE;
-    } else {
-      service.status = SERVICE_STATUS.INACTIVE;
-    }
-
-    await service.save();
+    const row = await VendorService.findOneAndUpdate(
+      { vendorId, serviceId },
+      { $set: { isAvailable: Boolean(isAvailable) } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean();
 
     res.status(200).json({
       success: true,
       message: 'Service availability updated successfully',
-      data: service
+      data: withVendorFields(service, row, await customPricingSettings())
     });
   } catch (error) {
     console.error('Update service availability error:', error);
@@ -112,7 +144,10 @@ const updateServiceAvailability = async (req, res) => {
 };
 
 /**
- * Set service pricing (vendor-specific pricing)
+ * Set this vendor's own price for a service (VendorService.customPrice).
+ * Body: { customPrice } (number, or null to go back to the catalogue price).
+ * `basePrice` is accepted as an alias from older builds. Used for bookings
+ * only while Settings.allowVendorCustomPricing is on (services/bookingPricing.js).
  */
 const setServicePricing = async (req, res) => {
   try {
@@ -127,13 +162,20 @@ const setServicePricing = async (req, res) => {
 
     const vendorId = req.user.id;
     const { serviceId } = req.params;
-    const { basePrice, discountPrice } = req.body;
+    const raw = req.body.customPrice !== undefined ? req.body.customPrice : req.body.basePrice;
+    if (raw === undefined) {
+      return res.status(400).json({ success: false, message: 'customPrice is required (null clears it)' });
+    }
+    let customPrice = null;
+    if (raw !== null && raw !== '') {
+      customPrice = Number(raw);
+      if (!Number.isFinite(customPrice) || customPrice < 0) {
+        return res.status(400).json({ success: false, message: 'customPrice must be a number of 0 or more' });
+      }
+      customPrice = Math.round(customPrice * 100) / 100;
+    }
 
-    // TODO: Create VendorService model for vendor-specific pricing
-    // For now, update the service directly (not ideal for multi-vendor scenario)
-
-    const service = await Service.findById(serviceId);
-
+    const service = await Service.findById(serviceId).lean();
     if (!service) {
       return res.status(404).json({
         success: false,
@@ -141,20 +183,19 @@ const setServicePricing = async (req, res) => {
       });
     }
 
-    // Update pricing
-    if (basePrice !== undefined) {
-      service.basePrice = basePrice;
-    }
-    if (discountPrice !== undefined) {
-      service.discountPrice = discountPrice;
-    }
-
-    await service.save();
+    const row = await VendorService.findOneAndUpdate(
+      { vendorId, serviceId },
+      { $set: { customPrice } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean();
+    const cfg = await customPricingSettings();
 
     res.status(200).json({
       success: true,
-      message: 'Service pricing updated successfully',
-      data: service
+      message: cfg.enabled
+        ? 'Your price for this service is saved'
+        : 'Your price is saved. It applies once the platform enables vendor pricing.',
+      data: withVendorFields(service, row, cfg)
     });
   } catch (error) {
     console.error('Set service pricing error:', error);

@@ -37,7 +37,11 @@ const AdminSettings = () => {
     workerRequiredVerifications: ['aadhaar', 'address'],
     preferredProviderTimeoutSec: 120,
     quoteRequestExpiryHours: 48,
-    quoteValidityHours: 72
+    quoteValidityHours: 72,
+    // Vendor custom pricing (VendorService.customPrice); '' = no bound
+    allowVendorCustomPricing: false,
+    vendorCustomPriceMinPct: '',
+    vendorCustomPriceMaxPct: ''
   });
 
   // Billing Configuration State
@@ -155,7 +159,10 @@ const AdminSettings = () => {
             workerRequiredVerifications: res.settings.workerRequiredVerifications || ['aadhaar', 'address'],
             preferredProviderTimeoutSec: res.settings.preferredProviderTimeoutSec ?? 120,
             quoteRequestExpiryHours: res.settings.quoteRequestExpiryHours ?? 48,
-            quoteValidityHours: res.settings.quoteValidityHours ?? 72
+            quoteValidityHours: res.settings.quoteValidityHours ?? 72,
+            allowVendorCustomPricing: !!res.settings.allowVendorCustomPricing,
+            vendorCustomPriceMinPct: res.settings.vendorCustomPriceMinPct ?? '',
+            vendorCustomPriceMaxPct: res.settings.vendorCustomPriceMaxPct ?? ''
           });
           // Load billing settings
           setBillingSettings({
@@ -800,6 +807,32 @@ const AdminSettings = () => {
                           <input type="number" name="quoteValidityHours" value={financialSettings.quoteValidityHours} onChange={handleFinancialChange} min="1"
                             className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all" />
                         </div>
+                      </div>
+                    </div>
+                    <div className="pt-4 border-t border-gray-100 md:col-span-2">
+                      <h4 className="text-xs font-bold text-gray-700 uppercase mb-3">Vendor Custom Pricing</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                        <div className="md:col-span-3">
+                          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                            <input type="checkbox" checked={!!financialSettings.allowVendorCustomPricing}
+                              onChange={(e) => setFinancialSettings(prev => ({ ...prev, allowVendorCustomPricing: e.target.checked }))} />
+                            Let vendors set their own service prices
+                          </label>
+                          <p className="text-[10px] text-gray-400 mt-1">
+                            Used only in the vendor booking model, when the customer picks a vendor: the booking is priced from that vendor's price and the price is locked.
+                            Without a picked vendor, bookings use the catalogue price. Off: every booking uses the catalogue price.
+                          </p>
+                        </div>
+                        {[['vendorCustomPriceMinPct', 'Lowest allowed (% of catalogue)'], ['vendorCustomPriceMaxPct', 'Highest allowed (% of catalogue)']].map(([key, label]) => (
+                          <div key={key}>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{label}</label>
+                            <input type="number" name={key} value={financialSettings[key]} min="0" placeholder="No limit"
+                              onChange={(e) => setFinancialSettings(prev => ({ ...prev, [key]: e.target.value }))}
+                              disabled={!financialSettings.allowVendorCustomPricing}
+                              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-green-500 transition-all disabled:opacity-50" />
+                            <p className="text-[10px] text-gray-400 mt-1">A vendor price outside this is clamped. Empty = no limit.</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
                     <div className="pt-4 border-t border-gray-100 md:col-span-2">

@@ -192,6 +192,24 @@ const bookingSchema = new mongoose.Schema({
     total: { type: Number, required: true, min: 0 } // price * quantity, before GST
   }],
   addOnsTotal: { type: Number, default: 0, min: 0 }, // incl. GST
+  // Service package the booking was made from (models/ServicePackage.js).
+  packageId: { type: mongoose.Schema.Types.ObjectId, ref: 'SPServicePackage', default: null },
+  // Where the price came from (services/bookingPricing.js):
+  //   client        the app's breakdown, floored at the catalogue price (default)
+  //   package       the package price, set on the server
+  //   vendor_custom the preferred vendor's VendorService.customPrice, locked at
+  //                 provider selection; it stays if another vendor takes the job
+  pricing: {
+    type: new mongoose.Schema({
+      source: { type: String, enum: ['client', 'package', 'vendor_custom'], default: 'client' },
+      packageId: { type: mongoose.Schema.Types.ObjectId, default: null },
+      packageTitle: { type: String, default: null },
+      vendorId: { type: mongoose.Schema.Types.ObjectId, default: null },
+      lines: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+      lockedAt: { type: Date, default: null }
+    }, { _id: false }),
+    default: undefined
+  },
   // Total Value of the Booking (set after bill generation)
   finalAmount: {
     type: Number,

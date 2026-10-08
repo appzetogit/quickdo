@@ -187,6 +187,20 @@ export const handleRazorpayWebhook = async (req, res) => {
  * is handled or deliberately ignored; throws only when a retry could help.
  */
 const processRazorpayEvent = async (event, payload) => {
+    /*
+     * Razorpay Subscriptions (subscription.*): today only service-provider plans
+     * (auto-renewing worker/vendor subscriptions). The SP handler ignores
+     * subscriptions it did not create and throws only when a retry could help.
+     * Its renewal payments also raise payment.captured, which finds no order
+     * below and is acknowledged.
+     */
+    if (typeof event === 'string' && event.startsWith('subscription.')) {
+        const mod = await import('../../../modules/serviceProvider/services/recurringSubscription.js');
+        const { handleSubscriptionWebhook } = mod.default || mod;
+        const result = await handleSubscriptionWebhook(event, payload);
+        logger.info(`Webhook [${event}]: ${JSON.stringify(result)}`);
+        return;
+    }
     // A plain block: the body keeps the indentation it had inside the handler's try,
     // so the history of each branch stays readable.
     {

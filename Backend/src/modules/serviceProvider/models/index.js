@@ -43,3 +43,5 @@ require('./WorkerSubscriptionPlan');
 require('./CommissionRule');
 require('./Availability');
 require('./Quote');
+require('./ServicePackage');
+require('./ProviderSubscription');

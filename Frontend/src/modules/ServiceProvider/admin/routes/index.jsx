@@ -25,6 +25,7 @@ const Notifications = lazy(() => import('../pages/Notifications'));
 const Plans = lazy(() => import('../pages/Plans/Plans'));
 const WorkerPlans = lazy(() => import('../pages/Plans/WorkerPlans'));
 const CommissionRules = lazy(() => import('../pages/CommissionRules'));
+const ServicePackages = lazy(() => import('../pages/ServicePackages'));
 const LegalSettings = lazy(() => import('../pages/LegalSettings'));
 const Scrap = lazy(() => import('../pages/Scrap'));
 const Settlements = lazy(() => import('../pages/Settlements'));
@@ -56,6 +57,7 @@ const ServiceProviderAdminRoutes = () => (
         <Route path="plans" element={<Plans />} />
         <Route path="worker-plans" element={<WorkerPlans />} />
         <Route path="commission-rules" element={<CommissionRules />} />
+        <Route path="service-packages" element={<ServicePackages />} />
         <Route path="legal/terms" element={<LegalSettings type="terms" />} />
         <Route path="legal/privacy" element={<LegalSettings type="privacy" />} />
         <Route path="legal/support" element={<LegalSettings type="support" />} />

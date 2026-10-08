@@ -246,7 +246,12 @@ const workerSchema = new mongoose.Schema({
     lastPaymentId: { type: String, default: null },
     lastOrderId: { type: String, default: null },
     // Set by services/subscriptionReminder.js so each term is reminded once.
-    reminderSentFor: { type: Date, default: null }
+    reminderSentFor: { type: Date, default: null },
+    // Auto-renewing Razorpay Subscription (services/recurringSubscription.js).
+    // Expiry reminders skip providers with autoRenew on.
+    autoRenew: { type: Boolean, default: false },
+    razorpaySubscriptionId: { type: String, default: null },
+    gatewayStatus: { type: String, default: null }
   }
 }, {
   timestamps: true

@@ -12,6 +12,18 @@ const { withTransaction, abort } = require('../../utils/withTransaction');
 const { BOOKING_STATUS, PAYMENT_STATUS, PREPAID_PAYMENT_METHODS, refundableAmountOf } = require('../../utils/constants');
 const { createNotification } = require('../notificationControllers/notificationController');
 const { sendNotificationToUser, sendNotificationToVendor, sendNotificationToWorker } = require('../../services/firebaseAdmin');
+const { loadBookablePackage, packagePricing, customPricingConfig, priceLinesForVendor, round2: roundMoney } = require('../../services/bookingPricing');
+
+/**
+ * Booking lines as { id: serviceId, qty } from the cart items, or the booked
+ * service alone. Used by the price floor and by vendor custom pricing.
+ */
+const bookingLinesOf = (bookedItems, service) => (Array.isArray(bookedItems) && bookedItems.length
+  ? bookedItems.map((it) => ({
+      id: String(it?.serviceId?._id || it?.serviceId || it?.card?.serviceId || service._id),
+      qty: Math.max(1, Math.floor(Number(it?.quantity) || 1)),
+    }))
+  : [{ id: String(service._id), qty: 1 }]);
 
 /**
  * Add-ons from the service catalogue (plan §3.4). `requested` is
@@ -87,8 +99,29 @@ const createBooking = async (req, res) => {
       requirementImages,
       // Plan §3.4: customer-chosen provider and add-ons
       preferredProviderId,
-      addOns: reqAddOns
+      addOns: reqAddOns,
+      // Service package (priced on the server from the package)
+      packageId
     } = req.body;
+
+    // A package booking: the package decides the services, the items and the
+    // price. Add-ons and plan benefits do not combine with a package.
+    let pkg = null;
+    if (packageId) {
+      if (Array.isArray(reqAddOns) && reqAddOns.length) {
+        return res.status(400).json({ success: false, message: 'addOns cannot be combined with a package; the package includes its add-ons' });
+      }
+      if (paymentMethod === 'plan_benefit') {
+        return res.status(400).json({ success: false, message: 'Plan benefits cannot be used for a package' });
+      }
+      const loaded = await loadBookablePackage(packageId);
+      if (loaded.error) {
+        return res.status(loaded.status).json({ success: false, message: loaded.error });
+      }
+      pkg = loaded.pkg;
+      serviceId = pkg.items[0].serviceId;
+      bookedItems = undefined;
+    }
 
     let visitingCharges = reqVisitingCharges ?? reqVisitationFee;
 
@@ -132,8 +165,8 @@ const createBooking = async (req, res) => {
       });
     }
 
-    // 2. Fetch Category if exists
-    const categoryId = service.categoryId || service.categoryIds?.[0];
+    // 2. Fetch Category if exists (a package's own category wins)
+    const categoryId = pkg?.categoryId || service.categoryId || service.categoryIds?.[0];
     const category = categoryId ? await Category.findById(categoryId).select('title icon image slug').lean() : null;
 
     // Add-ons picked from the service's catalogue (plan §3.4). Priced on the
@@ -154,7 +187,7 @@ const createBooking = async (req, res) => {
     // --- MOVE SEARCH UP HERE ---
     // Load Global Settings for Flow Control
     const Settings = require('../../models/Settings');
-    const globalSettings = await Settings.findOne({ type: 'global' }).select('searchRadius bookingModel preferredProviderTimeoutSec').lean();
+    const globalSettings = await Settings.findOne({ type: 'global' }).select('searchRadius bookingModel preferredProviderTimeoutSec serviceGstPercentage allowVendorCustomPricing vendorCustomPriceMinPct vendorCustomPriceMaxPct').lean();
     const bookingModel = globalSettings?.bookingModel || 'worker';
     const searchRadius = globalSettings?.searchRadius || 10;
 
@@ -314,6 +347,46 @@ const createBooking = async (req, res) => {
     }
 
     /*
+     * Prices set on the server (services/bookingPricing.js): a package, or the
+     * preferred vendor's custom prices. Either replaces the app's breakdown, so
+     * the floor below does not apply, and promo codes (never validated on the
+     * server) do not stack on them.
+     */
+    let pricingInfo = null;
+    if (pkg) {
+      const p = packagePricing(pkg, globalSettings?.serviceGstPercentage ?? 18);
+      basePrice = p.basePrice;
+      tax = p.tax;
+      discount = 0;
+      // The package price includes the visit.
+      visitingCharges = 0;
+      finalAmount = roundMoney(basePrice + tax + pendingPenalty);
+      pricingInfo = { source: 'package', packageId: pkg._id, packageTitle: pkg.title, lockedAt: new Date() };
+    } else if (!usePlanBenefits && bookingModel === 'vendor' && preferredPartner) {
+      const config = customPricingConfig(globalSettings);
+      if (config) {
+        const lines = bookingLinesOf(bookedItems, service);
+        const ids = [...new Set(lines.map((l) => l.id))].filter((id) => /^[a-f0-9]{24}$/i.test(id));
+        const catalogue = ids.length ? await Service.find({ _id: { $in: ids } }).select('basePrice gstPercentage').lean() : [];
+        const catalogById = new Map(catalogue.map((c) => [String(c._id), c]));
+        if (!catalogById.has(String(service._id))) catalogById.set(String(service._id), service);
+        const priced = await priceLinesForVendor({ lines, catalogById, vendorId: String(preferredPartner._id), config });
+        if (priced) {
+          basePrice = priced.basePrice;
+          tax = priced.tax;
+          discount = 0;
+          visitingCharges = Math.max(0, Number(visitingCharges) || 0);
+          finalAmount = roundMoney(basePrice + tax + visitingCharges + pendingPenalty);
+          pricingInfo = { source: 'vendor_custom', vendorId: preferredPartner._id, lines: priced.lines, lockedAt: new Date() };
+        }
+      }
+    }
+    if (pricingInfo) {
+      reqPromoCode = null;
+      reqPromoDiscount = 0;
+    }
+
+    /*
      * Server price floor. The amount, base, tax, discount and promo above all
      * came from the app, so a request could book a Rs 1000 service for Rs 1 --
      * and the Razorpay order was then created for that figure, so payment
@@ -330,17 +403,12 @@ const createBooking = async (req, res) => {
       finalAmount = (Number(finalAmount) || 0) + pickedAddOns.totalWithGst;
     }
 
-    if (!usePlanBenefits) {
+    if (!usePlanBenefits && !pricingInfo) {
       const nonNegative = (v) => Math.max(0, Number(v) || 0);
       visitingCharges = nonNegative(visitingCharges);
       discount = nonNegative(discount);
       tax = nonNegative(tax);
-      const lines = Array.isArray(bookedItems) && bookedItems.length
-        ? bookedItems.map((it) => ({
-            id: String(it?.serviceId?._id || it?.serviceId || it?.card?.serviceId || service._id),
-            qty: Math.max(1, Math.floor(Number(it?.quantity) || 1)),
-          }))
-        : [{ id: String(service._id), qty: 1 }];
+      const lines = bookingLinesOf(bookedItems, service);
       const ids = [...new Set(lines.map((l) => l.id))].filter((id) => /^[a-f0-9]{24}$/i.test(id));
       const catalogue = ids.length
         ? await Service.find({ _id: { $in: ids } }).select('basePrice gstPercentage').lean()
@@ -386,7 +454,7 @@ const createBooking = async (req, res) => {
     }
 
     // Map booked items to new schema (sectionTitle -> brandName)
-    const formattedBookedItems = (Array.isArray(bookedItems) && bookedItems.length > 0) ? bookedItems.map(item => ({
+    const formattedBookedItems = pkg ? packagePricing(pkg, globalSettings?.serviceGstPercentage ?? 18).bookedItems : (Array.isArray(bookedItems) && bookedItems.length > 0) ? bookedItems.map(item => ({
       brandName: item.brandName || item.sectionTitle || item.brand || '', // Robust fallback
       brandIcon: item.brandIcon || item.sectionIcon || item.icon || null,
       card: item.card || item,
@@ -435,6 +503,8 @@ const createBooking = async (req, res) => {
       bookedItems: formattedBookedItems,
       addOns: pickedAddOns.items,
       addOnsTotal: pickedAddOns.totalWithGst,
+      packageId: pkg?._id || null,
+      ...(pricingInfo ? { pricing: pricingInfo } : {}),
       ...(preferredStatus ? {
         preferredOffer: {
           providerType: bookingModel,
@@ -526,6 +596,8 @@ const createBooking = async (req, res) => {
         addOns: booking.addOns,
         addOnsTotal: booking.addOnsTotal,
         preferredOffer: booking.preferredOffer?.status ? booking.preferredOffer : null,
+        packageId: booking.packageId || null,
+        pricing: booking.pricing?.source ? booking.pricing : { source: 'client' },
       }
     });
 

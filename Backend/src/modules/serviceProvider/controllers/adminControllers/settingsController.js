@@ -78,6 +78,28 @@ const applyProviderSettings = (settings, body = {}) => {
     if (!Number.isFinite(n) || n < min) return { error: `${key} must be a number of ${min} or more` };
     set(key, n);
   }
+  // Vendor custom pricing (services/bookingPricing.js)
+  if (body.allowVendorCustomPricing !== undefined) {
+    set('allowVendorCustomPricing', body.allowVendorCustomPricing === true || body.allowVendorCustomPricing === 'true');
+  }
+  const bounds = {};
+  for (const key of ['vendorCustomPriceMinPct', 'vendorCustomPriceMaxPct']) {
+    if (body[key] === undefined) continue;
+    if (body[key] === null || body[key] === '') {
+      bounds[key] = null;
+      set(key, null);
+      continue;
+    }
+    const n = Number(body[key]);
+    if (!Number.isFinite(n) || n < 0) return { error: `${key} must be a percentage of 0 or more, or empty for no bound` };
+    bounds[key] = n;
+    set(key, n);
+  }
+  const min = bounds.vendorCustomPriceMinPct !== undefined ? bounds.vendorCustomPriceMinPct : settings?.vendorCustomPriceMinPct;
+  const max = bounds.vendorCustomPriceMaxPct !== undefined ? bounds.vendorCustomPriceMaxPct : settings?.vendorCustomPriceMaxPct;
+  if (min !== null && min !== undefined && max !== null && max !== undefined && min > max) {
+    return { error: 'vendorCustomPriceMinPct cannot be above vendorCustomPriceMaxPct' };
+  }
   return { changed };
 };
 exports.VERIFICATION_ITEMS = VERIFICATION_ITEMS;

@@ -105,6 +105,26 @@ const settingsSchema = new mongoose.Schema({
     default: 72,
     min: 1
   },
+  // Vendor custom pricing (VendorService.customPrice). Off by default: every
+  // booking is priced from the catalogue. When on, a booking made with
+  // preferredProviderId for a vendor is priced from that vendor's custom prices
+  // and the price is locked there (it does not change if another vendor ends up
+  // taking the job). The bounds are % of the catalogue price; a custom price
+  // outside them is clamped. null = no bound.
+  allowVendorCustomPricing: {
+    type: Boolean,
+    default: false
+  },
+  vendorCustomPriceMinPct: {
+    type: Number,
+    default: null,
+    min: 0
+  },
+  vendorCustomPriceMaxPct: {
+    type: Number,
+    default: null,
+    min: 0
+  },
   tdsPercentage: {
     type: Number,
     default: 1, // 1% default TDS u/s 194-O

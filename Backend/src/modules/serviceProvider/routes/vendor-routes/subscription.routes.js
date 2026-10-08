@@ -18,6 +18,12 @@ router.post('/create-order', authenticate, isVendor, createSubscriptionOrder);
 // POST /api/vendors/subscription/verify-payment → Verify & activate
 router.post('/verify-payment', authenticate, isVendor, verifySubscriptionPayment);
 
+// Auto-renewing Razorpay Subscription (plan §3.2): start, read, cancel.
+const recurringCtl = require('../../controllers/paymentControllers/recurringSubscriptionController');
+router.post('/recurring', authenticate, isVendor, recurringCtl.createRecurringSubscription);
+router.get('/recurring', authenticate, isVendor, recurringCtl.getRecurringSubscription);
+router.post('/recurring/cancel', authenticate, isVendor, recurringCtl.cancelRecurringSubscription);
+
 /**
  * GET /api/vendors/subscription/plans
  * Active plans a vendor can buy
@@ -45,7 +51,10 @@ router.get('/status', authenticate, isVendor, async (req, res) => {
       data: {
         isActive: isSubscriptionActive(vendor.subscription),
         expiryDate: vendor.subscription?.expiryDate || null,
-        planName: vendor.subscription?.planName || null
+        planName: vendor.subscription?.planName || null,
+        autoRenew: Boolean(vendor.subscription?.autoRenew),
+        gatewayStatus: vendor.subscription?.gatewayStatus || null,
+        razorpaySubscriptionId: vendor.subscription?.razorpaySubscriptionId || null
       }
     });
   } catch (error) {

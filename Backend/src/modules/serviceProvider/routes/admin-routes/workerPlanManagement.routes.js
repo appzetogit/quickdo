@@ -18,6 +18,11 @@ router.route('/')
   .get(getAllPlans)
   .post(createPlan);
 
+// Auto-renewing subscriptions (plan §3.2)
+const recurringCtl = require('../../controllers/paymentControllers/recurringSubscriptionController');
+router.get('/provider-subscriptions', recurringCtl.listProviderSubscriptions);
+router.post('/:id/sync-razorpay', recurringCtl.syncPlanToRazorpay);
+
 router.route('/:id')
   .get(getPlan)
   .put(updatePlan)

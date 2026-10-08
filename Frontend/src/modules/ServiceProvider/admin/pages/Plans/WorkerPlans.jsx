@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import api from '@sp/services/api';
-import { FiPlus, FiEdit2, FiTrash2, FiCheck, FiX, FiInfo, FiClock, FiTag } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiCheck, FiX, FiInfo, FiClock, FiTag, FiRefreshCw } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
 import { getSettings } from '../../services/settingsService';
+
+const BILLING_LABELS = {
+  one_time: 'One-time payment',
+  recurring: 'Auto-renewing',
+  both: 'One-time or auto-renewing'
+};
 
 const WorkerPlans = () => {
   const [plans, setPlans] = useState([]);
@@ -15,13 +21,44 @@ const WorkerPlans = () => {
     price: '',
     durationDays: 30,
     isActive: true,
-    providerType: 'all'
+    providerType: 'all',
+    billingMode: 'one_time'
   });
+  // Auto-renewing Razorpay subscriptions (plan §3.2)
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [paymentsConfigured, setPaymentsConfigured] = useState(true);
+  const [syncingId, setSyncingId] = useState(null);
   // New plans start at the configured monthly subscription (Settings > Financial).
   const [defaultPrice, setDefaultPrice] = useState(1000);
 
+  const fetchSubscriptions = async () => {
+    try {
+      const res = await api.get('/admin/worker-plans/provider-subscriptions');
+      if (res.data.success) {
+        setSubscriptions(res.data.data || []);
+        setPaymentsConfigured(res.data.paymentsConfigured !== false);
+      }
+    } catch (error) {
+      console.error('Fetch provider subscriptions failed', error);
+    }
+  };
+
+  const handleSync = async (plan) => {
+    setSyncingId(plan._id);
+    try {
+      const res = await api.post(`/admin/worker-plans/${plan._id}/sync-razorpay`);
+      toast.success(res.data.message || 'Plan synced');
+      fetchPlans();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Sync failed');
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
   useEffect(() => {
     fetchPlans();
+    fetchSubscriptions();
     getSettings()
       .then((res) => { if (res?.settings?.subscriptionPrice !== undefined) setDefaultPrice(res.settings.subscriptionPrice); })
       .catch(() => {});
@@ -82,7 +119,8 @@ const WorkerPlans = () => {
       price: plan.price,
       durationDays: plan.durationDays,
       isActive: plan.isActive,
-      providerType: plan.providerType || 'all'
+      providerType: plan.providerType || 'all',
+      billingMode: plan.billingMode || 'one_time'
     });
     setIsModalOpen(true);
   };
@@ -107,7 +145,8 @@ const WorkerPlans = () => {
       price: defaultPrice,
       durationDays: 30,
       isActive: true,
-      providerType: 'all'
+      providerType: 'all',
+      billingMode: 'one_time'
     });
     setIsModalOpen(true);
   };
@@ -151,6 +190,17 @@ const WorkerPlans = () => {
                   <span className="text-gray-500 text-sm">/ {plan.durationDays} days</span>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2 mb-4 text-xs">
+                  <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 font-semibold">
+                    {BILLING_LABELS[plan.billingMode || 'one_time']}
+                  </span>
+                  {plan.billingMode && plan.billingMode !== 'one_time' && (
+                    <span className={`px-2 py-1 rounded-full font-semibold ${plan.razorpayPlan?.id ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {plan.razorpayPlan?.id ? `Razorpay ${plan.razorpayPlan.id}` : 'Not synced to Razorpay'}
+                    </span>
+                  )}
+                </div>
+
                 <p className="text-gray-600 text-sm mb-6 line-clamp-3">
                   {plan.description || 'No description provided.'}
                 </p>
@@ -168,6 +218,17 @@ const WorkerPlans = () => {
               </div>
 
               <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+                {plan.billingMode && plan.billingMode !== 'one_time' && (
+                  <button
+                    onClick={() => handleSync(plan)}
+                    disabled={syncingId === plan._id}
+                    className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                    title="Sync to Razorpay"
+                    aria-label="Sync to Razorpay"
+                  >
+                    <FiRefreshCw className={`w-5 h-5 ${syncingId === plan._id ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
                 <button
                   onClick={() => handleEdit(plan)}
                   className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -194,6 +255,59 @@ const WorkerPlans = () => {
           )}
         </div>
       )}
+
+      {/* Auto-renewing subscriptions */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">Auto-renewing subscriptions</h2>
+            <p className="text-sm text-gray-500">Razorpay subscriptions providers started from an auto-renewing plan</p>
+          </div>
+          {!paymentsConfigured && (
+            <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold">Razorpay keys not set: providers cannot start one</span>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          {subscriptions.length === 0 ? (
+            <div className="p-8 text-center text-gray-400 text-sm">No auto-renewing subscriptions yet</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                <tr>
+                  <th className="px-4 py-3 text-left">Provider</th>
+                  <th className="px-4 py-3 text-left">Plan</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Auto-renew</th>
+                  <th className="px-4 py-3 text-left">Paid cycles</th>
+                  <th className="px-4 py-3 text-left">Active until</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {subscriptions.map((s) => (
+                  <tr key={s._id}>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-800">{s.providerName || '-'}</div>
+                      <div className="text-xs text-gray-400 capitalize">{s.providerType}{s.providerPhone ? ` · ${s.providerPhone}` : ''}</div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{s.planTitle || '-'}</td>
+                    <td className="px-4 py-3">
+                      <span className="capitalize text-gray-700">{s.status}</span>
+                      {s.cancelAtCycleEnd && s.status !== 'cancelled' && <div className="text-xs text-amber-600">Ends at cycle end</div>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${s.autoRenew ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {s.autoRenew ? 'ON' : 'OFF'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{s.paidCount}{s.totalCount ? ` / ${s.totalCount}` : ''}</td>
+                    <td className="px-4 py-3 text-gray-700">{s.expiryDate ? new Date(s.expiryDate).toLocaleDateString('en-IN') : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
 
       {/* Modal */}
       {isModalOpen && (
@@ -259,6 +373,23 @@ const WorkerPlans = () => {
                   <option value="worker">Workers only</option>
                   <option value="vendor">Vendors only</option>
                 </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold text-gray-700">Billing</label>
+                <select
+                  name="billingMode"
+                  value={formData.billingMode}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                >
+                  <option value="one_time">One-time payment per term</option>
+                  <option value="recurring">Auto-renewing (Razorpay subscription)</option>
+                  <option value="both">Provider chooses</option>
+                </select>
+                {formData.billingMode !== 'one_time' && (
+                  <p className="text-xs text-gray-400">Auto-renewing plans need at least 7 days and are synced to Razorpay on first use. A price change creates a new Razorpay plan; running subscriptions keep their price.</p>
+                )}
               </div>
 
               <div className="space-y-1.5">

@@ -43,6 +43,10 @@ exports.createSubscriptionOrder = async (req, res) => {
     if (!planOpenTo(plan, provider.type)) {
       return res.status(400).json({ success: false, message: `This plan is not available for ${provider.type}s` });
     }
+    // Plans sold only as auto-renewing subscriptions go through POST /subscription/recurring.
+    if (plan.billingMode === 'recurring') {
+      return res.status(400).json({ success: false, code: 'RECURRING_ONLY', message: 'This plan renews automatically. Start it with POST /subscription/recurring.' });
+    }
 
     const worker = await provider.Model.findById(workerId).select('name businessName phone');
     if (!worker) {

@@ -377,6 +377,8 @@ const getQRCodePayments = async (id) => {
 };
 
 module.exports = {
+  // The SDK client, or undefined without keys (services/recurringSubscription.js).
+  getRazorpay,
   createOrder,
   verifyPayment,
   getOrderDetails,

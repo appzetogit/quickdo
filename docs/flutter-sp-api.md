@@ -1,5 +1,7 @@
 # Service Provider API: changes for the Flutter apps (SOW plan §3.2–3.6)
 
+New in this revision: service packages (§6), vendor custom pricing (§7) and auto-renewing provider subscriptions (§8). `POST /users/bookings` and `GET /users/providers` gained fields for them (§2).
+
 This document lists every endpoint that is new or has changed for the customer, vendor and worker apps.
 
 - **Base URL:** `https://<host>/api/v1/sp`. The legacy `/api/...` prefixes still work.
@@ -232,13 +234,14 @@ All of the availability write endpoints return the same `data` shape as GET.
 
 ## 2. Booking (customer app)
 
-### GET `/users/providers?categoryId=&lat=&lng=&date=YYYY-MM-DD&time=HH:mm`
+### GET `/users/providers?categoryId=&lat=&lng=&date=YYYY-MM-DD&time=HH:mm&serviceId=`
 
 Lists the providers the customer can choose from. Results are ranked by rating (60%) and closeness (40%).
 
 - Only eligible providers are listed: approved, active, on duty (workers), subscribed, within their service radius, and available at the slot.
 - Leave out `date` to check the current time.
 - `providerType` is `vendor` or `worker`, depending on the admin's `bookingModel`.
+- **New:** with `serviceId`, each provider also has `price` (before GST), `catalogPrice` and `priceSource` (`vendor_custom` or `catalog`). This is the price a booking with this provider as `preferredProviderId` is locked at (§7). Show it next to the provider.
 
 ```json
 { "success": true,
@@ -299,6 +302,24 @@ New fields in the response:
 | `unavailable` | The preferred provider was not eligible, so the booking went straight to the waves |
 
 `preferredOffer` is `null` when no preferred provider was given.
+
+**New fields:**
+
+- **`packageId`** (instead of `serviceId`): book a service package (§6). `serviceId` may be left out.
+- The response `data` now has `packageId` (or `null`) and `pricing`:
+
+```json
+"pricing": { "source": "vendor_custom", "vendorId": "66v...", "lockedAt": "...",
+             "lines": [{ "serviceId": "66s...", "quantity": 1, "catalogPrice": 500, "price": 350, "source": "vendor_custom" }] }
+```
+
+| `pricing.source` | Meaning |
+|---|---|
+| `client` | As before: the app's breakdown, never below the catalogue price plus GST |
+| `package` | Priced from the package on the server (§6). The app's `amount`, `basePrice`, `tax`, `discount` and promo are ignored. |
+| `vendor_custom` | Priced from the chosen vendor's own prices and locked (§7). The app's figures and promo are ignored. |
+
+Always show `data.finalAmount` from the response as the amount to pay.
 
 ### GET `/users/bookings/:id` (changed)
 
@@ -469,3 +490,141 @@ The default range is the last 30 days for `daily`, 12 weeks for `weekly` and 12 
 ### GET `/workers/stats` (changed)
 
 The response now also includes `earningsBreakdown: { today, thisWeek, thisMonth }`.
+
+---
+
+## 6. Service packages (customer app)
+
+A package bundles several services and/or add-ons at one price set by the admin, for example "AC deep clean + gas top-up + 2 filters". Packages belong to a category and may have a sale window.
+
+### GET `/users/packages?categoryId=` (also GET `/public/packages?categoryId=`, no sign-in)
+
+Lists the packages on sale now (active and inside `validFrom`/`validTo`), ordered by the admin's sort order, then price. Leave out `categoryId` for all categories.
+
+```json
+{ "success": true, "data": [{
+  "_id": "66p...", "title": "AC complete care", "description": "...", "imageUrl": null, "categoryId": "66c...",
+  "items": [
+    { "serviceId": "66s1...", "addOnId": null, "name": "AC service", "quantity": 1, "unitPrice": 500 },
+    { "serviceId": "66s2...", "addOnId": null, "name": "Gas top-up", "quantity": 1, "unitPrice": 1500 },
+    { "serviceId": "66s1...", "addOnId": "66ad...", "name": "Filter replacement", "quantity": 2, "unitPrice": 200 }
+  ],
+  "price": 1800, "gstPercentage": 18, "tax": 324, "totalWithGst": 2124,
+  "catalogValue": 2400, "savings": 600, "validFrom": null, "validTo": null
+}] }
+```
+
+- `unitPrice` and `catalogValue` show what the items cost separately; they never price a booking.
+- `gstPercentage` is the package's own, or the platform service GST.
+
+### Booking a package
+
+`POST /users/bookings` with `packageId` instead of `serviceId` (address, schedule and payment method as usual):
+
+- The price is `price` + GST. The visit is included (`visitingCharges` is 0). Promo codes do not apply.
+- The items are expanded into `bookedItems` (the package price split across them in proportion to `unitPrice`), so the provider sees every item.
+- The booking goes to providers of the package's category. `serviceId` on the booking is the first item's service.
+- `addOns` cannot be combined with a package (400): the package includes its add-ons. `paymentMethod: "plan_benefit"` is refused (400).
+- An unknown package returns 404; one that is inactive or outside its sale window returns 400.
+- The commission engine treats the package price like any booking price (threshold, rules, snapshot).
+
+### Admin (web)
+
+`/admin/service-packages`: GET (list, `?categoryId=&active=`), POST, GET/PUT/DELETE `/:id`, PATCH `/:id/toggle { active }`. Body: `{ title, description, imageUrl, categoryId, price, gstPercentage|null, validFrom, validTo, active, sortOrder, items: [{ serviceId, addOnId?, quantity }] }`. Item names and unit prices are taken from the catalogue. Deleting or editing a package never changes bookings already made.
+
+---
+
+## 7. Vendor custom pricing
+
+Vendors can set their own price per catalogue service. The admin decides whether those prices are used (`allowVendorCustomPricing`, **off** by default) and can bound them (`vendorCustomPriceMinPct` / `vendorCustomPriceMaxPct`, % of the catalogue price; a price outside is clamped; empty = no bound).
+
+**The pricing rule (what the customer sees is what is charged):**
+
+- **The customer picks a vendor** (`preferredProviderId`, booking model `vendor`, setting on): the booking is priced from that vendor's prices (catalogue price for services they have no price for) and the price is **locked** on the booking (`pricing.source: "vendor_custom"`). If the vendor lets the offer lapse and another vendor takes the job, the customer still pays the locked price.
+- **Otherwise** (no chosen vendor, setting off, worker model, or the vendor has no price for the service): the catalogue price, as before. Acceptance never reprices a booking.
+- A package price (§6) always wins over vendor prices.
+
+GET `/users/providers?...&serviceId=` returns each vendor's `price` under the same rule, so the app can show it before booking.
+
+### Vendor app
+
+**PUT `/vendors/services/:serviceId/pricing`**
+
+Body: `{ "customPrice": 450 }`. Send `null` to go back to the catalogue price. `basePrice` is still accepted as an old name for `customPrice`.
+
+> **Changed:** this endpoint used to overwrite the shared catalogue price for every customer and vendor. It now stores only this vendor's price. Likewise **PUT `/vendors/services/:serviceId/availability`** now switches the service off for this vendor only (their custom price is then not used); it no longer changes the catalogue.
+
+```json
+{ "success": true, "message": "Your price for this service is saved",
+  "data": { "_id": "66s...", "title": "AC service", "basePrice": 500, "customPrice": 450,
+            "isAvailableForVendor": true, "effectivePrice": 450, "customPricingEnabled": true } }
+```
+
+`effectivePrice` is what a customer who picks this vendor pays before GST under the current settings. While the admin setting is off, the message says the price applies once vendor pricing is enabled, and `effectivePrice` is the catalogue price.
+
+**GET `/vendors/services`** now includes `customPrice`, `isAvailableForVendor`, `effectivePrice` and `customPricingEnabled` on each service.
+
+---
+
+## 8. Auto-renewing provider subscriptions (vendor and worker)
+
+Plans now have `billingMode`:
+
+| `billingMode` | How it is bought |
+|---|---|
+| `one_time` (default) | As before: `POST /subscription/create-order`, Razorpay, `POST /subscription/verify-payment`. One term per payment. |
+| `recurring` | Only as an auto-renewing Razorpay Subscription (below). `create-order` returns 400 `RECURRING_ONLY`. |
+| `both` | Either; let the provider choose. |
+
+GET `/subscription/plans` returns `billingMode` on each plan.
+
+### POST `/{vendors|workers}/subscription/recurring`
+
+Body: `{ "planId": "66pl..." }`.
+
+```json
+{ "success": true, "data": {
+  "subscriptionId": "sub_N...", "keyId": "rzp_live_...", "status": "created", "shortUrl": "https://rzp.io/i/...",
+  "planId": "66pl...", "planTitle": "Monthly auto-renew", "amount": 100000, "currency": "INR", "durationDays": 30,
+  "firstChargeAt": null, "name": "Ravi", "phone": "9876543210", "email": "ravi@example.com"
+} }
+```
+
+- Open Razorpay Checkout with `key: keyId` and `subscription_id: subscriptionId` (not `order_id`). `amount` is in paise.
+- 201 for a new subscription; 200 when an unfinished checkout for the same plan is handed back.
+- `firstChargeAt` is set when a one-time term is still running: the provider authorises now and is first charged when that term ends.
+- Errors: 400 `ONE_TIME_ONLY` (plan is one-time), 400 (plan inactive, not for this role, shorter than 7 days), 409 `ALREADY_SUBSCRIBED`, **503 `PAYMENTS_NOT_CONFIGURED`** `{ "message": "Payments not configured" }` when the server has no Razorpay keys (the case on the current server).
+
+**There is no verify call.** The server activates the subscription from Razorpay's webhooks. After Checkout, poll **GET `/subscription/status`** until `isActive` is true and `autoRenew` is true (usually seconds).
+
+### GET `/{vendors|workers}/subscription/recurring`
+
+```json
+{ "success": true, "paymentsConfigured": true, "data": {
+  "subscriptionId": "sub_N...", "planTitle": "Monthly auto-renew", "status": "active", "paidCount": 3, "totalCount": 120,
+  "currentStart": "...", "currentEnd": "...", "cancelAtCycleEnd": false, "shortUrl": "..."
+} }
+```
+
+`data` is `null` when the provider never started one. Hide the auto-renew option when `paymentsConfigured` is false.
+
+### POST `/{vendors|workers}/subscription/recurring/cancel`
+
+Body: `{ "atCycleEnd": true }` (default). Auto-renew stops; the days already paid for stay active either way. `atCycleEnd: false` cancels the gateway subscription at once. 404 when there is nothing to cancel; 503 without Razorpay keys.
+
+### GET `/{vendors|workers}/subscription/status` (changed)
+
+Also returns `autoRenew` (boolean), `gatewayStatus` (`authenticated`, `active`, `pending`, `halted`, `cancelled`, `completed` or `null`) and `razorpaySubscriptionId`.
+
+### What the server does with the webhooks
+
+| Event | Effect |
+|---|---|
+| `subscription.authenticated`, `subscription.activated` | `autoRenew` on |
+| `subscription.charged` | One more term: `expiryDate` becomes the end of the paid cycle. Booked as the platform fee + remainder, like one-time payments. Each payment counts once. |
+| `subscription.pending` | A renewal charge failed and is being retried; nothing changes yet |
+| `subscription.halted`, `cancelled`, `completed` | `autoRenew` off; the paid term runs to its `expiryDate`, then the usual expiry applies |
+
+Expiry reminders (`subscription_expiring`) are not sent while `autoRenew` is on.
+
+**Setup (ops):** the Razorpay webhook must include the `subscription.*` events. Admin → Worker Plans can sync a plan to Razorpay ahead of time (it also happens on first use). Changing a plan's price or duration creates a new Razorpay plan for new subscriptions; running ones keep their price.

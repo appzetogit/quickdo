@@ -155,6 +155,15 @@
     "children": []
   },
   {
+    "title": "Service Packages",
+    "route": "/admin/sp/service-packages",
+    "allowedRoles": [
+      "super_admin",
+      "admin"
+    ],
+    "children": []
+  },
+  {
     "title": "Legal",
     "route": "/admin/sp/legal",
     "allowedRoles": [

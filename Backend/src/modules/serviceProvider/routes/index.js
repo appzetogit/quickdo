@@ -23,6 +23,8 @@ router.use('/users/auth', require('./user-routes/auth.routes'));
 // Provider selection and the quote flow (plan §3.4)
 router.use('/users/providers', require('../controllers/userControllers/providerSearchController').buildRouter());
 router.use('/users/quotes', require('../controllers/bookingControllers/quoteController').buildUserRouter());
+// Service packages on sale (book with POST /users/bookings { packageId })
+router.use('/users/packages', require('../controllers/adminControllers/servicePackageController').buildUserRouter());
 router.use('/users', require('./user-routes/profile.routes'));
 router.use('/user/wallet', require('./user-routes/userWallet.routes'));
 router.use('/users/bookings', require('./user-routes/booking.routes'));
@@ -79,6 +81,7 @@ router.use('/admin', require('./admin-routes/upload.routes'));
 router.use('/admin', require('./admin-routes/planManagement.routes'));
 router.use('/admin/worker-plans', require('./admin-routes/workerPlanManagement.routes'));
 router.use('/admin/commission-rules', require('./admin-routes/commissionRules.routes'));
+router.use('/admin/service-packages', require('../controllers/adminControllers/servicePackageController').buildAdminRouter());
 router.use('/admin', require('./admin-routes/settings.routes'));
 router.use('/admin', require('./admin-routes/reviewManagement.routes'));
 router.use('/admin', require('./admin-routes/reportManagement.routes'));
@@ -103,6 +106,7 @@ router.use('/payments', require('./payment-routes/payment.routes'));
 router.use('/notifications', require('./notification.routes'));
 
 // ─── Public (catalog / plans / config) ─────────────────────────────────────
+router.use('/public/packages', require('../controllers/adminControllers/servicePackageController').buildPublicRouter());
 router.use('/public', require('./public-routes/catalog.routes'));
 router.use('/public', require('./public-routes/plan.routes'));
 router.use('/public', require('./public-routes/config.routes'));

@@ -56,7 +56,9 @@ const recordSubscriptionPayment = async ({
   referenceId,
   orderId,
   plan,
-  expiryDate
+  expiryDate,
+  // Extra metadata on both rows, e.g. { subscriptionId, invoiceId, recurring: true }
+  extraMetadata = {}
 }) => {
   const cfg = await subscriptionSettings(session);
   const { fee, remainder } = splitSubscription(amount, cfg.platformFee);
@@ -66,7 +68,8 @@ const recordSubscriptionPayment = async ({
     planId: plan?._id,
     expiryDate,
     providerType,
-    grossAmount: Number(amount) || 0
+    grossAmount: Number(amount) || 0,
+    ...extraMetadata
   };
 
   const rows = [{

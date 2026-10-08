@@ -27,6 +27,8 @@ const sendSubscriptionReminders = async ({ now = new Date(), days = REMIND_DAYS 
   for (const [Model, field, label] of [[Worker, 'workerId', 'worker'], [Vendor, 'vendorId', 'vendor']]) {
     const due = await Model.find({
       'subscription.isActive': true,
+      // An auto-renewing subscription renews itself; no reminder (plan §3.2).
+      'subscription.autoRenew': { $ne: true },
       'subscription.expiryDate': { $gt: now, $lte: horizon }
     }).select('subscription').limit(500).lean();
 

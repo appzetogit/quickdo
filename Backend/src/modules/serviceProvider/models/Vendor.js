@@ -274,7 +274,11 @@ const vendorSchema = new mongoose.Schema({
     durationDays: { type: Number, default: null },
     lastPaymentId: { type: String, default: null },
     lastOrderId: { type: String, default: null },
-    reminderSentFor: { type: Date, default: null }
+    reminderSentFor: { type: Date, default: null },
+    // Auto-renewing Razorpay Subscription (services/recurringSubscription.js).
+    autoRenew: { type: Boolean, default: false },
+    razorpaySubscriptionId: { type: String, default: null },
+    gatewayStatus: { type: String, default: null }
   }
 }, {
   timestamps: true

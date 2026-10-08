@@ -14,9 +14,10 @@ const updateAvailabilityValidation = [
   body('isAvailable').isBoolean().withMessage('isAvailable must be a boolean')
 ];
 
+// customPrice: the vendor's own price (null clears it). basePrice is the old name.
 const setPricingValidation = [
-  body('basePrice').optional().isFloat({ min: 0 }).withMessage('Base price must be a positive number'),
-  body('discountPrice').optional().isFloat({ min: 0 }).withMessage('Discount price must be a positive number')
+  body('customPrice').optional({ nullable: true }).isFloat({ min: 0 }).withMessage('customPrice must be a positive number'),
+  body('basePrice').optional({ nullable: true }).isFloat({ min: 0 }).withMessage('Base price must be a positive number')
 ];
 
 // Routes

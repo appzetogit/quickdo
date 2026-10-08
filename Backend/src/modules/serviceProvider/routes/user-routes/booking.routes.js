@@ -15,7 +15,9 @@ const {
 
 // Validation rules
 const createBookingValidation = [
-  body('serviceId').isMongoId().withMessage('Valid service ID is required'),
+  // A package booking takes its services from the package (packageId instead of serviceId).
+  body('packageId').optional({ values: 'falsy' }).isMongoId().withMessage('Valid package ID is required'),
+  body('serviceId').if((value, { req }) => !req.body?.packageId).isMongoId().withMessage('Valid service ID is required'),
   body('vendorId').optional().custom((value) => {
     if (value && !/^[0-9a-fA-F]{24}$/.test(value)) {
       throw new Error('Valid vendor ID is required');

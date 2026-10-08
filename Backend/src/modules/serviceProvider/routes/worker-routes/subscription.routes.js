@@ -13,6 +13,12 @@ router.post('/create-order', authenticate, isWorker, createSubscriptionOrder);
 // POST /api/workers/subscription/verify-payment → Verify & activate
 router.post('/verify-payment', authenticate, isWorker, verifySubscriptionPayment);
 
+// Auto-renewing Razorpay Subscription (plan §3.2): start, read, cancel.
+const recurringCtl = require('../../controllers/paymentControllers/recurringSubscriptionController');
+router.post('/recurring', authenticate, isWorker, recurringCtl.createRecurringSubscription);
+router.get('/recurring', authenticate, isWorker, recurringCtl.getRecurringSubscription);
+router.post('/recurring/cancel', authenticate, isWorker, recurringCtl.cancelRecurringSubscription);
+
 /**
  * GET /api/workers/subscription/plans
  * Fetch all active subscription plans (for workers to browse & buy)
@@ -47,6 +53,9 @@ router.get('/status', authenticate, isWorker, async (req, res) => {
         isActive,
         expiryDate: worker.subscription?.expiryDate || null,
         planName: worker.subscription?.planName || null,
+        autoRenew: Boolean(worker.subscription?.autoRenew),
+        gatewayStatus: worker.subscription?.gatewayStatus || null,
+        razorpaySubscriptionId: worker.subscription?.razorpaySubscriptionId || null,
         walletBalance: worker.wallet?.balance || 0
       }
     });

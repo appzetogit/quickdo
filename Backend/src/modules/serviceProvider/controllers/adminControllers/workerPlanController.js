@@ -44,6 +44,7 @@ exports.createPlan = async (req, res) => {
     // Price defaults to the configured monthly subscription (Settings.subscriptionPrice,
     // seeded at ₹1,000 per D7) instead of a literal.
     const body = { ...req.body };
+    delete body.razorpayPlan; // written only by the Razorpay sync
     if (body.price === undefined || body.price === null || body.price === '') {
       const settings = await Settings.findOne({ type: 'global' }).select('subscriptionPrice').lean();
       body.price = settings?.subscriptionPrice ?? 1000;
@@ -66,7 +67,11 @@ exports.createPlan = async (req, res) => {
  */
 exports.updatePlan = async (req, res) => {
   try {
-    const plan = await WorkerSubscriptionPlan.findByIdAndUpdate(req.params.id, req.body, {
+    // razorpayPlan is written only by the sync; a changed price or duration is
+    // picked up on the next sync (a new Razorpay plan; running subscriptions
+    // stay on the old one, as Razorpay plans cannot be edited).
+    const { razorpayPlan, ...changes } = req.body || {};
+    const plan = await WorkerSubscriptionPlan.findByIdAndUpdate(req.params.id, changes, {
       new: true,
       runValidators: true
     });

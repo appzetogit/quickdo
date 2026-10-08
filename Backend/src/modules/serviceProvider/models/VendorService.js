@@ -9,7 +9,8 @@ const vendorServiceSchema = new mongoose.Schema({
   },
   serviceId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'SPService',
+    // Catalogue services customers book are SPUserService (models/UserService.js).
+    ref: 'SPUserService',
     required: true,
     index: true
   },
