@@ -11,6 +11,8 @@ import { listMyOrders } from './myOrders.service.js';
  *   ?state=ongoing|past
  *   ?before=<ISO date from nextBefore>   next page
  *   ?limit=1..50                         default 20
+ *   ?groupByParent=false                 QC multi-store children listed one by one
+ *                                        (default: one entry per MSO- checkout with `children`)
  */
 const router = express.Router();
 

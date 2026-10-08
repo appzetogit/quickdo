@@ -112,6 +112,9 @@ If one store cannot take its part (for example it went offline), the whole check
 - `GET /orders?groupByParent=true` lists a multi-store checkout as one entry: `{ isMultiStore: true, parentOrderId, orderId: "MSO-…", status, pricing, payment, createdAt, children: [orders] }`. Single-store orders keep their usual shape.
 - `GET /orders/parent/:parentId` (id or `MSO-` number) returns the parent with all children.
 - `GET /orders/:orderId` on a child adds `parentOrder: { parentOrderId, orderNumber, status, pricing, payment, siblings: [{ orderId, orderNumber, storeId, total }] }`.
+- The cross-service **My Orders** list (`GET /api/v1/platform/me/orders`, platform customer token) now shows a multi-store checkout as **one entry** by default:
+  `{ key: "quick:parent:<parentId>", id: <parentId>, service: "quick", number: "MSO-…", title: "Daily Needs & Bake House", subtitle: "2 stores · 2 × Milk", amount: <parent total>, state, statusLabel, createdAt, route: <first child's route>, isMultiStore: true, parentOrderId, fulfilmentType, children: [<the usual My Orders row for each store's order>] }`.
+  `state` is `ongoing` while any store's part is ongoing, `completed` once none is ongoing and at least one was delivered, else `cancelled`. `statusLabel` is the shared label, `In progress` when the stores differ, or `Delivered (1 of 2 stores)`. The entry sorts at its latest child's time and is never split or repeated across `nextBefore` pages. Single-store orders and the other services are unchanged. Send `?groupByParent=false` to get the old flat list (each child on its own).
 
 ### Cancelling and refunds
 
@@ -309,6 +312,8 @@ Send `"loyaltyPoints": <n>` with `/orders/calculate` and `/orders`. The server r
 
 Definitions: **returning** customers also ordered before the range; **repeat** customers ordered at least twice inside the range. Phone numbers are masked. `?topCustomers=20` changes the list size (maximum 50).
 
+The same object (`totalCustomers`, `newCustomers`, `returningCustomers`, `repeatCustomers`, `repeatRatePercent`, `topCustomers`) is also returned as `customerInsights` by `GET /restaurant/analytics/sales` (§11), for the range asked there.
+
 ---
 
 ## 10. Delivery app: QC orders (§5.10)
@@ -324,6 +329,30 @@ The delivery app keeps using the food rider endpoints. QC orders appear in the s
 ```
 
 Show "Store" instead of "Restaurant" and the pick list at pickup. Pickup orders are never offered to riders. Scheduled orders are offered only from the slot's rider-search time; before that, accepting one returns `400 This is a scheduled order…`. For the proof-of-delivery photo see §4.
+
+---
+
+## 11. Store app: sales analytics, reports and settlement statements
+
+The food restaurant endpoints (SOW 6.1-6.3, [flutter-food-api.md](./flutter-food-api.md)) now exist for stores too, under `/api/v1/qc/restaurant`, with the **same requests and the same response shapes**. They run the same code (`core/reports/storeReports.service.js`) on the QC collections, so one set of screens serves both.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /restaurant/analytics/sales?from&to&groupBy=day\|week\|month` | `{ range, totals, series[], empty }` as on food, plus `customerInsights` (§9). Up to 731 days. |
+| `GET /restaurant/reports?type=orders\|sales\|commission\|gst\|payouts&format=csv\|pdf&from&to[&groupBy]` | Returns the file (CSV or PDF), not JSON. Up to 366 days. |
+| `GET /restaurant/settlements?limit=6` | Cycles newest first, totals only. |
+| `GET /restaurant/settlements/:cycleId` | One cycle (`2026-09` = 15 Sep to 14 Oct, IST) with `restaurant`, `totals`, `payoutsMade`, `lines[]`. |
+| `GET /restaurant/settlements/:cycleId/download?format=pdf\|csv` | The statement as a file. |
+
+What is different for stores:
+
+- **GST** is the goods GST stored on the order (`pricing.tax`, each product at its own slab). `gstRate` on a row is worked out from that amount. The PDFs do not print the food section 9(5) note; the store reports this GST in its own returns.
+- **Multi-store orders** count once per store: each store's figures are its own child order only (its items, its commission, its ledger payout). The customer's single payment is not split again here.
+- **Pickup orders** are included like any other order once collected (`delivered`). Their delivery fee is 0, and no delivery fee is ever counted as the store's money.
+- Settlement `lines[]` also carry `fulfilmentType` (`delivery`/`pickup`), `deliveryFee` and `parentOrderId` (null for a single-store order).
+- PDFs say "Store ID: STORE…" instead of "Restaurant ID".
+
+Errors use the usual envelope: `400` for a bad range, `type`, `format` or cycle id; `401` without a store token.
 
 ---
 

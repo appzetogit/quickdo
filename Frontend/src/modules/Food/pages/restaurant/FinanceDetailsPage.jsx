@@ -30,7 +30,13 @@ function Row({ label, value, strong, muted, note }) {
   )
 }
 
+// Quick-commerce stores use this page too (axios sends /food to /qc).
+const isQcStore = () => {
+  try { return localStorage.getItem("restaurant_vertical") === "qc" } catch { return false }
+}
+
 export default function FinanceDetailsPage() {
+  const qcStore = isQcStore()
   const goBack = useRestaurantBackNavigation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [cycles, setCycles] = useState([])
@@ -197,12 +203,14 @@ export default function FinanceDetailsPage() {
               <Row label="Orders" value={t.orders} />
               <Row label="Item sales" value={inr(t.itemSales)} />
               <Row
-                label="GST on food"
+                label={qcStore ? "GST on goods" : "GST on food"}
                 value={inr(t.gstCollected)}
                 muted
-                note="Collected from customers and paid to the government by the platform under section 9(5); not part of your payout."
+                note={qcStore
+                  ? "Collected from customers at each product's GST slab; report it in your own GST returns. Not part of your payout."
+                  : "Collected from customers and paid to the government by the platform under section 9(5); not part of your payout."}
               />
-              <Row label="Taxable food value (A)" value={inr(t.taxableValue)} />
+              <Row label={qcStore ? "Taxable item value (A)" : "Taxable food value (A)"} value={inr(t.taxableValue)} />
               <Row label="Packaging charges (B)" value={inr(t.packaging)} />
               <Row label="Platform commission (C)" value={`- ${inr(t.commission)}`} />
               <Row label="Discounts you funded (D)" value={`- ${inr(t.restaurantDiscounts)}`} />

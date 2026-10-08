@@ -358,6 +358,13 @@ export default function Analytics() {
 
   const isEmpty = !loading && !error && metrics.total === 0
 
+  // Quick-commerce stores (axios sends /food to /qc) also get repeat rate and
+  // top customers with their sales analytics (customerInsights).
+  const isQcStore = useMemo(() => {
+    try { return localStorage.getItem("restaurant_vertical") === "qc" } catch { return false }
+  }, [])
+  const customerInsights = daily?.customerInsights || null
+
   const toggleDay = (d) => setExpandedDay(expandedDay === d ? null : d)
 
   const PERIOD_TYPES = [
@@ -688,6 +695,48 @@ export default function Analytics() {
                 </div>
               </div>
             </div>
+
+            {/* ── STORE CUSTOMERS (quick-commerce stores) ────────────────── */}
+            {isQcStore && customerInsights && (
+              <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                <SectionHeader icon={Star} title="Your Customers" sub="Delivered orders in this period" />
+                <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                  <div className="bg-gray-50 rounded-2xl py-2">
+                    <p className="text-sm font-extrabold text-gray-900">{customerInsights.repeatRatePercent || 0}%</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase">Repeat rate</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-2xl py-2">
+                    <p className="text-sm font-extrabold text-gray-900">{customerInsights.returningCustomers || 0}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase">Returning</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-2xl py-2">
+                    <p className="text-sm font-extrabold text-gray-900">{customerInsights.newCustomers || 0}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase">New</p>
+                  </div>
+                </div>
+                {(customerInsights.topCustomers || []).length > 0 ? (
+                  <div className="mt-4 divide-y divide-gray-50">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Top customers</p>
+                    {customerInsights.topCustomers.map((c, i) => (
+                      <div key={c.customerId || i} className="flex items-center justify-between py-2 text-xs">
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 truncate">
+                            {i + 1}. {c.name || "Customer"}
+                            {c.isNew ? <span className="ml-1.5 text-[9px] font-bold text-green-600 uppercase">New</span> : null}
+                          </p>
+                          <p className="text-[10px] text-gray-400">
+                            {c.phone ? `${c.phone} · ` : ""}{c.orders} order{c.orders === 1 ? "" : "s"} · avg {fmt(c.averageOrderValue)}
+                          </p>
+                        </div>
+                        <span className="font-bold text-gray-900 flex-shrink-0 ml-2">{fmt(c.spend)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-gray-400">No delivered orders in this period yet.</p>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

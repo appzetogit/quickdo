@@ -76,6 +76,7 @@ import {
     uploadBulkMenuController
 } from '../controllers/bulkUpload.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
+import * as storeReports from '../controllers/storeReports.controller.js';
 import { authMiddleware, optionalAuth } from '../../../../core/auth/auth.middleware.js';
 import { stockRouter } from '../../admin/routes/stock.routes.js';
 import { sendError } from '../../../../utils/response.js';
@@ -277,6 +278,13 @@ router.patch('/foods/stock', authMiddleware, requireRestaurant, async (req, res,
 }, updateRestaurantFoodStockController);
 router.get('/foods/low-stock', authMiddleware, requireRestaurant, listLowStockFoodsController);
 router.get('/analytics', authMiddleware, requireRestaurant, getAnalyticsController);
+// Sales analytics, reports and settlement statements: the food pipeline on the
+// qc collections (core/reports, SOW plan 6.1-6.3). Same shapes as /food/restaurant.
+router.get('/analytics/sales', authMiddleware, requireRestaurant, storeReports.getSalesAnalyticsController);
+router.get('/reports', authMiddleware, requireRestaurant, storeReports.downloadReportController);
+router.get('/settlements', authMiddleware, requireRestaurant, storeReports.listSettlementStatementsController);
+router.get('/settlements/:cycleId', authMiddleware, requireRestaurant, storeReports.getSettlementStatementController);
+router.get('/settlements/:cycleId/download', authMiddleware, requireRestaurant, storeReports.downloadSettlementStatementController);
 
 router.delete('/foods/:id', authMiddleware, requireRestaurant, async (req, res, next) => {
     await invalidateCache('restaurant_menu:*');
