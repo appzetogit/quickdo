@@ -134,3 +134,29 @@ of the seven authors above were building the frontend.
 5. **Enable the hook on every clone**, and consider a CI job that runs the
    integrity check on pull requests, so a poisoned commit cannot reach `main` even
    from a machine where the hook is not enabled.
+
+---
+
+## 2026-10-07: force-pushed rewrite on GitHub (`b7ae198` on main, `b5f8c5e` on sow/phase-0-1)
+
+A new delivery route. This time the payload did not ride in through a working
+tree; it arrived on GitHub directly.
+
+- `6b31463` ("docs: Flutter implementation guide for the four apps") was
+  rewritten under the same message and author, committed at 06:27 **-0700**
+  (the real commit is +0530), and **force-pushed to both branches** within
+  minutes of the real push.
+- The rewrite added `Backend/api.js` (29,135 bytes, tab-padded obfuscated JS),
+  changed `Backend/package.json` so `npm start` and `npm run dev` run
+  `node api.js` first, and re-padded the last line of `Frontend/vite.config.js`.
+- Not deployed: the server runs releases built from local commits
+  (`git archive`) and pm2 starts `server.js` directly, never `npm start`.
+- Cleaned by `f79d47a`, a merge whose tree is the clean commit's tree, pushed
+  as a fast-forward.
+
+Whoever can force-push to `appzetogit/quickdo` can do this again. Treat the
+GitHub credentials (PATs, SSH keys, OAuth apps, collaborators, deploy keys,
+Actions secrets) of every account with push access as compromised: rotate
+them, and protect `main` (no force pushes, required reviews). Until then,
+run `node Frontend/scripts/check-source-integrity.mjs` after every pull and
+before every build, and look for new top-level JS files.
