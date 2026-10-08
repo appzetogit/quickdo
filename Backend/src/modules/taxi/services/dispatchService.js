@@ -1385,8 +1385,20 @@ const scheduledJobId = (rideId) => `taxi-scheduled-dispatch-${rideId}`;
 const getScheduleSearchBufferMs = async () => {
   try {
     const settings = await getTransportRideSettings();
-    const bufferMinutes = Number(settings.minimum_time_for_starting_trip_drivers_for_schedule_ride);
-    if (Number.isFinite(bufferMinutes) && bufferMinutes > 0) {
+    /*
+     * Master settings' taxi value (orders.scheduledDispatchLeadMinutes, Phase 6)
+     * first; this module's transport-ride setting until it is migrated or set
+     * there (core/config/legacySettings.js). A Master value of 0 means "search
+     * at pickup time".
+     */
+    const { resolveWithLegacy } = await import('../../../core/config/legacySettings.js');
+    const picked = await resolveWithLegacy(
+      'orders.scheduledDispatchLeadMinutes',
+      { vertical: 'taxi' },
+      settings.minimum_time_for_starting_trip_drivers_for_schedule_ride,
+    );
+    const bufferMinutes = Number(picked.value);
+    if (Number.isFinite(bufferMinutes) && bufferMinutes >= 0) {
       return bufferMinutes * 60 * 1000;
     }
   } catch (error) {

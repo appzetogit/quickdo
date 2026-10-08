@@ -1249,6 +1249,9 @@ export async function createOrUpdateFeeSettings(req, res, next) {
     try {
         const body = validateFeeSettingsUpsertDto(req.body || {});
         const feeSettings = await adminService.upsertFeeSettings(body);
+        // Keep any migrated Master value in step with this screen (core/config/legacySettings.js).
+        const { syncLegacyWrite } = await import('../../../../core/config/legacySettings.js');
+        await syncLegacyWrite('foodFeeSettings', feeSettings);
         res.status(200).json({ success: true, message: 'Fee settings saved successfully', data: { feeSettings } });
     } catch (error) {
         next(error);

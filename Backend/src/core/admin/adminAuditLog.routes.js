@@ -89,6 +89,17 @@ router.get('/', async (req, res) => {
   }
 });
 
+// How long rows are kept (Master settings audit.retentionDays / audit.financeRetentionDays)
+// and when the nightly purge last ran (core/admin/auditRetention.js).
+router.get('/retention', async (req, res) => {
+  try {
+    const { auditRetentionOverview } = await import('./auditRetention.js');
+    return sendResponse(res, 200, 'OK', await auditRetentionOverview());
+  } catch (err) {
+    return sendError(res, 500, 'Could not load the retention settings.');
+  }
+});
+
 router.get('/admins', async (req, res) => {
   try {
     const admins = await AdminAudit.aggregate([

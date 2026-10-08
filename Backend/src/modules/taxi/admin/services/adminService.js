@@ -6937,6 +6937,11 @@ export const buildDriverDutyReport = async (query = {}) => {
     bizSettings[bizKey] = { ...(bizSettings[bizKey] || {}), ...newValues };
     bizSettings.markModified(bizKey);
     await bizSettings.save();
+    if (bizKey === 'transport_ride') {
+      // Keep a migrated Master value in step with this screen (core/config/legacySettings.js).
+      const { syncLegacyWrite } = await import('../../../../core/config/legacySettings.js');
+      await syncLegacyWrite('taxiTransportRide', bizSettings[bizKey]);
+    }
     return { settings: bizSettings[bizKey] };
   };
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { platformSettingsAPI } from "@food/api"
+import ConfigProvenance from "./ConfigProvenance"
 
 /**
  * Master settings > Global platform: country, currency, phone code, time zone
@@ -113,6 +114,7 @@ export default function GlobalPlatformSettings() {
           </button>
         </div>
       </section>
+      <ConfigProvenance />
     </div>
   )
 }

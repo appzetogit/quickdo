@@ -37,7 +37,14 @@ export const getOrderQuantityCeiling = async () => {
             .sort({ createdAt: -1 })
             .select('maxOrderQuantityCeiling')
             .lean();
-        value = resolveCeiling(doc?.maxOrderQuantityCeiling);
+        /*
+         * Master settings first (orders.maxQuantityPerItem, Phase 6); the fee
+         * settings field is the fallback until it is migrated or set there.
+         */
+        const own = doc?.maxOrderQuantityCeiling;
+        const { resolveWithLegacy } = await import('../../../core/config/legacySettings.js');
+        const picked = await resolveWithLegacy('orders.maxQuantityPerItem', { vertical: 'food' }, own);
+        value = resolveCeiling(picked.value);
     } catch (err) {
         logger.error(`Order quantity ceiling lookup failed, using ${ABSOLUTE_MAX_ORDER_QUANTITY}: ${err.message}`);
     }

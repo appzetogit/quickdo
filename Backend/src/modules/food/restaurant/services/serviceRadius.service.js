@@ -25,7 +25,17 @@ export const SERVICE_RADIUS_ACTORS = Object.freeze(['restaurant', 'admin']);
 
 export async function loadServiceRadiusSettings() {
     const doc = await FoodServiceRadiusSettings.findOne({ key: 'default' }).lean();
-    return normalizeServiceRadiusSettings(doc);
+    /*
+     * Master settings first (delivery.maxRadiusKm, Phase 6), this document as
+     * the fallback until the value is migrated or set there. `source` says
+     * which, for the admin card.
+     */
+    const { resolveWithLegacy } = await import('../../../../core/config/legacySettings.js');
+    const picked = await resolveWithLegacy('delivery.maxRadiusKm', { vertical: 'food' }, doc?.maxRadiusKm);
+    return {
+        ...normalizeServiceRadiusSettings(picked.value === null || picked.value === undefined ? doc : { maxRadiusKm: picked.value }),
+        source: picked.origin,
+    };
 }
 
 export async function updateServiceRadiusSettings(body = {}) {
@@ -37,6 +47,9 @@ export async function updateServiceRadiusSettings(body = {}) {
         { $set: { maxRadiusKm: verdict.settings.maxRadiusKm } },
         { upsert: true, new: true, setDefaultsOnInsert: true },
     );
+    // Keep the migrated Master value (if any) in step with this screen.
+    const { syncLegacyWrite } = await import('../../../../core/config/legacySettings.js');
+    await syncLegacyWrite('foodServiceRadius', verdict.settings);
     // Lowering the ceiling narrows restaurants that saved more, so the listing
     // has to change now rather than when its cache expires.
     await clearRestaurantCaches();

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { adminAuditLogAPI } from "@food/api"
+import { adminAuditLogAPI, platformSettingsAPI } from "@food/api"
 import { toast } from "sonner"
 import { Loader2, Search, ClipboardList, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
 
@@ -56,6 +56,91 @@ const ghostCls =
 const errText = (err, fallback) => err?.response?.data?.message || err?.message || fallback
 const when = (d) =>
   d ? new Date(d).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"
+
+/**
+ * How long rows are kept (Master settings audit.retentionDays and
+ * audit.financeRetentionDays; core/admin/auditRetention.js). A nightly job
+ * deletes rows past their period; money moves are kept for the longer one.
+ */
+function Retention() {
+  const [info, setInfo] = useState(null)
+  const [edit, setEdit] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const res = await adminAuditLogAPI.retention()
+      setInfo(res?.data?.data || null)
+    } catch {
+      setInfo(null)
+    }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      for (const [key, field] of [["audit.retentionDays", "retentionDays"], ["audit.financeRetentionDays", "financeRetentionDays"]]) {
+        if (String(edit[field]) === String(info[field])) continue
+        // eslint-disable-next-line no-await-in-loop
+        await platformSettingsAPI.set(key, {
+          level: "global",
+          value: edit[field] === "" ? null : Number(edit[field]),
+          reason: "Master > Admin Activity Log > Retention",
+        })
+      }
+      toast.success("Retention saved. It applies from the next nightly clean-up.")
+      setEdit(null)
+      await load()
+    } catch (err) {
+      toast.error(errText(err, "Could not save the retention"))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!info) return null
+  const last = info.lastPurge
+  return (
+    <section className="rounded-xl border border-neutral-200 bg-white p-4 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-neutral-900">Retention</h2>
+          <p className="mt-1 text-neutral-600">
+            Changes are kept for <strong>{info.retentionDays} days</strong>; money moves for{" "}
+            <strong>{info.financeRetentionDays} days</strong> (about {Math.round(info.financeRetentionDays / 365)} years).
+            Older rows are deleted each night.
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            {info.source?.activity === "Registered default" && info.source?.finance === "Registered default" ? "Platform defaults. " : "Set in Master settings. "}
+            {last ? `Last clean-up ${when(last.at)}: ${last.deleted?.activity || 0} change(s), ${last.deleted?.finance || 0} money move(s) removed.` : "No clean-up has run yet."}
+          </p>
+        </div>
+        {!edit && (
+          <button type="button" className={ghostCls} onClick={() => setEdit({ retentionDays: info.retentionDays, financeRetentionDays: info.financeRetentionDays })}>
+            Change
+          </button>
+        )}
+      </div>
+      {edit && (
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="text-xs font-medium text-neutral-600">Changes (days, at least 30)</span>
+            <input type="number" min={30} max={3650} className={`${inputCls} mt-1 w-40`} value={edit.retentionDays} onChange={(e) => setEdit((v) => ({ ...v, retentionDays: e.target.value }))} />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-neutral-600">Money moves (days, at least 365)</span>
+            <input type="number" min={365} max={3650} className={`${inputCls} mt-1 w-40`} value={edit.financeRetentionDays} onChange={(e) => setEdit((v) => ({ ...v, financeRetentionDays: e.target.value }))} />
+          </label>
+          <button type="button" className={ghostCls} disabled={saving} onClick={save}>
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />} Save
+          </button>
+          <button type="button" className={ghostCls} disabled={saving} onClick={() => setEdit(null)}>Cancel</button>
+        </div>
+      )}
+    </section>
+  )
+}
 
 function Details({ row }) {
   const summary = row.bodySummary ? JSON.stringify(row.bodySummary, null, 2) : null
@@ -152,6 +237,8 @@ export default function AdminActivityLog() {
             Every change an admin made, on every panel: who, what, when and whether it worked.
           </p>
         </div>
+
+        <Retention />
 
         <section className="rounded-xl border border-neutral-200 bg-white p-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">

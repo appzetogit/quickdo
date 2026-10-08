@@ -203,6 +203,19 @@ router.delete('/incentive-rules/:id', async (req, res, next) => {
         return next(err);
     }
 });
+// Config provenance: for each setting moved out of a service's own screen, the
+// value in effect per service (and zone) and whether it comes from a zone,
+// vertical or global value, or still from the service's own setting.
+router.get('/provenance', async (req, res, next) => {
+    try {
+        const { settingsProvenance } = await import('./legacySettings.js');
+        const vertical = req.query.vertical ? String(req.query.vertical) : undefined;
+        const zoneId = req.query.zoneId ? String(req.query.zoneId) : undefined;
+        res.json({ success: true, data: { settings: await settingsProvenance({ vertical, zoneId }) } });
+    } catch (err) {
+        next(err);
+    }
+});
 router.get('/catalogue', getCatalogueController);
 router.get('/resolve', resolveAllController);
 router.get('/:key/explain', explainSettingController);

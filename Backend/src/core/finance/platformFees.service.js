@@ -54,9 +54,22 @@ export async function resolveMasterFees(vertical, zoneId) {
  * @param {object} settings  that service's fee settings (or its defaults)
  */
 export async function withMasterFees(vertical, settings, { zoneId } = {}) {
+  /*
+   * The other fee settings that moved to the resolver (item GST, Quick's flat
+   * delivery fee): a zone or vertical value wins, then the service's own, then
+   * a global value (core/config/legacySettings.js). Applied first so the
+   * platform-fee rule below keeps exactly the precedence it always had.
+   */
+  let base = settings;
+  try {
+    const { overlayFeeSettings } = await import('../config/legacySettings.js');
+    base = await overlayFeeSettings(vertical, settings, { zoneId });
+  } catch (err) {
+    logger.warn(`platformFees: fee overlay failed for ${vertical}, using the service's own: ${err.message}`);
+  }
   const master = await resolveMasterFees(vertical, zoneId);
-  if (master.platformFee === null && master.platformFeeGstRate === null) return settings;
-  const out = { ...(settings || {}) };
+  if (master.platformFee === null && master.platformFeeGstRate === null) return base;
+  const out = { ...(base || {}) };
   if (master.platformFee !== null) out.platformFee = master.platformFee;
   if (master.platformFeeGstRate !== null) out.platformFeeGstRate = master.platformFeeGstRate;
   return out;
