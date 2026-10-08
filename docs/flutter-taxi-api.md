@@ -383,6 +383,8 @@ POST `/api/v1/food/delivery/register` (multipart), and PATCH `/food/delivery/pro
 | `ride:stop:updated` | server → ride room | `{ rideId, order, reachedAt, stops }` |
 | `ride:tolls:updated` | server → ride room | `{ rideId, tolls }` |
 | `ride:eta:updated` | server → ride room | see §6 |
+| `job:offer` | server → driver | new: every offer (ride, food, grocery) in one shape, while unified dispatch is on. See §13. |
+| `job:cancelled` | server → driver | new: `{ jobType, jobId, reason, at }`. See §13. |
 
 ---
 
@@ -393,3 +395,177 @@ POST `/api/v1/food/delivery/register` (multipart), and PATCH `/food/delivery/pro
 - PATCH `/admin/general-settings/transport-ride` with `{ settings: { toll_auto_approve_limit: "100" } }` sets the per-ride toll auto-approve limit in rupees. 0 means review every toll.
 - Set prices (`/admin/types/set-prices`) take these new fields: `round_trip_return_factor`, `round_trip_wait_free_minutes`, `round_trip_wait_per_hour`, `night_charge { enabled, start "HH:MM", end "HH:MM", type: percentage|fixed, value }` and `extra_km_charge { enabled, tolerance_type: percent|km, tolerance_value }`.
 - GET `/admin/safety/alerts?status=active|resolved|all` now lists the unified SOS alerts as `{ results, paginator }`. PATCH `/admin/safety/alerts/:id/resolve` takes `{ note }`.
+
+---
+
+## 13. Unified jobs: one driver for rides and deliveries (SOW plan §8)
+
+The SOW says "Drivers will manage taxi rides and food deliveries". A person who drives a taxi **and** delivers food or groceries is one `Driver` with several capabilities, and the server offers them every kind of job on one feed. Delivery-only partners are not affected: they keep the delivery app flow (`/api/v1/food/delivery/*` and the `new_order` socket event) unchanged.
+
+### 13.1 When it is on
+
+| Switch | Default | Effect |
+|---|---|---|
+| `UNIFIED_DISPATCH_ENABLED` (server env) | `false` | Master switch. Off: nothing in this section happens and no `job:offer` is ever sent. On: the one-job-at-a-time lock and the work mode apply to taxi, food and grocery everywhere. |
+| `dispatch.unifiedZones` (master setting) | `[]` | Where the merged feed, the driver-pool search for deliveries and the dispatch-time wallet check apply. `[]` means every zone. A pilot lists the taxi, food and QC zone ids of one city. |
+
+So the app must work with or without `job:offer`. Keep the existing `rideRequest` handling and add the unified card on top.
+
+### 13.2 Who is offered what
+
+A driver is offered a job only when **all** of these hold:
+
+- online in the driver app (`PATCH /drivers/online`) and approved;
+- holds the capability: `taxi` for rides, `delivery` for food, `quickCommerce` for groceries (`GET /drivers/me` returns `serviceCapabilities`);
+- the work mode accepts it (`PATCH /drivers/work-mode { workMode }`): `all` means everything they are capable of, `taxi` rides only, `delivery` food and grocery;
+- holds **no other job** (one job at a time across taxi, food and grocery);
+- passes the wallet check at dispatch time. For rides this is the same rule as accept (minimum wallet balance, shared cash limit, admin hold). For deliveries, cash in hand must be below the shared cash limit, and for a cash order, cash in hand plus the order total must stay within it.
+
+A food or grocery job also needs the driver's delivery record to be linked (the backfill `scripts/migrate-unify-drivers.js` does this). An unlinked driver is never offered deliveries.
+
+### 13.3 Socket: `job:offer`
+
+Taxi socket, root namespace, room `driver:<driverId>`. The room is joined automatically when the driver's socket connects with the taxi token (or a linked delivery-partner token). The event is sent **in addition to** the old event (`rideRequest` for rides, `new_order` on the delivery room for deliveries), never instead of it.
+
+```json
+{
+  "jobType": "food",
+  "jobId": "6ac64ce79c0880aba1e89d3c",
+  "displayId": "FOD-123456",
+  "title": "Food delivery",
+  "pickup":  { "name": "Thali House", "address": "MG Road, Indore", "lat": 22.72, "lng": 75.88 },
+  "drop":    { "name": "Asha", "address": "12 MG Road, Indore", "lat": 22.75, "lng": 75.88 },
+  "stops": [],
+  "customer": { "name": "Asha", "phone": "" },
+  "fare": 180,
+  "earning": 40,
+  "currency": "INR",
+  "paymentMethod": "razorpay",
+  "cashToCollect": 0,
+  "tripDistanceKm": 3.4,
+  "tripDurationMins": 14,
+  "pickupDistanceKm": 1.1,
+  "itemCount": 2,
+  "scheduledAt": null,
+  "expiresAt": "2026-10-07T13:46:12.000Z",
+  "expiresInSeconds": 60,
+  "zoneId": null,
+  "bidding": { "enabled": false },
+  "accept": { "transport": "http", "method": "PATCH", "path": "/api/v1/food/delivery/orders/6ac64ce79c0880aba1e89d3c/accept", "auth": "delivery" },
+  "reject": { "transport": "http", "method": "PATCH", "path": "/api/v1/food/delivery/orders/6ac64ce79c0880aba1e89d3c/reject", "auth": "delivery" },
+  "legacyEvent": "new_order",
+  "raw": {}
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `jobType` | `taxi`, `food` or `quick_commerce` |
+| `jobId` | Ride id, or the order's Mongo id |
+| `title` | `Taxi ride`, `Intercity ride`, `Food delivery` or `Grocery delivery` |
+| `stops` | Rides: the stops in order (see §1). Deliveries: `[]` |
+| `fare` | What the customer pays |
+| `earning` | What the driver earns (for rides, the fare) |
+| `cashToCollect` | More than 0 when the driver collects cash |
+| `tripDistanceKm`, `tripDurationMins` | Pickup to drop |
+| `pickupDistanceKm` | Deliveries: driver to pickup |
+| `expiresAt`, `expiresInSeconds` | Hide the card after this |
+| `bidding` | Rides: the same as `rideRequest.bidding` |
+| `accept`, `reject` | How to answer (below) |
+| `legacyEvent` | The per-vertical event this mirrors |
+| `raw` | The per-vertical payload, unchanged |
+
+For a ride, `accept` is `{ "transport": "socket", "event": "acceptRide", "payload": { "rideId": "..." } }` and `reject` is the `rejectRide` event, exactly as with `rideRequest`. Driver bidding still uses `submitRideBid`.
+
+**Rule for the app:** follow `accept` and `reject` as given. For `auth: "delivery"`, use the delivery session token (13.5). For socket transport, emit on the taxi socket.
+
+Rides also arrive as `rideRequest`, so an app that already handles `rideRequest` can ignore `job:offer` with `jobType: "taxi"` (the web driver app does this). A new app can drive everything from `job:offer`.
+
+### 13.4 Socket: `job:cancelled`
+
+```json
+{ "jobType": "food", "jobId": "6ac64ce79c0880aba1e89d3c", "reason": "taken", "at": "2026-10-07T13:45:30.000Z" }
+```
+
+Hide the card for that `jobId`. Reasons: `taken` (another rider accepted the delivery) and, for rides, the `rideRequestClosed` reasons (`search-window-expired`, `user-cancelled`, `unmatched`, `deleted-by-admin` and others). A delivery cancelled by the customer or store does not always send `job:cancelled`, so also hide the card at `expiresAt`, and treat a 4xx on accept as "no longer available".
+
+### 13.5 POST `/drivers/jobs/delivery-session`
+
+Gives the signed-in driver a **delivery-partner** session for their own linked delivery record. With it, a food or grocery job is accepted and run through the delivery endpoints without a second sign-in. Auth: taxi driver token. Body: none.
+
+Response `201`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJ...",
+    "refreshToken": "eyJ...",
+    "role": "DELIVERY_PARTNER",
+    "deliveryPartnerId": "6ac64ce79c0880aba1e89d10",
+    "refreshEndpoint": "/api/v1/auth/refresh-token"
+  }
+}
+```
+
+The access token has role `DELIVERY_PARTNER` and `userId` = `deliveryPartnerId`. Use it with the core (delivery) Dio client and its refresh interceptor. Ask for a new session if it is lost or refused.
+
+| Status | When |
+|---|---|
+| 404 | Unified dispatch is off, or the driver does not exist |
+| 403 | The driver is not approved, holds no delivery capability, or the delivery record is not approved |
+| 409 | The driver and the delivery record are not linked to each other (run the backfill, or contact support) |
+
+After accepting, run the delivery with the delivery endpoints exactly as a delivery partner would (`reached-pickup`, `confirm-pickup`, `reached-drop`, `verify-drop-otp`, `complete`; see the implementation guide §3.3). QC orders use the same `/food/delivery/orders/:id/...` paths, and the server routes them.
+
+### 13.6 GET `/drivers/jobs/active`
+
+Every job the driver holds right now, across rides, food and groceries. It works whether or not the flag is on. Call it on start-up and after a reconnect.
+
+```json
+{
+  "success": true,
+  "data": {
+    "driverId": "6ac64ce79c0880aba1e89d01",
+    "unifiedDispatchEnabled": true,
+    "workMode": "all",
+    "serviceCapabilities": ["taxi", "delivery", "quickCommerce"],
+    "busy": true,
+    "jobs": [
+      {
+        "jobType": "taxi", "jobId": "6ac64ce79c0880aba1e89d77", "displayId": "6ac64ce79c0880aba1e89d77",
+        "status": "accepted",
+        "pickup": { "name": "", "address": "MG Road", "lat": 22.72, "lng": 75.88 },
+        "drop": { "name": "", "address": "Palasia", "lat": 22.72, "lng": 75.9 },
+        "paymentMethod": "cash", "total": 120, "scheduledAt": null, "acceptedAt": null,
+        "lockHeld": true,
+        "detail": { "method": "GET", "path": "/api/v1/taxi/rides/active/me", "auth": "driver" }
+      },
+      {
+        "jobType": "food", "jobId": "6ac64ce79c0880aba1e89d3c", "displayId": "FOD-123456",
+        "status": "picked_up", "deliveryPhase": "en_route_to_drop",
+        "pickup": { "name": "Thali House", "address": "MG Road" },
+        "drop": { "name": "Asha", "address": "12 MG Road, Indore", "lat": 22.75, "lng": 75.88 },
+        "paymentMethod": "razorpay", "total": 180, "acceptedAt": "2026-10-07T13:40:00.000Z",
+        "lockHeld": false,
+        "detail": { "method": "GET", "path": "/api/v1/food/delivery/orders/6ac64ce79c0880aba1e89d3c", "auth": "delivery" }
+      }
+    ],
+    "locks": [{ "vertical": "taxi", "jobType": "taxi_ride", "jobId": "6ac64ce79c0880aba1e89d77", "at": "2026-10-07T13:39:00.000Z" }],
+    "orphanLocks": [],
+    "partnerIds": { "food": "6ac64ce79c0880aba1e89d10", "quickCommerce": "6ac64ce79c0880aba1e89d11" }
+  }
+}
+```
+
+`jobType` in `jobs` uses the same values as `job:offer`. `locks` is the server's one-job lock (its `jobType` is the internal lock type). `orphanLocks` are locks whose job is no longer active; they are for support only, and the server clears them on the next accept.
+
+### 13.7 Build checklist
+
+- [ ] One sign-in (taxi). The delivery session is fetched on the first food or grocery accept.
+- [ ] One incoming card for every `jobType`, with the countdown from `expiresAt`.
+- [ ] Accept and reject follow `accept` and `reject` in the payload.
+- [ ] `job:cancelled` and `expiresAt` both hide the card.
+- [ ] Work-mode toggle (`all`, `taxi`, `delivery`), offered only for capabilities the driver has.
+- [ ] `GET /drivers/jobs/active` restores the screen after a restart.
+- [ ] Still works with the flag off (no `job:offer`): rides from `rideRequest`, deliveries from the delivery app flow.

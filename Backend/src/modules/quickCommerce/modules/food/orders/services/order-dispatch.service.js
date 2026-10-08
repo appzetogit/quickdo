@@ -13,6 +13,14 @@ import { config } from '../../../../config/env.js';
 import { compareInBackground } from '../../../../../../core/finance/eligibilityShadow.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { mirrorQcOfferToFoodRider } from '../../../../../../core/delivery/qcRiderLink.js';
+import {
+  isUnifiedDispatchEnabled,
+  isUnifiedDispatchActive,
+  unifiedDeliveryCandidates,
+  mergeCandidates,
+  filterByRiderFinance,
+} from '../../../../../../core/dispatch/unifiedDispatch.js';
+import { emitDeliveryJobOffers } from '../../../../../../core/dispatch/jobFeed.js';
 /*
  * Zone matching, shared with food so the two verticals cannot drift apart on what
  * "same zone" means. The zone MAP is not shared: quick commerce keys off
@@ -285,7 +293,9 @@ function orderCollectsCash(order) {
  * yet linked. No-op, and no extra query, while UNIFIED_DISPATCH_ENABLED is off.
  */
 async function filterByUnifiedWorkMode(partners) {
-  if (!config.unifiedDispatchEnabled || !partners?.length) return partners || [];
+  // The ROOT flag: quickCommerce/config/env.js never declared this key, so reading
+  // it there made this filter a permanent no-op.
+  if (!isUnifiedDispatchEnabled() || !partners?.length) return partners || [];
 
   const ids = partners.map((p) => p._id);
   const rows = await FoodDeliveryPartner.find({ _id: { $in: ids } }).select('_id driverId').lean();
@@ -330,7 +340,7 @@ async function listNearbyOnlineDeliveryPartners(
 
   if (!restaurant?.location?.coordinates?.length) {
     // Without restaurant coords we cannot safely match riders by zone/proximity.
-    return { restaurant: null, partners: [] };
+    return { restaurant: null, partners: [], zoneId: restaurant?.zoneId ? String(restaurant.zoneId) : null };
   }
 
   const zones = await loadActiveZones({ model: QCZone });
@@ -399,6 +409,19 @@ async function listNearbyOnlineDeliveryPartners(
   }
 
   /*
+   * Unified dispatch (plan §8): drivers online in the driver app, from the taxi
+   * Driver pool (free, work mode accepting deliveries, holding the
+   * quickCommerce capability), offered as their linked Quick rider record.
+   */
+  if (await isUnifiedDispatchActive([orderZoneId])) {
+    const fromDrivers = (await unifiedDeliveryCandidates('quickCommerce', [rLng, rLat], { maxKm, limit: Math.max(limit, 25) }))
+      .filter((c) => allowedStatuses.includes(c.status) && Number.isFinite(c.distanceKm) && c.distanceKm <= maxKm);
+    const merged = mergeCandidates(scored, fromDrivers);
+    scored.length = 0;
+    scored.push(...merged);
+  }
+
+  /*
    * Within range is not the same as within the zone: two zones can sit inside
    * the search radius of each other, and an order must stay in its own.
    */
@@ -408,8 +431,12 @@ async function listNearbyOnlineDeliveryPartners(
       `[Dispatch] restaurant ${rId}: ${zoneScoped.dropped.length} nearby rider(s) skipped, outside zone ${orderZoneId}`,
     );
   }
+  // Copied first: with no zone enforced, `kept` IS `scored`, and clearing
+  // `scored` emptied it too -- so a store with no zone found nobody, ever. The
+  // same bug food fixed in its own copy of this function.
+  const keptInZone = zoneScoped.kept.slice();
   scored.length = 0;
-  scored.push(...zoneScoped.kept);
+  scored.push(...keptInZone);
 
   // Without this, a starved dispatch is indistinguishable from "no riders online".
   if (droppedStale > 0) {
@@ -425,7 +452,7 @@ async function listNearbyOnlineDeliveryPartners(
   if (picked.length === 0) {
     // Do NOT fall back to any online partner worldwide (cross-zone bug).
     // Caller will retry later when nearby GPS updates.
-    return { partners: [] };
+    return { partners: [], zoneId: orderZoneId };
   }
 
   const approved = (config.nodeEnv === 'production')
@@ -438,7 +465,7 @@ async function listNearbyOnlineDeliveryPartners(
     approved.map((p) => ({ ...p, _id: p.partnerId })),
   );
 
-  return { partners: final };
+  return { partners: final, zoneId: orderZoneId };
 }
 
 export async function getDispatchSettings() {
@@ -568,7 +595,8 @@ export async function tryAutoAssign(orderId, options = {}) {
     const maxKm = radiusBands[Math.min(Math.max(attempt, 1), radiusBands.length) - 1];
 
     const searchOptions = { maxKm, limit: 15 };
-    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    const { partners, zoneId: orderZoneId } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    const unifiedActive = await isUnifiedDispatchActive([orderZoneId || order.zoneId]);
     const busyPartnerIds = await getBusyDeliveryPartnerIds();
     // Riders carrying a Food order are busy here too (see qcRiderLink).
     {
@@ -612,6 +640,15 @@ export async function tryAutoAssign(orderId, options = {}) {
     const cashBlockedIds = orderCollectsCash(order)
       ? await getCashBlockedPartnerIds(partners.map((p) => p.partnerId), Number(order?.pricing?.total) || 0)
       : new Set();
+    // Unified dispatch: the shared riderFinance gate for every order, not only
+    // cash ones -- a rider at the cash ceiling gets no new work anywhere.
+    if (unifiedActive) {
+      const { blocked } = await filterByRiderFinance(
+        partners.filter((p) => !cashBlockedIds.has(String(p.partnerId))),
+        { vertical: 'quickCommerce', orderCash: orderCollectsCash(order) ? Number(order?.pricing?.total) || 0 : 0 },
+      );
+      for (const id of blocked.keys()) cashBlockedIds.add(id);
+    }
 
     const eligible = partners.filter((partner) => {
       const partnerKey = partner.partnerId.toString();
@@ -679,6 +716,12 @@ export async function tryAutoAssign(orderId, options = {}) {
             });
           }
         }
+        if (unifiedActive) {
+          await emitDeliveryJobOffers({
+            vertical: 'quickCommerce', payload, partners: reofferEligible,
+            zoneIds: [orderZoneId || order.zoneId], expiresAt: acceptanceDeadlineAt,
+          });
+        }
 
         // This branch previously emitted a socket event only, so a backgrounded or locked
         // driver was never woken on a re-offer round â€” the order could sit unassigned while
@@ -740,6 +783,14 @@ export async function tryAutoAssign(orderId, options = {}) {
       void mirrorQcOfferToFoodRider(p.partnerId, {
         event: 'new_order',
         payload: { ...payload, pickupDistanceKm: p.distanceKm, acceptanceDeadlineAt },
+      });
+    }
+    // The same offer on the driver's one job feed (job:offer). In addition to
+    // new_order, never instead of it.
+    if (unifiedActive) {
+      await emitDeliveryJobOffers({
+        vertical: 'quickCommerce', payload, partners: eligible,
+        zoneIds: [orderZoneId || order.zoneId], expiresAt: acceptanceDeadlineAt,
       });
     }
 
@@ -933,3 +984,6 @@ export async function resendDeliveryNotificationAdmin(orderId) {
   await tryAutoAssign(order._id);
   return { success: true };
 }
+
+/** For tests only: which riders an order at this store would be offered to. */
+export const __testables = { listNearbyOnlineDeliveryPartners };

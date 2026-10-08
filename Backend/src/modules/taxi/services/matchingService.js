@@ -7,6 +7,7 @@ import { Driver } from '../driver/models/Driver.js';
 import { Zone } from '../driver/models/Zone.js';
 import { getDriverIdsBlockedByUpcomingScheduledRides } from './rideService.js';
 import { compareInBackground } from '../../../core/finance/eligibilityShadow.js';
+import { isUnifiedDispatchActive, filterByRiderFinance } from '../../../core/dispatch/unifiedDispatch.js';
 
 const EARTH_RADIUS_METERS = 6371000;
 
@@ -483,6 +484,22 @@ export const matchDrivers = async (pickupCoords, options = {}) => {
    */
   if (zone?.geometry) {
     drivers = drivers.filter((driver) => pointInZoneGeometry(driver?.location?.coordinates, zone.geometry));
+  }
+
+  /*
+   * Unified dispatch (plan §8): the wallet and cash-limit rule is applied HERE, at
+   * dispatch, with riderFinance -- the same verdict ensureDriverWalletCanAcceptRide
+   * gives at accept -- instead of the cached wallet.isBlocked flag alone. A driver
+   * holding too much delivery cash is no longer offered a ride only to be refused
+   * when they tap Accept. Only where unified dispatch is active (flag on, pilot zone).
+   */
+  if (drivers.length && (await isUnifiedDispatchActive([zone?._id]))) {
+    // The wallet is read fresh by riderFinance: the candidate query above does not
+    // select it, and an unselected path can carry schema defaults (balance 0).
+    ({ kept: drivers } = await filterByRiderFinance(drivers, {
+      vertical: 'taxi',
+      idOf: (d) => d?._id,
+    }));
   }
 
   /*

@@ -31,6 +31,15 @@ import { logger } from '../../utils/logger.js';
  *    agrees with its snapshot to the rupee. So unification is a read-path change,
  *    not a data move, and there is no cutover to stage.
  *
+ * No service-provider arm (MASTER_PRODUCT_AUDIT.md 1.1 asked whether to add one). SP
+ * workers are a separate population: an SP Worker belongs to an SP Vendor, signs in
+ * through /sp/workers, has no link to taxidrivers or the delivery partner records, and is
+ * never a dispatch candidate for rides or deliveries. Their cash and wallet live in the
+ * SP module's own Transaction ledger and cash-collection controller, and their cash limit
+ * is the `serviceProvider` vertical value of `finance.cashLimit`. Folding them in here
+ * would add four more aggregations to every rider read for people who can never be
+ * riders. Revisit only if SP workers are ever allowed to drive or deliver.
+ *
  * Deliberately depends on MODELS ONLY, never on the two wallet services that now
  * call it -- otherwise walletService -> riderFinance -> walletService. The few
  * service-level helpers it does need are pulled in with dynamic import inside the

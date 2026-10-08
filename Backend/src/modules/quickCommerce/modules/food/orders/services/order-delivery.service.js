@@ -27,6 +27,10 @@ import * as paymentService from './order-payment.service.js';
 // orders, so a rider on a grocery order still read as free to food and to taxi,
 // and both would claim them. See core/assignment/assignment.service.js.
 import { claimAssignment, releaseAssignment } from '../../../../../../core/assignment/assignment.service.js';
+// The ROOT flag. This module's own config (quickCommerce/config/env.js) never declared
+// unifiedDispatchEnabled, so reading it there left the QC busy-lock off with the flag on.
+import { isUnifiedDispatchEnabled } from '../../../../../../core/dispatch/unifiedDispatch.js';
+import { emitDeliveryJobCancelled } from '../../../../../../core/dispatch/jobFeed.js';
 import { config } from '../../../../../../config/env.js';
 
 import {
@@ -502,7 +506,7 @@ async function resolveUnifiedDriverId(deliveryPartnerId) {
  * still happily assign.
  */
 async function acquireQcLock(deliveryPartnerId, orderId) {
-  if (!config.unifiedDispatchEnabled) return true;
+  if (!isUnifiedDispatchEnabled()) return true;
   const driverId = await resolveUnifiedDriverId(deliveryPartnerId);
   if (!driverId) return true;
   const { claimed } = await claimAssignment(driverId, { vertical: 'quickCommerce', jobId: orderId });
@@ -517,7 +521,7 @@ async function acquireQcLock(deliveryPartnerId, orderId) {
 
 /** Give the lock back. Only clears an entry that is still THIS order. */
 async function releaseQcLock(deliveryPartnerId, orderId) {
-  if (!config.unifiedDispatchEnabled) return;
+  if (!isUnifiedDispatchEnabled()) return;
   const driverId = await resolveUnifiedDriverId(deliveryPartnerId);
   if (!driverId) return;
   await releaseAssignment(driverId, orderId);
@@ -861,6 +865,8 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
         for (const pid of losingPartnerIds) {
           io.to(rooms.delivery(pid)).emit('order_claimed', claimedPayload);
         }
+        // And on the driver's one job feed (no-op while unified dispatch is off).
+        void emitDeliveryJobCancelled({ vertical: 'quickCommerce', orderId: order._id.toString(), partnerIds: losingPartnerIds, reason: 'taken' });
         logger.info(
           `[DeliveryDispatch] Broadcast order_claimed to ${losingPartnerIds.length} other partners for order ${order._id.toString()}`,
         );

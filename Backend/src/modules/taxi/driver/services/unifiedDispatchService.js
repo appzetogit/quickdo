@@ -1,5 +1,5 @@
 import { Driver } from '../models/Driver.js';
-import { env } from '../../../../config/env.js';
+import { config, env } from '../../../../config/env.js';
 
 /**
  * Unified driver candidate selection for dispatch (Phase 3).
@@ -9,20 +9,26 @@ import { env } from '../../../../config/env.js';
  * use once UNIFIED_DISPATCH_ENABLED is on — the busy-lock (activeAssignment) is what guarantees
  * a driver on a ride is never offered a delivery and vice-versa.
  *
- * @param {'taxi'|'delivery'} service
+ * Called by food and quick-commerce dispatch (core/dispatch/unifiedDispatch.js) when the flag
+ * is on; taxi matching applies the same filter inside its own query (matchingService).
+ *
+ * @param {'taxi'|'delivery'|'quickCommerce'} service  'delivery' is food
  * @param {[number,number]} coordinates  [lng, lat]
  * @param {object} opts { maxDistanceMeters, vehicleTypeIds, limit }
  */
 export const findEligibleUnifiedDrivers = async (service, coordinates, opts = {}) => {
   const { maxDistanceMeters = 8000, vehicleTypeIds = null, limit = 20 } = opts;
-  // workMode 'all' accepts everything; otherwise it must equal the service.
-  const workModes = ['all', service];
+  // workMode 'all' accepts everything. The one "Delivery" toggle covers food AND grocery, so a
+  // grocery job is open to 'delivery' too; 'quickCommerce' is the retired grocery-only mode,
+  // still honoured for drivers who stored it.
+  const workModes = service === 'quickCommerce' ? ['all', 'delivery', 'quickCommerce'] : ['all', service];
 
   const match = {
     isOnline: true,
     serviceCapabilities: service,        // array-contains match
     workMode: { $in: workModes },
     activeAssignment: null,              // free only — the mutual-exclusion gate
+    isOnRide: { $ne: true },             // belt and braces for rides taken before the lock existed
     approve: true,
     deletedAt: null,
   };
@@ -49,4 +55,4 @@ export const findEligibleUnifiedDrivers = async (service, coordinates, opts = {}
 };
 
 /** Whether the unified dispatch path is active. Both dispatchers check this before switching. */
-export const isUnifiedDispatchEnabled = () => Boolean(env.unifiedDispatchEnabled);
+export const isUnifiedDispatchEnabled = () => Boolean(config.unifiedDispatchEnabled || env.unifiedDispatchEnabled);

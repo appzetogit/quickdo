@@ -426,9 +426,20 @@ const emitToSocket = (socketId, event, payload) => {
   }
 };
 
+// Ride offers and their withdrawal are mirrored onto the driver's one job feed
+// (job:offer / job:cancelled, core/dispatch/jobFeed.js) while unified dispatch is
+// on. Hooked here because every rideRequest and rideRequestClosed to a driver
+// passes through this function, whichever helper sent it.
+const JOB_FEED_TAXI_EVENTS = new Set(['rideRequest', 'rideRequestClosed']);
+
 export const emitToRoom = (room, event, payload) => {
   if (ioInstance) {
     ioInstance.to(room).emit(event, payload);
+  }
+  if (JOB_FEED_TAXI_EVENTS.has(event) && String(room || '').startsWith('driver:')) {
+    void import('../../../core/dispatch/jobFeed.js')
+      .then(({ mirrorTaxiEvent }) => mirrorTaxiEvent(room, event, payload))
+      .catch(() => {});
   }
 };
 

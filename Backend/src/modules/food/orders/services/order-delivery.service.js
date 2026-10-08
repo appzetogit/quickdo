@@ -581,6 +581,13 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
           }
         }
         logger.info(`[DeliveryDispatch] Broadcasted order_claimed to ${offeredPartners.length - 1} other partners for order ${order._id.toString()}`);
+        // And on the driver's one job feed (no-op while unified dispatch is off).
+        void import('../../../../core/dispatch/jobFeed.js').then(({ emitDeliveryJobCancelled }) => emitDeliveryJobCancelled({
+          vertical: 'food',
+          orderId: order._id.toString(),
+          partnerIds: offeredPartners.map((o) => o.partnerId?.toString?.()).filter((pid) => pid && pid !== deliveryPartnerId.toString()),
+          reason: 'taken',
+        })).catch(() => {});
       }
 
       // order is populated by the time this runs, so order.userId /

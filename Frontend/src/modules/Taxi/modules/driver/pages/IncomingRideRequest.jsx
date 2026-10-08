@@ -128,19 +128,27 @@ const IncomingRideRequest = ({
   if (!visible || !data) return null;
 
   const isIntercity = data.type === 'intercity';
+  // A food or grocery delivery from the unified job feed (job:offer), shown in
+  // the same card so a driver who also delivers has one place to say yes.
+  const isDelivery = data.type === 'delivery';
+  const deliveryKind = data.jobType === 'quick_commerce' ? 'grocery' : 'food';
   const scheduledAt = data.scheduledAt || data.raw?.scheduledAt || data.raw?.ride?.scheduledAt || null;
   const isScheduledRequest = Boolean(scheduledAt);
   const title = isPreviewMode
     ? (isIntercity ? 'Scheduled intercity trip' : 'Scheduled ride')
     : (isScheduledRequest
       ? (isIntercity ? 'Scheduled intercity request' : 'Scheduled ride request')
-      : (isIntercity ? 'New intercity request' : 'New ride request'));
+      : (isDelivery
+        ? `New ${deliveryKind} delivery`
+        : (isIntercity ? 'New intercity request' : 'New ride request')));
   const intercityRoute = [data.raw?.intercity?.fromCity, data.raw?.intercity?.toCity].filter(Boolean).join(' to ');
-  const category = isIntercity ? intercityRoute || 'Intercity trip' : 'Passenger ride';
+  const category = isDelivery
+    ? (data.raw?.pickup?.name || (deliveryKind === 'grocery' ? 'Grocery order' : 'Food order'))
+    : (isIntercity ? intercityRoute || 'Intercity trip' : 'Passenger ride');
   const payment = normalizePayment(data.payment);
   const timerProgress = Math.max(0, Math.min(100, (timer / requestDurationSeconds) * 100));
-  const accentClass = isIntercity ? 'bg-yellow-400' : 'bg-blue-600';
-  const accentTextClass = isIntercity ? 'text-yellow-700' : 'text-blue-600';
+  const accentClass = isDelivery ? 'bg-emerald-500' : (isIntercity ? 'bg-yellow-400' : 'bg-blue-600');
+  const accentTextClass = isDelivery ? 'text-emerald-700' : (isIntercity ? 'text-yellow-700' : 'text-blue-600');
   const pickupAddress = data.raw?.pickupAddress || data.pickup || 'Pickup point';
   const dropAddress = data.raw?.dropAddress || data.drop || 'Drop point';
   const attemptCount = Number(data.attempt || data.raw?.attempt || 1);
@@ -193,7 +201,7 @@ const IncomingRideRequest = ({
                   {isIntercity ? <Navigation size={26} /> : <Bike size={26} />}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">{isPreviewMode ? 'Scheduled trip' : 'Ride offer'}</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">{isPreviewMode ? 'Scheduled trip' : (isDelivery ? 'Delivery offer' : 'Ride offer')}</p>
                   <h2 className="mt-1 text-[21px] font-black leading-tight tracking-tight">{title}</h2>
                   <p className="mt-0.5 truncate text-[12px] font-semibold text-white/55">{category}</p>
                   {isPreviewMode ? (
@@ -428,7 +436,7 @@ const IncomingRideRequest = ({
                       disabled={isAccepting}
                       className={`flex h-[58px] items-center justify-center rounded-[18px] ${accentClass} px-5 text-[13px] font-black uppercase tracking-[0.16em] ${isIntercity ? 'text-slate-950' : 'text-white'} shadow-[0_14px_30px_rgba(37,99,235,0.28)] transition-all active:scale-95 disabled:opacity-70`}
                     >
-                      {isAccepting ? 'Accepting...' : 'Accept ride'}
+                      {isAccepting ? 'Accepting...' : (isDelivery ? 'Accept delivery' : 'Accept ride')}
                     </button>
                   )}
                 </div>

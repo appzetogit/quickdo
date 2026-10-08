@@ -89,7 +89,7 @@ async function main() {
     const p = await FoodDeliveryPartner.findById(soloPartner._id).lean();
     assert.ok(p.driverId, 'reverse link set');
     const d = await Driver.findById(p.driverId).lean();
-    assert.deepEqual(d.serviceCapabilities, ['delivery'], 'delivery-only capability');
+    assert.deepEqual([...d.serviceCapabilities].sort(), ['delivery', 'quickCommerce'], 'delivery-only capabilities (food + grocery)');
     assert.equal(d.workMode, 'all');
     assert.equal(String(d.legacyDeliveryPartnerId), String(soloPartner._id));
     assert.equal(d.location.coordinates[0], 72.6, 'location carried from partner');

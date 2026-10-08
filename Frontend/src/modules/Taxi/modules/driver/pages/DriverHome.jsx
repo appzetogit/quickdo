@@ -57,6 +57,15 @@ import { cancelDriverScheduledRide, getCurrentDriver, getDriverDocumentTemplates
 import { addLocalDriverNotification, getUnreadDriverNotificationCount, getVisibleDriverNotifications } from '../utils/notificationState';
 import { getScheduledRideCountdown } from '../utils/scheduledRideTime';
 import {
+    DELIVERY_HOME_PATH,
+    acceptDeliveryJob,
+    declineDeliveryJob,
+    deliveryErrorMessage,
+    isDeliveryJobOffer,
+    isOfferExpired,
+    toDeliveryRequest,
+} from '../utils/unifiedJobs';
+import {
     playRideRequestAlertSound,
     stopRideRequestAlertSound,
     unlockRideRequestAlertSound,
@@ -1318,6 +1327,31 @@ const DriverHome = () => {
                 setStatusMessage('New booking received.');
             };
 
+            // Unified job feed (utils/unifiedJobs.js): a food or grocery delivery
+            // for a driver who also delivers, shown in the same request card.
+            // Rides keep coming through rideRequest above.
+            const onJobOffer = (job = {}) => {
+                if (!isDeliveryJobOffer(job) || isOfferExpired(job)) return;
+                const activeRequest = currentRequestRef.current;
+                if (activeRequest && activeRequest.requestId !== job.jobId) return;
+                setCurrentRequest(toDeliveryRequest(job));
+                setShowRequest(true);
+                playRideRequestAlertSound();
+                setStatusMessage('New delivery offer received.');
+            };
+
+            const onJobCancelled = ({ jobType, jobId } = {}) => {
+                if (!isDeliveryJobOffer({ jobType, jobId })) return;
+                if (acceptingRideIdRef.current && acceptingRideIdRef.current === jobId) return;
+                const activeRequest = currentRequestRef.current;
+                if (activeRequest?.type === 'delivery' && activeRequest.deliveryOrderId === String(jobId)) {
+                    setShowRequest(false);
+                    setCurrentRequest(null);
+                    stopRideRequestAlertSound();
+                    setStatusMessage('That delivery was taken by another rider.');
+                }
+            };
+
             const onRideRequestClosed = ({ rideId, reason, message }) => {
                 console.info('[driver-home] rideRequestClosed received', { rideId, reason, message });
                 if (acceptingRideIdRef.current && acceptingRideIdRef.current === rideId) {
@@ -1479,6 +1513,8 @@ const DriverHome = () => {
 
             socketService.on('rideRequest', onRideRequest);
             socketService.on('rideRequestClosed', onRideRequestClosed);
+            socketService.on('job:offer', onJobOffer);
+            socketService.on('job:cancelled', onJobCancelled);
             socketService.on('errorMessage', onSocketError);
             socketService.on('rideAccepted', openAcceptedRide);
             socketService.on('rideBidSubmitted', onRideBidSubmitted);
@@ -1514,6 +1550,8 @@ const DriverHome = () => {
                 console.info('[driver-home] cleaning up socket listeners');
                 socketService.off('rideRequest', onRideRequest);
                 socketService.off('rideRequestClosed', onRideRequestClosed);
+                socketService.off('job:offer', onJobOffer);
+                socketService.off('job:cancelled', onJobCancelled);
                 socketService.off('errorMessage', onSocketError);
                 socketService.off('rideAccepted', openAcceptedRide);
                 socketService.off('rideBidSubmitted', onRideBidSubmitted);
@@ -1608,8 +1646,36 @@ const DriverHome = () => {
     const dutyHours = Math.floor(liveActiveSeconds / 3600);
     const dutyMins = Math.floor((liveActiveSeconds % 3600) / 60);
 
+    const acceptDelivery = async (request) => {
+        const orderId = request.deliveryOrderId;
+        acceptingRideIdRef.current = orderId;
+        setAcceptingRideId(orderId);
+        setStatusMessage('Accepting delivery...');
+        stopRideRequestAlertSound();
+        try {
+            await acceptDeliveryJob(orderId);
+            setShowRequest(false);
+            setCurrentRequest(null);
+            // Pickup, OTP and drop run in the delivery screens.
+            navigate(DELIVERY_HOME_PATH);
+        } catch (error) {
+            const message = deliveryErrorMessage(error);
+            setStatusMessage(message);
+            toast.error(message);
+            setShowRequest(false);
+            setCurrentRequest(null);
+        } finally {
+            acceptingRideIdRef.current = '';
+            setAcceptingRideId('');
+        }
+    };
+
     const handleAccept = () => {
         if (!currentRequest?.rideId || acceptingRideId) {
+            return;
+        }
+        if (currentRequest.type === 'delivery') {
+            acceptDelivery(currentRequest);
             return;
         }
 
@@ -1621,7 +1687,9 @@ const DriverHome = () => {
     };
 
     const handleDecline = () => {
-        if (currentRequest?.rideId) {
+        if (currentRequest?.type === 'delivery') {
+            declineDeliveryJob(currentRequest.deliveryOrderId);
+        } else if (currentRequest?.rideId) {
             socketService.emit('rejectRide', { rideId: currentRequest.rideId });
         }
         stopRideRequestAlertSound();

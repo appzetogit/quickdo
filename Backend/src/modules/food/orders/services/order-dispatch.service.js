@@ -17,6 +17,13 @@ import { getIO, rooms } from '../../../../config/socket.js';
  */
 import { loadActiveZones, filterCandidatesToZone, resolveZoneIdForPoint } from '../../shared/zoneMatching.js';
 import { compareInBackground } from '../../../../core/finance/eligibilityShadow.js';
+import {
+  isUnifiedDispatchActive,
+  unifiedDeliveryCandidates,
+  mergeCandidates,
+  filterByRiderFinance,
+} from '../../../../core/dispatch/unifiedDispatch.js';
+import { emitDeliveryJobOffers } from '../../../../core/dispatch/jobFeed.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import {
   buildDeliverySocketPayload,
@@ -77,7 +84,7 @@ async function listNearbyOnlineDeliveryPartners(
   if (!restaurant?.location?.coordinates?.length) {
     // Neither a location nor a zone: nothing to match riders against, so no one
     // is offered it (the same as quick commerce) rather than everyone online.
-    if (!orderZoneId) return { restaurant: null, partners: [] };
+    if (!orderZoneId) return { restaurant: null, partners: [], zoneId: null };
     const partners = await FoodDeliveryPartner.find({
       status: "approved",
       availabilityStatus: "online",
@@ -93,6 +100,7 @@ async function listNearbyOnlineDeliveryPartners(
 
     return {
       restaurant: null,
+      zoneId: orderZoneId,
       partners: kept
         .slice(0, Math.max(1, limit))
         .map((p) => ({ partnerId: p.partnerId, distanceKm: null })),
@@ -136,6 +144,21 @@ async function listNearbyOnlineDeliveryPartners(
     if (Number.isFinite(d) && d <= maxKm) {
       scored.push({ partnerId: p._id, distanceKm: d, status: p.status, lat: p.lastLat, lng: p.lastLng });
     }
+  }
+
+  /*
+   * Unified dispatch (plan §8): drivers who went online in the driver app are
+   * candidates too, taken from the taxi Driver pool -- free (busy-lock), work
+   * mode accepting deliveries, holding the delivery capability -- and offered
+   * as their linked delivery-partner record. Merged with the riders above, one
+   * row per rider. Only where unified dispatch is active (flag on, pilot zone).
+   */
+  if (await isUnifiedDispatchActive([orderZoneId])) {
+    const fromDrivers = (await unifiedDeliveryCandidates('food', [rLng, rLat], { maxKm, limit: Math.max(limit, 25) }))
+      .filter((c) => allowedStatuses.includes(c.status) && Number.isFinite(c.distanceKm) && c.distanceKm <= maxKm);
+    const merged = mergeCandidates(scored, fromDrivers);
+    scored.length = 0;
+    scored.push(...merged);
   }
 
   // Distance is not the same question as zone: two zones can sit inside 15km of
@@ -192,6 +215,7 @@ async function listNearbyOnlineDeliveryPartners(
 
     kept.sort((a, b) => a.distanceKm - b.distanceKm);
     return {
+      zoneId: orderZoneId,
       partners: kept.slice(0, Math.max(1, limit)).map((p) => ({
         partnerId: p.partnerId,
         distanceKm: p.distanceKm,
@@ -204,7 +228,7 @@ async function listNearbyOnlineDeliveryPartners(
     ? picked.filter(p => p.status === 'approved')
     : picked;
 
-  return { partners: final };
+  return { partners: final, zoneId: orderZoneId };
 }
 
 async function filterPartnersByCodCashLimit(partners = [], order = null) {
@@ -399,7 +423,8 @@ export async function tryAutoAssign(orderId, options = {}) {
     if (attempt >= 4) maxKm = 60;
 
     const searchOptions = { maxKm, limit: 15 };
-    let { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    let { partners, zoneId: orderZoneId } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    const unifiedActive = await isUnifiedDispatchActive([orderZoneId]);
     // A rider on a trip is offered this order only if it can join that trip
     // (batching on, same or nearby store, nearby drop, nothing picked up yet).
     // This also ends the old gap where a rider on a Food trip was offered every
@@ -433,7 +458,16 @@ export async function tryAutoAssign(orderId, options = {}) {
       }
     }
 
-    const codEligiblePartners = await filterPartnersByCodCashLimit(partners, order);
+    let codEligiblePartners = await filterPartnersByCodCashLimit(partners, order);
+    // Unified dispatch: the shared riderFinance gate at dispatch time, for every
+    // order and not only cash ones -- a rider at the cash ceiling gets no new work.
+    if (unifiedActive) {
+      const isCash = String(order?.payment?.method || '').trim().toLowerCase() === 'cash';
+      ({ kept: codEligiblePartners } = await filterByRiderFinance(codEligiblePartners, {
+        vertical: 'food',
+        orderCash: isCash ? Math.max(0, Number(order?.pricing?.total) || 0) : 0,
+      }));
+    }
     const eligible = codEligiblePartners.filter(p => !offeredIds.includes(p.partnerId.toString()));
 
     if (eligible.length === 0) {
@@ -446,6 +480,12 @@ export async function tryAutoAssign(orderId, options = {}) {
         for (const p of codEligiblePartners) {
           const roomName = rooms.delivery(p.partnerId);
           io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+        }
+        if (unifiedActive) {
+          await emitDeliveryJobOffers({
+            vertical: 'food', payload, partners: codEligiblePartners, zoneIds: [orderZoneId],
+            expiresAt: new Date(Date.now() + 60000),
+          });
         }
       }
 
@@ -468,6 +508,14 @@ export async function tryAutoAssign(orderId, options = {}) {
     for (const p of eligible) {
       const roomName = rooms.delivery(p.partnerId);
       if (io) io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+    }
+    // The same offer on the driver's one job feed (job:offer), for drivers who
+    // also take rides. In addition to new_order, never instead of it.
+    if (unifiedActive) {
+      await emitDeliveryJobOffers({
+        vertical: 'food', payload, partners: eligible, zoneIds: [orderZoneId],
+        expiresAt: new Date(Date.now() + 60000),
+      });
     }
 
     // Batch Push Notifications

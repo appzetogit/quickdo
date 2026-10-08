@@ -53,6 +53,7 @@ import {
 } from "../controllers/driverController.js";
 import { triggerDriverSosAlert, updateDriverSosLocation } from '../../safety/controllers/safetyController.js';
 import { addRideTollEntry, reachRideStop } from '../controllers/rideExtrasController.js';
+import { createDeliverySession, getActiveJobs } from '../controllers/unifiedJobsController.js';
 
 export const driverRouter = Router();
 
@@ -252,6 +253,10 @@ driverRouter.get(
 );
 driverRouter.patch("/online", authenticate(["driver"]), asyncHandler(goOnline));
 driverRouter.patch("/work-mode", authenticate(["driver"]), asyncHandler(setWorkMode));
+// One driver for rides and deliveries (SOW plan §8): every held job, and a delivery-partner
+// session for the driver's own linked delivery record.
+driverRouter.get("/jobs/active", authenticate(["driver"]), asyncHandler(getActiveJobs));
+driverRouter.post("/jobs/delivery-session", authenticate(["driver"]), asyncHandler(createDeliverySession));
 driverRouter.patch(
   "/offline",
   authenticate(["driver"]),

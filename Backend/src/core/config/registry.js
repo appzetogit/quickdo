@@ -396,6 +396,28 @@ export const SETTINGS = Object.freeze({
         label: 'Require completed KYC',
     },
 
+    // --- one driver for taxi and deliveries (plan §8, core/dispatch) ---------
+    /*
+     * Where unified dispatch is piloted. Only read while UNIFIED_DISPATCH_ENABLED is
+     * on; the env flag stays the master switch (and the busy-lock and work-mode
+     * filters it turns on are platform-wide). Taxi, food and quick commerce each
+     * keep their own zone collection, so a pilot city lists all of its zone ids.
+     */
+    'dispatch.unifiedZones': {
+        type: 'object',
+        default: [],
+        scopes: GLOBAL_ONLY,
+        label: 'Unified driver dispatch: pilot zones',
+        help: 'Zone ids (taxi, food and quick-commerce zones) where one driver is offered rides and deliveries from one feed. Empty = every zone. Has no effect until UNIFIED_DISPATCH_ENABLED=true on the server.',
+        validate: (v) => {
+            const list = Array.isArray(v) ? v : (v == null ? [] : [v]);
+            const ids = [...new Set(list.map((x) => String(x || '').trim()).filter(Boolean))];
+            const bad = ids.filter((x) => !/^[0-9a-f]{24}$/i.test(x));
+            if (bad.length) throw new Error(`not a zone id: ${bad.join(', ')}`);
+            return ids;
+        },
+    },
+
     // --- store orders: delivery, schedule (plan §5.3, §5.4) -------------------
     'delivery.dropOtpRequired': {
         type: 'boolean',
