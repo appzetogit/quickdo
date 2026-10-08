@@ -131,6 +131,13 @@ export const useOrderManager = () => {
     try {
       const response = await deliveryAPI.confirmReachedDrop(orderId);
       if (response?.data?.success) {
+        // Food tells us when the customer's code is off for this order: the
+        // drop step then opens on the proof-of-delivery photo.
+        const reached = response.data?.data?.order || response.data?.data;
+        if (typeof reached?.dropPhotoRequired === 'boolean') {
+          // setActiveOrder resets the trip status, which is set right below.
+          if (activeOrder) setActiveOrder({ ...activeOrder, dropPhotoRequired: reached.dropPhotoRequired });
+        }
         updateTripStatus('REACHED_DROP');
         // toast.info('Arrived at Customer Location');
       } else {

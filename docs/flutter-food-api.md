@@ -1,6 +1,6 @@
 # Food API: changes for the Flutter apps (SOW plan §6)
 
-This document lists the food endpoints that are new or have changed for the customer app and the restaurant (partner) app: reports, analytics, settlement statements, GSTIN checks, restaurant email sign-in, the onboarding menu step and the order invoice PDF.
+This document lists the food endpoints that are new or have changed for the customer app and the restaurant (partner) app: reports, analytics, settlement statements, GSTIN checks, restaurant email sign-in, the onboarding menu step, the order invoice PDF and its numbering, loyalty points at checkout and proof of delivery.
 
 - **Base URL:** `https://<host>/api/v1/food`
 - **Auth:** `Authorization: Bearer <accessToken>`. Restaurant endpoints need a restaurant token. `/orders/*` needs a customer token. The two `public` endpoints below need no token.
@@ -9,7 +9,7 @@ This document lists the food endpoints that are new or have changed for the cust
 - **Dates** are `YYYY-MM-DD` and are read as Indian (IST) calendar days. `from` and `to` are both inclusive.
 - **Money** is in rupees as numbers with up to 2 decimals.
 
-> **Quick-commerce stores** use the restaurant panel with `/qc/...` paths. The endpoints in §1–§3 exist only under `/food/restaurant` for now. On `/qc` they return 404, so show "not available" there.
+> **Quick-commerce stores** use the restaurant panel with `/qc/...` paths. The endpoints in §1–§3 also exist under `/qc/restaurant` with the same shapes (store GST, multi-store and pickup differences in [flutter-qc-api.md](./flutter-qc-api.md) §11).
 
 ---
 
@@ -188,5 +188,36 @@ The server adds both through the existing bulk-upload importer after it creates 
 - `:orderId` is the order id (`FOD-...`) or its Mongo `_id`.
 - The invoice is available once the order is **delivered**. Before that, the endpoint returns 409 with `message` "The invoice is available once the order has been delivered".
 - Another customer's order returns 403. An unknown order returns 404.
-- The PDF is built from the bill stored at placement: items with add-ons, item amount, packaging, coupon, taxable value, CGST and SGST (half each of the food GST), delivery fee, platform fee and its GST, tip, round-off and total paid. It prints the restaurant's GSTIN and FSSAI number. The invoice number is `FD-<orderId>`.
+- The PDF is built from the bill stored at placement: items with add-ons, item amount, packaging, coupon, taxable value, CGST and SGST (half each of the food GST), delivery fee, platform fee and its GST, tip, loyalty points redeemed, round-off and total paid. It prints the restaurant's GSTIN and FSSAI number.
+- **Invoice number.** Each restaurant has its own sequential series, restarting every financial year (1 April, IST). The default format is `<prefix>/<FY short>/<5-digit seq>`, for example `R7F3A/2627/00045` (16 characters, GST-compliant). The default prefix is `R` plus the last 4 characters of the restaurant id, uppercased. The number is given once, when the order is delivered, and is stored on the order as `invoice.number` (with `invoice.fy`, `invoice.seq` and `invoice.issuedAt`). Orders delivered before numbering began have no `invoice` and keep `FD-<orderId>`. Show `invoice.number` when it is present; do not build the number yourself.
 - The filename is `invoice-<orderId>.pdf`.
+
+Admins set the format and prefix in the settings registry: `invoice.numberFormat` (global or per vertical; tokens `{prefix}`, `{fy}` = `2026-27`, `{fyShort}` = `2627`, `{fyStart}`, `{seq}` / `{seq:N}`) and `invoice.prefix` (global, per vertical, or per restaurant at partner level, for example `ST123`; `{code}` is the last 4 characters of the id). GST allows at most 16 characters in an invoice number (letters, digits, `/` and `-`). The server enforces this: if the configured format or prefix renders anything longer or with other characters, it logs a warning and uses the compliant default instead. Numbers already given never change.
+
+---
+
+## 8. Loyalty points at checkout
+
+Food checkout redeems loyalty points the same way quick commerce does (core loyalty ledger, rules for the `food` vertical). It is off until an admin turns on `loyalty.enabled`. While it is off, the fields below are accepted and do nothing.
+
+- **Balance:** `GET /api/v1/platform/loyalty/me` returns `{ enabled, balance, worth, rules: { rupeesPerPoint, maxRedeemPercent, ... }, history }`. Show a "Use points" switch only when `enabled` is true and `balance > 0`.
+- **Quote:** `POST /orders/calculate` accepts `loyaltyPoints` (a number). Send the balance if the customer switched on "Use points". The server clamps it to the balance and to `maxRedeemPercent` of the food value (item total minus coupon). It does not refuse the request. The response has:
+  - `pricing.loyaltyPoints` and `pricing.loyaltyDiscount`: what is actually used.
+  - `pricing.total`: the amount payable, already net of the points. `pricing.roundOff` and `pricing.bill.grandTotal`/`roundOff`/`loyaltyDiscount` are updated to match.
+  - `loyalty`: `{ points, discount, requested, balance, maxPoints, capped, enabled }`. Show "up to N points on this order" when `capped` is true.
+- **GST:** points are a payment, not a discount. They come off after GST, so the tax lines do not change. Print a separate "Loyalty points (N)" line with `-loyaltyDiscount` after the tip and before the round-off.
+- **Place:** `POST /orders` accepts `loyaltyPoints` at the top level (or echoed in `pricing.loyaltyPoints`). Send `pricing.loyaltyPoints` from the quote. The server re-quotes, spends the points when the order is placed (once per order), and stores them on `pricing.loyaltyPoints`/`loyaltyDiscount` and `loyalty.pointsRedeemed`. If the balance changed in the meantime, fewer points are used and the total is higher. Re-read `pricing.total` from the response before you open the payment sheet.
+- **Cancel:** a cancelled order gives its points back, once (`loyalty.reversedAt` is set). An unpaid online order that is replaced by a newer order with the same coupon, or by a newer order that redeems points, is cancelled and its points come back.
+- **Earning:** a delivered order earns points on the food value paid for (item total minus coupon minus points). `loyalty.pointsEarned` is set on the order.
+- If points would cover the whole payable amount, the order is refused with "Points cannot pay for the whole order. Use fewer points."
+
+---
+
+## 9. Proof of delivery (delivery partner app)
+
+Food deliveries follow the quick-commerce rule (`core/delivery/dropProof.js`).
+
+- When the admin turns off the customer handover code for food (`delivery.dropOtpRequired` = false, global, per vertical or per zone), the rider must send a photo to complete. With the code in use, the photo is optional and the code is still required.
+- `PATCH /delivery/orders/:orderId/reached-drop` now returns `order.dropPhotoRequired` (`true` when the code is off). When it is true, open the photo step instead of the code step.
+- `PATCH /delivery/orders/:orderId/complete` accepts `{ dropProof: { photoUrl, lat, lng } }` (or the flat `dropPhotoUrl`, `lat`, `lng`). Upload the photo first with `POST /api/v1/uploads/image` (field `file`) and send the returned `url`. A photo that is not an `http(s)` URL or a `/uploads/` path returns 400. Without a photo when one is required, the response is 400 "Take a photo of the delivery to complete it (no handover code on this order)."
+- The photo is stored on the order as `dropProof { photoUrl, lat, lng, at }`. The customer's order details (`GET /orders/:orderId`) and the admin order view show it.

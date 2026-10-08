@@ -14,6 +14,9 @@ import {
     round2,
     PDF_CONTENT_TYPE,
 } from '../../../../core/documents/pdf.js';
+import { assignDocumentNumber, DEFAULT_DOCUMENT_NUMBER_FORMAT } from '../../../../core/documents/invoiceSeries.js';
+import { getMany as getSettings } from '../../../../core/config/resolver.service.js';
+import { logger } from '../../../../utils/logger.js';
 
 /**
  * Customer invoice PDF for a food order (SOW plan 6.7).
@@ -35,6 +38,52 @@ import {
  */
 
 const INVOICEABLE = ['delivered'];
+
+/**
+ * The restaurant's GST invoice number for a delivered order.
+ *
+ * Sequential per restaurant per financial year (April-March, IST), e.g.
+ * R7F3A/2627/00045 (GST-compliant: <= 16 chars). The format and prefix are admin settings
+ * (`invoice.numberFormat`, `invoice.prefix`; the prefix can be set per
+ * restaurant at partner level). Given once: calling it again returns the
+ * number already stored. Never throws into the delivery flow -- returns null
+ * on failure, and the invoice download retries it.
+ */
+export async function assignFoodInvoiceNumber(orderLike, { at } = {}) {
+    try {
+        const order = orderLike?.toObject ? orderLike.toObject() : orderLike;
+        if (!order?._id || !order.restaurantId) return null;
+        if (order.invoice?.number) return { number: order.invoice.number, assigned: false };
+        const restaurantId = String(order.restaurantId?._id || order.restaurantId);
+        const settings = await getSettings(['invoice.numberFormat', 'invoice.prefix'], { vertical: 'food', partnerId: restaurantId });
+        const code = restaurantId.slice(-4).toUpperCase();
+        const defaultPrefix = `R${code}`;
+        const prefix = String(settings['invoice.prefix']?.value || 'R{code}').replace(/\{code\}/g, code);
+        const issuedAt = at || order.deliveryState?.deliveredAt || new Date();
+        return await assignDocumentNumber({
+            Model: FoodOrder,
+            id: order._id,
+            series: `food:${restaurantId}`,
+            prefix,
+            format: settings['invoice.numberFormat']?.value,
+            at: new Date(issuedAt),
+            field: 'invoice',
+            // A configured format/prefix that renders a non-GST-compliant number
+            // falls back to the compliant default (R<id4>/<fyShort>/<seq:5>).
+            gstFallback: { prefix: defaultPrefix, format: DEFAULT_DOCUMENT_NUMBER_FORMAT },
+        });
+    } catch (err) {
+        logger.error(`Invoice number not assigned for food order ${orderLike?._id}: ${err?.message || err}`);
+        return null;
+    }
+}
+
+/** The number printed: the series number, or FD-<order id> for orders delivered before numbering. */
+export function invoiceNumberOf(order) {
+    if (order?.invoice?.number) return order.invoice.number;
+    const orderNo = order?.order_id || order?.orderId || String(order?._id || '');
+    return `FD-${orderNo}`;
+}
 
 class NotInvoiceableError extends Error {
     constructor(message) {
@@ -88,7 +137,8 @@ export function buildFoodInvoiceData(order, restaurant = {}, brand = {}) {
             platformFeeGst: round2(bill.platformFeeGst),
             platformFeeGstRate: num(bill.platformFeeGstRate),
             tip: round2(bill.tip),
-            roundOff: round2(bill.roundOff),
+            loyaltyDiscount: round2(p.loyaltyDiscount ?? bill.loyaltyDiscount),
+            roundOff: round2(p.roundOff ?? bill.roundOff),
         }
         : {
             itemAmount: round2(num(p.subtotal) - num(p.discount)),
@@ -100,6 +150,7 @@ export function buildFoodInvoiceData(order, restaurant = {}, brand = {}) {
             platformFeeGst: round2(p.platformFeeGst),
             platformFeeGstRate: num(p.platformFeeGstRate),
             tip: round2(p.tip),
+            loyaltyDiscount: round2(p.loyaltyDiscount),
             roundOff: round2(p.roundOff),
         };
 
@@ -112,10 +163,10 @@ export function buildFoodInvoiceData(order, restaurant = {}, brand = {}) {
     const restLoc = restaurant.location || {};
 
     return {
-        invoiceNumber: `FD-${orderNo}`,
+        invoiceNumber: invoiceNumberOf(order),
         orderId: orderNo,
         orderDate: order.createdAt,
-        invoiceDate: deliveredAt,
+        invoiceDate: order.invoice?.issuedAt || deliveredAt,
         paymentMethod: order.payment?.method || '',
         paymentStatus: order.payment?.status || '',
         restaurant: {
@@ -139,6 +190,7 @@ export function buildFoodInvoiceData(order, restaurant = {}, brand = {}) {
         gst: { rate: gstRate, cgstRate: halfRate, sgstRate: round2(gstRate - halfRate), cgst, sgst, total: gstOnFood },
         summary,
         couponCode: p.couponCode || '',
+        loyaltyPoints: Number(p.loyaltyPoints) || 0,
         pricesIncludeGst: Boolean(bill?.pricesIncludeGst ?? p.pricesIncludeGst),
         grandTotal: round2(p.total),
     };
@@ -194,6 +246,7 @@ export function renderFoodInvoicePdf(data) {
             s.platformFee ? { label: 'Platform fee', value: money(s.platformFee) } : null,
             s.platformFeeGst ? { label: `GST on platform fee @ ${s.platformFeeGstRate}%`, value: money(s.platformFeeGst) } : null,
             s.tip ? { label: 'Rider tip', value: money(s.tip) } : null,
+            s.loyaltyDiscount ? { label: `Loyalty points redeemed${data.loyaltyPoints ? ` (${data.loyaltyPoints})` : ''}`, value: `- ${money(s.loyaltyDiscount)}` } : null,
             s.roundOff ? { label: 'Round off', value: money(s.roundOff) } : null,
             { label: 'Total paid', value: money(data.grandTotal), bold: true },
         ];
@@ -219,12 +272,18 @@ export async function getCustomerOrderInvoice(orderId, userId) {
     if (!identity) throw new NotFoundError('Order not found');
     // Not populated: a populate of a deleted user would null the id the
     // ownership check below depends on.
-    const order = await FoodOrder.findOne(identity).lean();
+    let order = await FoodOrder.findOne(identity).lean();
     if (!order) throw new NotFoundError('Order not found');
     const owner = String(order.userId || '');
     if (!userId || owner !== String(userId)) throw new ForbiddenError('Not your order');
     if (!INVOICEABLE.includes(order.orderStatus)) {
         throw new NotInvoiceableError('The invoice is available once the order has been delivered');
+    }
+    // Due a series number (delivered after numbering began) but the assignment
+    // at delivery did not finish: give it now. Older orders keep FD-<order id>.
+    if (order.invoice?.due && !order.invoice?.number) {
+        const got = await assignFoodInvoiceNumber(order);
+        if (got?.number) order = { ...order, invoice: { ...order.invoice, number: got.number } };
     }
     const restaurant = await FoodRestaurant.findById(order.restaurantId)
         .select('restaurantName gstLegalName gstNumber fssaiNumber location')

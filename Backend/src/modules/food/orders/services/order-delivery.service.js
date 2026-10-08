@@ -3,6 +3,9 @@ import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { resolveDropProof, dropOtpInUse } from '../../../../core/delivery/dropProof.js';
+import { awardFoodOrderLoyalty } from './order-loyalty.service.js';
+import { assignFoodInvoiceNumber } from './orderInvoice.service.js';
 import {
   ValidationError,
   ForbiddenError,
@@ -901,7 +904,11 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
     dropOtpRequired: order.deliveryVerification?.dropOtp?.required ?? true,
     dropOtpVerified: order.deliveryVerification?.dropOtp?.verified ?? false,
   });
-  return sanitizeOrderForExternal(order);
+  // Tells the rider app to open the proof-of-delivery photo step first when the
+  // customer's code is not in use for this order (core/delivery/dropProof.js).
+  const out = sanitizeOrderForExternal(order);
+  out.dropPhotoRequired = !(await dropOtpInUse(order, { vertical: 'food' }));
+  return out;
 }
 
 /*
@@ -1000,9 +1007,21 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   }
 
   const { otp, ratings } = body;
+  // Proof of delivery (plan §5.4), exactly as quick commerce: a photo is
+  // required when the customer's handover code is not in use for this order
+  // (admin setting `delivery.dropOtpRequired`, resolved for food and the
+  // order's zone), optional otherwise (core/delivery/dropProof.js).
+  let dropProofResult;
+  try {
+    dropProofResult = await resolveDropProof(order, body, { vertical: 'food' });
+  } catch (err) {
+    throw new ValidationError(err.message);
+  }
+  const { proof: dropProof, otpInUse } = dropProofResult;
   logger.info(`[DeliveryComplete] Attempting to complete order ${order._id} for partner ${deliveryPartnerId}. Status: ${order.orderStatus}`);
 
   if (
+    otpInUse &&
     otp &&
     order.deliveryVerification?.dropOtp?.required &&
     !order.deliveryVerification?.dropOtp?.verified
@@ -1019,6 +1038,7 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   }
 
   if (
+    otpInUse &&
     order.deliveryVerification?.dropOtp?.required &&
     !order.deliveryVerification?.dropOtp?.verified &&
     !otp
@@ -1055,6 +1075,10 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     status: 'delivered',
     deliveredAt: new Date(),
   };
+  if (dropProof) order.dropProof = dropProof;
+  // Due a GST invoice number from the restaurant's series; given just below,
+  // once the delivery is saved (and retried by the invoice download if not).
+  order.invoice = { ...(order.invoice?.toObject?.() || order.invoice || {}), due: true };
 
   if (ratings) {
     order.ratings = {
@@ -1072,6 +1096,11 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   });
 
   await order.save();
+
+  // The restaurant's sequential invoice number (core/documents/invoiceSeries.js).
+  // Idempotent and never throws; awaited so the invoice sent below carries it.
+  const invoiceNo = await assignFoodInvoiceNumber(order, { at: order.deliveryState?.deliveredAt });
+  if (invoiceNo?.number) order.invoice.number = invoiceNo.number;
 
   const ledgerKind =
     payMethod === 'cash' && prevPayStatus === 'cod_pending'
@@ -1113,15 +1142,7 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
 
   // Loyalty points (plan §5.7, core/loyalty): earned on the food value paid for.
   // Idempotent per order, never throws, and inert until an admin turns loyalty on.
-  import('../../../../core/loyalty/loyalty.service.js')
-    .then(({ earnForOrder, safely }) => safely('food earn', () => earnForOrder({
-      customerId: String(order.userId?._id || order.userId),
-      vertical: 'food',
-      orderId: String(order._id),
-      orderRef: order.order_id || '',
-      amount: Math.max(0, (Number(order.pricing?.subtotal) || 0) - (Number(order.pricing?.discount) || 0)),
-    })))
-    .catch(() => {});
+  void awardFoodOrderLoyalty(order);
 
   // The rider now works in this order's zone: what shows them to that zone's
   // sub-admin (core/zones/riderZones.js). Idempotent, never throws.

@@ -372,6 +372,14 @@ export async function createInitialTransaction(order) {
     }
 
     /*
+     * Loyalty points redeemed (core/loyalty) are the platform's to fund: the
+     * customer paid that much less, and the restaurant and rider are paid in
+     * full. Zero on every order placed without points.
+     */
+    const loyaltyDiscount = Number(order.pricing?.loyaltyDiscount) || 0;
+    if (loyaltyDiscount > 0) platformNetProfit -= loyaltyDiscount;
+
+    /*
      * Finite and rounded, but NOT floored at zero.
      *
      * Either side can end an order out of pocket when it funded a coupon worth

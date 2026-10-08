@@ -15,6 +15,7 @@ import { useZone } from "@food/hooks/useZone"
 import { useLocationSelector } from "@food/components/user/UserLayout"
 import { orderAPI, restaurantAPI, userAPI, API_ENDPOINTS } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
+import apiClient from "@/services/api/axios"
 import { initRazorpayPayment } from "@food/utils/razorpay"
 import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
@@ -125,6 +126,12 @@ export default function Cart() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash")
   const [showPaymentSheet, setShowPaymentSheet] = useState(false)
   const [walletBalance, setWalletBalance] = useState(0)
+  // Loyalty points (GET /platform/loyalty/me): the balance, and whether the
+  // customer chose to redeem them. The server clamps what is used.
+  const [loyaltySummary, setLoyaltySummary] = useState(null)
+  const [useLoyaltyPoints, setUseLoyaltyPoints] = useState(false)
+  const loyaltyPointsRequested =
+    useLoyaltyPoints && loyaltySummary?.enabled ? Math.floor(Number(loyaltySummary.balance) || 0) : 0
   const [isLoadingWallet, setIsLoadingWallet] = useState(false)
   const [feeSettings, setFeeSettings] = useState(null)
   const [maxAvailableCashLimit, setMaxAvailableCashLimit] = useState(Infinity)
@@ -876,7 +883,8 @@ export default function Cart() {
           restaurantId: resolvedRestaurantId,
           deliveryAddress: defaultAddress,
           zoneId: zoneId || undefined,
-          couponCode: resolvedCouponCode
+          couponCode: resolvedCouponCode,
+          loyaltyPoints: loyaltyPointsRequested || undefined
         })
 
         if (response?.data?.success && response?.data?.data?.pricing) {
@@ -902,7 +910,24 @@ export default function Cart() {
     }
 
     calculatePricing()
-  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, restaurantData, zoneId])
+  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, restaurantData, zoneId, loyaltyPointsRequested])
+
+  // The customer's loyalty balance, for the "use points" toggle. Silent when
+  // signed out or when loyalty is off (the toggle is simply not shown).
+  useEffect(() => {
+    let cancelled = false
+    apiClient
+      .get("/platform/loyalty/me", { contextModule: "user" })
+      .then((res) => {
+        if (!cancelled) setLoyaltySummary(res?.data?.data || null)
+      })
+      .catch(() => {
+        if (!cancelled) setLoyaltySummary(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Fetch wallet balance
   useEffect(() => {
@@ -1070,6 +1095,9 @@ export default function Cart() {
    */
   const billPlatformFeeShown = Number(platformFee ?? 0) + billPlatformFeeGst
   const billTip = Number(bill?.tip ?? 0)
+  // Loyalty points, taken off after tax (the server's figure).
+  const billLoyaltyDiscount = Number(pricing?.loyaltyDiscount ?? bill?.loyaltyDiscount ?? 0) || 0
+  const billLoyaltyPoints = Number(pricing?.loyaltyPoints ?? bill?.loyaltyPoints ?? 0) || 0
   const billRoundOff = Number(bill?.roundOff ?? 0)
   const discount = pricing?.discount ?? (appliedCoupon ? Math.min(appliedCoupon.discount, subtotal * 0.5) : 0)
   const billDiscount = Number(bill?.discountOnNet ?? discount ?? 0) || 0
@@ -1348,7 +1376,8 @@ export default function Cart() {
           restaurantId: restaurantData?._id || restaurantData?.restaurantId || restaurantId || null,
           deliveryAddress: defaultAddress,
           zoneId: zoneId || undefined,
-          couponCode: coupon.code
+          couponCode: coupon.code,
+          loyaltyPoints: loyaltyPointsRequested || undefined
         })
 
         const pricingData = response?.data?.data?.pricing
@@ -1405,7 +1434,8 @@ export default function Cart() {
         restaurantId: restaurantData?._id || restaurantData?.restaurantId || restaurantId || null,
         deliveryAddress: defaultAddress,
         zoneId: zoneId || undefined,
-        couponCode: inputCode
+        couponCode: inputCode,
+        loyaltyPoints: loyaltyPointsRequested || undefined
       })
 
       const pricingData = response?.data?.data?.pricing
@@ -1465,7 +1495,8 @@ export default function Cart() {
           restaurantId: restaurantData?._id || restaurantData?.restaurantId || restaurantId || null,
           deliveryAddress: defaultAddress,
           zoneId: zoneId || undefined,
-          couponCode: null
+          couponCode: null,
+          loyaltyPoints: loyaltyPointsRequested || undefined
         })
 
         if (response?.data?.success && response?.data?.data?.pricing) {
@@ -1728,6 +1759,8 @@ export default function Cart() {
         // Top-level as well: this is the field placement re-prices from. The
         // server also reads pricing.couponCode, for builds that only send that.
         couponCode: orderPricing.couponCode || undefined,
+        // The points the quote above applied (already clamped by the server).
+        loyaltyPoints: Number(orderPricing.loyaltyPoints) > 0 ? Number(orderPricing.loyaltyPoints) : undefined,
         note: note || "",
         sendCutlery: sendCutlery !== false,
         paymentMethod: selectedPaymentMethod,
@@ -2665,6 +2698,36 @@ export default function Cart() {
                 </div>
               )}
 
+{/* Loyalty points */}
+              {loyaltySummary?.enabled && Number(loyaltySummary?.balance) > 0 && (
+                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                  <label className="flex items-center justify-between gap-3 cursor-pointer">
+                    <div className="flex items-center gap-3">
+                      <Sparkles className="h-5 w-5 text-[#EB590E]" />
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                          Use loyalty points
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {useLoyaltyPoints && billLoyaltyPoints > 0
+                            ? `${billLoyaltyPoints} of ${loyaltySummary.balance} points used: -${RUPEE_SYMBOL}${billLoyaltyDiscount.toFixed(2)}`
+                            : `Balance ${loyaltySummary.balance} points (worth ${RUPEE_SYMBOL}${Number(loyaltySummary.worth || 0).toFixed(2)})`}
+                          {useLoyaltyPoints && pricing && billLoyaltyPoints < Number(loyaltySummary.balance) && Number(loyaltySummary?.rules?.maxRedeemPercent) > 0
+                            ? ` · up to ${loyaltySummary.rules.maxRedeemPercent}% of the food`
+                            : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5 accent-[#EB590E]"
+                      checked={useLoyaltyPoints}
+                      onChange={(e) => setUseLoyaltyPoints(e.target.checked)}
+                    />
+                  </label>
+                </div>
+              )}
+
 {/* Bill Details */}
               <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <button
@@ -2783,6 +2846,12 @@ export default function Cart() {
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600 dark:text-gray-400">Tip for delivery partner</span>
                         <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{billTip.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {billLoyaltyDiscount > 0 && (
+                      <div className="flex justify-between text-sm text-[#EB590E] font-medium">
+                        <span>Loyalty points ({billLoyaltyPoints})</span>
+                        <span>-{RUPEE_SYMBOL}{billLoyaltyDiscount.toFixed(2)}</span>
                       </div>
                     )}
                     {Math.abs(billRoundOff) >= 0.01 && (

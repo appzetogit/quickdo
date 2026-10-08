@@ -571,6 +571,17 @@ export default function UserOrderDetails() {
                 </span>
               </div>
             )}
+            {/* Loyalty points, taken off after tax like a wallet. */}
+            {Number(pricing.loyaltyDiscount || 0) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-[#EB590E] font-medium">
+                  Loyalty points{Number(pricing.loyaltyPoints || 0) > 0 ? ` (${pricing.loyaltyPoints})` : ""}
+                </span>
+                <span className="text-[#EB590E] font-medium">
+                  -₹{Number(pricing.loyaltyDiscount).toFixed(2)}
+                </span>
+              </div>
+            )}
             {Math.abs(Number(pricing.bill?.roundOff ?? pricing.roundOff ?? 0)) >= 0.01 && (
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400">Round off</span>
@@ -674,6 +685,43 @@ export default function UserOrderDetails() {
               </p>
             </div>
           </div>
+
+          {/* GST invoice number, given when the order was delivered */}
+          {order?.invoice?.number && (
+            <div className="flex gap-3">
+              <div className="mt-0.5">
+                <Download className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </div>
+              <div>
+                <h4 className="font-semibold text-gray-800 dark:text-white text-sm">Invoice no.</h4>
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{order.invoice.number}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Proof of delivery: the rider's photo at the door */}
+          {order?.dropProof?.photoUrl && (
+            <div className="flex gap-3">
+              <div className="mt-0.5">
+                <MapPin className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </div>
+              <div>
+                <h4 className="font-semibold text-gray-800 dark:text-white text-sm">Proof of delivery</h4>
+                {order.dropProof.at && (
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">
+                    {new Date(order.dropProof.at).toLocaleString()}
+                  </p>
+                )}
+                <a href={order.dropProof.photoUrl} target="_blank" rel="noopener noreferrer">
+                  <img
+                    src={order.dropProof.photoUrl}
+                    alt="Proof of delivery"
+                    className="mt-2 h-40 w-auto rounded-lg border border-gray-200 dark:border-zinc-700 object-cover"
+                  />
+                </a>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

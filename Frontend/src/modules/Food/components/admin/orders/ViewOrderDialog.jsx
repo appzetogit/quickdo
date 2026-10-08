@@ -423,6 +423,22 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, vertical,
             </div>
           )}
 
+          {/* GST invoice number and loyalty points redeemed (food) */}
+          {(order.invoice?.number || Number(order.pricing?.loyaltyPoints || 0) > 0) && (
+            <div className="border-t border-slate-200 pt-4 space-y-1 text-sm">
+              <h3 className="text-sm font-semibold text-slate-700">Invoice and points</h3>
+              {order.invoice?.number && (
+                <p className="text-slate-700">Invoice no.: {order.invoice.number}</p>
+              )}
+              {Number(order.pricing?.loyaltyPoints || 0) > 0 && (
+                <p className="text-slate-700">
+                  Loyalty points redeemed: {order.pricing.loyaltyPoints} (Rs {Number(order.pricing.loyaltyDiscount || 0).toFixed(2)}, platform-funded)
+                  {order.loyalty?.reversedAt ? " · returned on cancellation" : ""}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Delivery Address */}
           {order.address && (
             <div className="border-t border-slate-200 pt-4">

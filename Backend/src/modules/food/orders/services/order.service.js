@@ -58,6 +58,13 @@ import {
   countCouponUseOnPayment,
   releaseCouponUse,
 } from './couponUsage.service.js';
+import {
+  quoteFoodLoyalty,
+  applyLoyaltyToPricing,
+  burnFoodOrderLoyalty,
+  reverseFoodOrderLoyalty,
+  redeemKeyFor,
+} from './order-loyalty.service.js';
 // 🗑️ Moved to foodTransaction.service.js to centralize finance logic.
 
 async function getZoneSurgeSnapshot(zoneId) {
@@ -82,7 +89,43 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
 
 // ----- Calculate (validation + return pricing from payload) -----
 export async function calculateOrder(userId, dto) {
-  return calculateOrderPricing(userId, dto);
+  const result = await calculateOrderPricing(userId, dto);
+  // Loyalty points (core/loyalty): what the asked-for points take off, clamped
+  // to the balance and the admin's share of the food, so the cart can show it.
+  if (Number(dto?.loyaltyPoints) > 0 && result?.pricing) {
+    const quote = await quoteFoodLoyalty(userId, dto.loyaltyPoints, result.pricing);
+    applyLoyaltyToPricing(result.pricing, quote);
+    result.loyalty = quote;
+  }
+  return result;
+}
+
+/**
+ * Unpaid online orders of this customer that are holding redeemed points.
+ *
+ * An online order takes its points when it is placed, and one abandoned at the
+ * payment sheet would otherwise keep them for ever. Placing a new order that
+ * redeems points supersedes those -- the same rule the coupon follows -- and
+ * gives their points back. If one is paid late after all, the webhook refunds
+ * it because it is cancelled.
+ */
+async function supersedeUnpaidOrdersHoldingPoints(userId) {
+  const stale = await FoodOrder.find({
+    userId: new mongoose.Types.ObjectId(userId),
+    orderStatus: "pending_payment",
+    "payment.status": { $nin: ["paid", "refunded", "authorized"] },
+    "pricing.loyaltyPoints": { $gt: 0 },
+  }).select("_id userId order_id orderStatus pricing.loyaltyPoints").lean();
+  for (const o of stale) {
+    const r = await FoodOrder.updateOne(
+      { _id: o._id, orderStatus: "pending_payment", "payment.status": { $nin: ["paid", "refunded", "authorized"] } },
+      {
+        $set: { orderStatus: "cancelled_by_user", "payment.status": "failed" },
+        $push: { statusHistory: { at: new Date(), byRole: "SYSTEM", from: "pending_payment", to: "cancelled_by_user", note: "Replaced by a newer order using loyalty points" } },
+      },
+    );
+    if (r.modifiedCount) await reverseFoodOrderLoyalty({ ...o, orderStatus: "cancelled_by_user" });
+  }
 }
 
 // Helper to safely convert string to ObjectId or throw ValidationError (400)
@@ -319,6 +362,23 @@ export async function createOrder(userId, dto) {
     normalizedPricing.roundOff = settledBill.roundOff;
     normalizedPricing.totalBeforeTip = settledBill.totalBeforeTip;
     normalizedPricing.total = settledBill.grandTotal;
+    normalizedPricing.loyaltyDiscount = 0;
+    normalizedPricing.loyaltyPoints = 0;
+
+    /*
+     * Loyalty points (core/loyalty, plan §5.7), exactly as quick commerce takes
+     * them: clamped to the balance and the admin's share of the food, taken off
+     * AFTER GST like a wallet (the tax lines do not move), and a no-op while
+     * loyalty is off. The points themselves are spent just before the save.
+     */
+    if (Number(dto.loyaltyPoints) > 0) {
+      await supersedeUnpaidOrdersHoldingPoints(userId);
+      const quote = await quoteFoodLoyalty(userId, dto.loyaltyPoints, normalizedPricing);
+      applyLoyaltyToPricing(normalizedPricing, quote);
+      if (normalizedPricing.loyaltyPoints > 0 && !(normalizedPricing.total > 0)) {
+        throw new ValidationError("Points cannot pay for the whole order. Use fewer points.");
+      }
+    }
 
     if (isCash) {
       const { FoodFeeSettings } = await import('../../admin/models/feeSettings.model.js');
@@ -488,18 +548,29 @@ export async function createOrder(userId, dto) {
         // A new one supersedes the customer's earlier unpaid one (an abandoned
         // payment sheet, most often); if that one is paid late after all, the
         // webhook refunds it because it is cancelled.
+        const supersededFilter = {
+          userId: new mongoose.Types.ObjectId(userId),
+          orderStatus: "pending_payment",
+          "payment.status": { $nin: ["paid", "refunded"] },
+          "pricing.appliedCoupon.code": { $in: [appliedCouponCode, String(normalizedPricing.appliedCoupon.code)] },
+        };
+        // Any of them that redeemed points gets them back (core/loyalty).
+        const supersededWithPoints = await FoodOrder.find({ ...supersededFilter, "pricing.loyaltyPoints": { $gt: 0 } })
+          .select("_id userId order_id pricing.loyaltyPoints")
+          .lean();
         await FoodOrder.updateMany(
-          {
-            userId: new mongoose.Types.ObjectId(userId),
-            orderStatus: "pending_payment",
-            "payment.status": { $nin: ["paid", "refunded"] },
-            "pricing.appliedCoupon.code": { $in: [appliedCouponCode, String(normalizedPricing.appliedCoupon.code)] },
-          },
+          supersededFilter,
           {
             $set: { orderStatus: "cancelled_by_user", "payment.status": "failed" },
             $push: { statusHistory: { at: new Date(), byRole: "SYSTEM", from: "pending_payment", to: "cancelled_by_user", note: "Replaced by a newer order with the same coupon" } },
           },
         );
+        for (const o of supersededWithPoints) {
+          const now = await FoodOrder.findById(o._id).select("orderStatus").lean();
+          if (String(now?.orderStatus || "").startsWith("cancelled")) {
+            await reverseFoodOrderLoyalty({ ...o, orderStatus: now.orderStatus });
+          }
+        }
         order.couponUsage = COUPON_USAGE.PENDING;
       } else {
         const use = await takeCouponUse(appliedCouponCode, userId, { enforceLimit: true });
@@ -512,6 +583,24 @@ export async function createOrder(userId, dto) {
         }
         couponUseTaken = use.taken;
         if (use.taken) order.couponUsage = COUPON_USAGE.COUNTED;
+      }
+    }
+
+    // The points, spent before the save like the coupon above: all or nothing,
+    // idempotent per order, and given back below if the order is never saved.
+    let pointsBurned = false;
+    if (normalizedPricing.loyaltyPoints > 0) {
+      try {
+        await burnFoodOrderLoyalty(userId, order);
+        pointsBurned = true;
+        order.loyalty = {
+          pointsRedeemed: normalizedPricing.loyaltyPoints,
+          discount: normalizedPricing.loyaltyDiscount,
+          redeemKey: redeemKeyFor(order._id),
+        };
+      } catch (err) {
+        if (couponUseTaken) await giveBackCouponUse(appliedCouponCode, userId).catch(() => {});
+        throw err;
       }
     }
 
@@ -551,6 +640,9 @@ export async function createOrder(userId, dto) {
         } catch (couponErr) {
           logger.error(`Coupon ${appliedCouponCode} use not given back for unsaved order ${order._id}: ${couponErr.message}`);
         }
+      }
+      if (pointsBurned) {
+        await reverseFoodOrderLoyalty({ _id: order._id, userId, order_id: order.order_id, pricing: normalizedPricing }, { force: true });
       }
       throw err;
     }
@@ -1030,8 +1122,9 @@ export async function cancelOrder(orderId, userId, reason) {
 
   await order.save();
 
-  // A cancelled order is not a use of its coupon.
+  // A cancelled order is not a use of its coupon, nor of its loyalty points.
   await releaseCouponUse(order);
+  await reverseFoodOrderLoyalty(order);
 
   enqueueOrderEvent("order_cancelled_by_user", {
     orderMongoId: order._id?.toString?.(),
@@ -1544,8 +1637,9 @@ export async function updateOrderStatusRestaurant(
     if (String(orderStatus).includes("cancel")) {
       await processOrderRefundOnce(order, order.userId);
       await order.save();
-      // A cancelled order is not a use of its coupon.
+      // A cancelled order is not a use of its coupon, nor of its loyalty points.
       await releaseCouponUse(order);
+      await reverseFoodOrderLoyalty(order);
     }
 
     return normalizeOrderForClient(order);
@@ -1846,6 +1940,9 @@ export async function deleteOrderAdmin(orderId, adminId) {
     }),
     FoodOrder.deleteOne({ _id: order._id }),
   ]);
+
+  // A deleted (never paid, never delivered) order gives back any points it redeemed.
+  await reverseFoodOrderLoyalty(order, { force: true });
 
   // Remove realtime tracking node if present.
   try {

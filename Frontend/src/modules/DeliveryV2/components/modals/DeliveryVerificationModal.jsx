@@ -461,6 +461,8 @@ export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
     if (alreadyVerified) {
       return isCod ? 'payment' : 'complete';
     }
+    // No handover code on this order (admin turned it off): photo first.
+    if (order?.dropPhotoRequired === true) return 'photo';
     return 'otp';
   });
   const [verifiedOtp, setVerifiedOtp] = useState(alreadyVerified ? (order.deliveryVerification.dropOtp.code || '') : '');

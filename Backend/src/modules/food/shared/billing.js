@@ -384,6 +384,8 @@ export function billAddsUp(bill = {}) {
         + Number(bill.platformFee || 0)
         + Number(bill.platformFeeGst || 0)
         + Number(bill.tip || 0)
+        // Loyalty points are a payment taken off after tax (core/loyalty).
+        - Number(bill.loyaltyDiscount || 0)
         + Number(bill.roundOff || 0),
     );
     return Math.abs(sum - Number(bill.grandTotal || 0)) < 0.005;

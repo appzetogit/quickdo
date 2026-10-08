@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { documentNumberFields } from '../../../../core/documents/invoiceSeries.js';
 
 const orderItemSchema = new mongoose.Schema(
     {
@@ -258,7 +259,14 @@ const pricingSchema = new mongoose.Schema(
          * nobody's share.
          */
         couponCode: { type: String, default: null, trim: true },
-        appliedCoupon: { type: mongoose.Schema.Types.Mixed, default: null }
+        appliedCoupon: { type: mongoose.Schema.Types.Mixed, default: null },
+        /**
+         * Loyalty points redeemed (core/loyalty, plan §5.7). Paid by the
+         * platform and taken off AFTER GST, like a wallet: `total` is already
+         * net of it, and the GST lines are unchanged.
+         */
+        loyaltyDiscount: { type: Number, default: 0, min: 0 },
+        loyaltyPoints: { type: Number, default: 0, min: 0 }
     },
     { _id: false }
 );
@@ -545,6 +553,42 @@ const orderSchema = new mongoose.Schema(
             type: { type: String, enum: ['Point'] },
             coordinates: { type: [Number] }
         },
+        /** §5.7 Points redeemed on this order and points it earned when delivered. */
+        loyalty: {
+            type: new mongoose.Schema(
+                {
+                    pointsRedeemed: { type: Number, default: 0 },
+                    discount: { type: Number, default: 0 },
+                    redeemKey: { type: String, default: '' },
+                    pointsEarned: { type: Number, default: 0 },
+                    earnedAt: { type: Date, default: null },
+                    reversedAt: { type: Date, default: null },
+                },
+                { _id: false },
+            ),
+            default: undefined,
+        },
+        /** §5.4 Proof of delivery, taken by the rider at the door (core/delivery/dropProof.js). */
+        dropProof: {
+            type: new mongoose.Schema(
+                {
+                    photoUrl: { type: String, default: '' },
+                    lat: { type: Number, default: null },
+                    lng: { type: Number, default: null },
+                    at: { type: Date, default: null },
+                    reason: { type: String, default: '' },
+                },
+                { _id: false },
+            ),
+            default: undefined,
+        },
+        /**
+         * The restaurant's GST invoice number (core/documents/invoiceSeries.js):
+         * sequential per restaurant per financial year, given once on delivery.
+         * Absent on orders delivered before numbering existed; their invoice
+         * keeps the old FD-<order id>.
+         */
+        invoice: { type: documentNumberFields(), default: undefined },
         /** PetPooja POS invoice data captured on successful sync */
         petpooja: {
             orderId: { type: String, default: '' },

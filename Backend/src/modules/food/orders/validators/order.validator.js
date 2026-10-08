@@ -78,7 +78,9 @@ const pricingSchema = z.object({
     // Both apps send the coupon only here, echoing /calculate's pricing. It is
     // nullable because /calculate reports `couponCode: null` when there is none,
     // and refusing that would refuse every order placed without a coupon.
-    couponCode: z.string().nullable().optional()
+    couponCode: z.string().nullable().optional(),
+    // Echoed from /calculate like the coupon; the top-level field wins.
+    loyaltyPoints: z.number().min(0).optional()
 });
 
 function zodMessage(error) {
@@ -116,7 +118,10 @@ export function validateCalculateOrderDto(body) {
         // `Boolean(dto.claimFreebie)` is always false and the Add button's
         // request never lands — no error, just a claim that quietly never
         // took, indistinguishable from the button "not working".
-        claimFreebie: z.boolean().optional()
+        claimFreebie: z.boolean().optional(),
+        // Loyalty points to redeem (core/loyalty). Clamped by the server to the
+        // balance and the admin's share of the food; 0 or absent uses none.
+        loyaltyPoints: z.number().min(0).optional()
     });
     const result = schema.safeParse(body);
     if (!result.success) {
@@ -163,7 +168,9 @@ export function validateCreateOrderDto(body) {
         // right after claiming a free item drops the claim silently and
         // re-prices without it, since order-pricing.service.js re-runs the
         // same freebie resolution at placement time.
-        claimFreebie: z.boolean().optional()
+        claimFreebie: z.boolean().optional(),
+        // See the calculate schema. Also read from `pricing.loyaltyPoints` below.
+        loyaltyPoints: z.number().min(0).optional()
     });
     const result = schema.safeParse(body);
     if (!result.success) {
@@ -181,7 +188,10 @@ export function validateCreateOrderDto(body) {
      */
     const data = result.data;
     const couponCode = data.couponCode || data.pricing?.couponCode || undefined;
-    return couponCode ? { ...data, couponCode } : data;
+    const loyaltyPoints = data.loyaltyPoints ?? data.pricing?.loyaltyPoints;
+    const out = couponCode ? { ...data, couponCode } : { ...data };
+    if (loyaltyPoints !== undefined) out.loyaltyPoints = loyaltyPoints;
+    return out;
 }
 
 export function validateVerifyPaymentDto(body) {
