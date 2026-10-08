@@ -11,9 +11,12 @@ The detailed request and response examples live in the module documents. This gu
 | [flutter-sp-api.md](./flutter-sp-api.md) | Service provider onboarding, availability, provider choice, add-ons, quotes, work photos, invoices, worker earnings |
 | [flutter-integration.md](./flutter-integration.md) | Food menu and checkout: per-size limits, combos, free delivery, the ₹99 store cap, the itemised bill |
 | [flutter-stock-and-cancel-guide.md](./flutter-stock-and-cancel-guide.md) | Store stock screen, low-stock pushes, the food order-cancel window |
+| [flutter-qc-api.md](./flutter-qc-api.md) | Quick commerce (SOW §5): multi-store cart, pickup, delivery slots, proof of delivery, search suggestions, barcode, loyalty, FAQs, store customer analytics |
+| [flutter-food-api.md](./flutter-food-api.md) | Food (SOW §6): restaurant analytics, reports, settlements, GSTIN check, email sign-in, onboarding menu step, invoice PDF |
+| [flutter-platform-api.md](./flutter-platform-api.md) | Platform (SOW §7): recommendations, demand, global settings, admin broadcasts |
 | [../SOW_IMPLEMENTATION_PLAN.md](../SOW_IMPLEMENTATION_PLAN.md) | The backend plan and decisions D1 to D8 |
 
-Every route prefix in this guide was checked against `Backend/src/routes/index.js` and each module's route index at the time of writing (branch `sow/phase-0-1`, after commit `e002fb3`). If an endpoint here and the code disagree, the code wins. Please tell the backend team.
+Every route prefix in this guide was checked against `Backend/src/routes/index.js` and each module's route index at the time of writing (branch `sow/phase-0-1`, last checked at commit `6b31463`, which includes SOW §5–§7). If an endpoint here and the code disagree, the code wins. Please tell the backend team.
 
 ---
 
@@ -34,8 +37,9 @@ Every route prefix in this guide was checked against `Backend/src/routes/index.j
 3. [Driver app (taxi drivers and delivery partners)](#3-driver-app-taxi-drivers-and-delivery-partners)
 4. [Service Provider app (vendors and workers)](#4-service-provider-app-vendors-and-workers)
 5. [Restaurant and store partner app](#5-restaurant-and-store-partner-app)
-6. [Quick commerce (to be completed)](#quick-commerce-to-be-completed)
-7. [Food ordering updates (to be completed)](#food-ordering-updates-to-be-completed)
+6. [Quick commerce](#6-quick-commerce)
+   - [Platform endpoints](#68-platform-endpoints-recommendations-and-global-settings)
+7. [Food ordering updates](#7-food-ordering-updates)
 8. [What changed or was removed](#8-what-changed-or-was-removed)
 9. [Configuration the client must supply](#9-configuration-the-client-must-supply)
 10. [Rollout notes and checklist](#10-rollout-notes-and-checklist)
@@ -66,7 +70,7 @@ Decision D1: the backend team owns the API and the admin panel, and the Flutter 
 
 - Every route below begins with `/api`, so a full URL is `<API base>/v1/...`. For example, today the phone OTP request is `http://187.126.119.13/api/v1/auth/user/request-otp`.
 - **Make the host a build flavour or remote config value. Do not hard-code it.** The IP address goes away when DNS moves. When HTTPS arrives, Android needs no cleartext exception. Until then, a release build that talks to the IP needs `android:usesCleartextTraffic` (or a network security config) for that host only. Do not ship that to the stores.
-- Assumption to confirm with the backend team: `api.quickdoo.in` keeps the `/api` path prefix (the nginx config proxies `/api/` and `/socket.io/` to the same Node process). The nginx file in the repo is still named for the old host. See [section 11](#11-known-gaps-and-doccode-mismatches).
+- The live preview is `http://187.126.119.13`, where the web app calls the API same-origin on `/api`. Production moves to `https://quickdoo.in` (web) and `https://api.quickdoo.in` (API) once the domain hold is lifted. `api.quickdoo.in` proxies the whole path to the backend, so **the `/api` prefix stays** (`https://api.quickdoo.in/api/v1/...`).
 - Health check: `GET /api/v1/health` returns `{ "status": "UP" }`.
 - Customer-facing web links the API returns, such as the trip-share `url` (`https://<web>/track-trip/:token`), point at the web host, not the API host.
 
@@ -81,7 +85,7 @@ These come from `Backend/src/routes/index.js` (all under `/api`).
 | `/v1/qc/...` | Quick commerce. It is a fork of the food module and has the same sub-paths under `/qc`: `/qc/auth`, `/qc/restaurant`, `/qc/partner`, `/qc/orders`, `/qc/user`, `/qc/delivery`, `/qc/returns`, `/qc/payments`, `/qc/search`, `/qc/uploads`, `/qc/fcm-tokens` | Customer, store seller, delivery partner |
 | `/v1/taxi/...` | Taxi: `/taxi/users`, `/taxi/rides`, `/taxi/safety`, `/taxi/promos`, `/taxi/drivers`, `/taxi/common`, `/taxi/public/trip/:token` | Customer, driver |
 | `/v1/sp/...` | Service provider: `/sp/users`, `/sp/vendors`, `/sp/workers`, `/sp/bookings`, `/sp/payments`, `/sp/public`, `/sp/notifications`, `/sp/image` | Customer, vendor, worker |
-| `/v1/platform/...` | Cross-vertical: `/platform/app-services` (which service tiles to show, public), `/platform/me/orders` (My Orders across every service), `/platform/legal/:app/:kind` (terms and privacy, public) | Customer, everyone |
+| `/v1/platform/...` | Cross-vertical: `/platform/app-services` (which service tiles to show, public), `/platform/me/orders` (My Orders across every service), `/platform/legal/:app/:kind` (terms and privacy, public), `/platform/global-settings` (public), `/platform/recommendations/...`, `/platform/faqs` (public), `/platform/loyalty` (food customers), `/platform/delivery-slots/available` (public). See [6.8](#68-platform-endpoints-recommendations-and-global-settings). | Customer, everyone |
 | `/v1/me/activity`, `/v1/me/spend` | The customer's history and spend across verticals | Customer |
 | `/v1/uploads` | Core image and document upload | Any signed-in core role |
 | `/v1/fcm-tokens` | Core push-token registration | Customer, restaurant, delivery partner, taxi driver |
@@ -310,6 +314,7 @@ Build in this order. Every path is under `/api`.
 ### 2.1 Start-up and sign-in
 
 1. `GET /v1/env/public`: Google Maps key and Firebase web config. Mobile normally uses `google-services.json`; use this only if you load the Maps key at runtime.
+   Also call `GET /v1/platform/global-settings` (public) and take the currency symbol, phone code, country and time zone from it instead of hard-coding `₹`, `+91` or IST. See [6.8](#68-platform-endpoints-recommendations-and-global-settings).
 2. `GET /v1/platform/app-services?lat=&lng=`: which of Food, QC, Taxi and Services to show here. It is public and cached for 30 seconds. **Drive the home tiles from it.** Removed services never appear.
 3. `GET /v1/platform/legal/:app/:kind` for the consent screen. `:kind` is `terms` or `privacy`. `:app` is one of `food_user`, `food_restaurant`, `food_delivery`, `qc_user`, `qc_seller`, `qc_rider`, `taxi_user`, `taxi_driver`, `services_user`, `services_provider`. The admin writes the pages per app. The super-app customer app should read `food_user` until a combined customer page exists (ask the backend team).
 4. Sign in with phone OTP, email/password, Google or Apple. See [1.4](#14-sign-in-and-tokens). Store both tokens in secure storage.
@@ -340,11 +345,11 @@ POST /api/v1/auth/user/verify-otp
 
 ### 2.3 Food
 
-See [Food ordering updates (to be completed)](#food-ordering-updates-to-be-completed) for the full list. In brief: browse with `/v1/food/restaurant/...`, price with `POST /v1/food/orders/calculate`, place with `POST /v1/food/orders`, verify payment, track over the socket, then rate.
+See [section 7](#7-food-ordering-updates) for the full list. In brief: browse with `/v1/food/restaurant/...`, price with `POST /v1/food/orders/calculate`, place with `POST /v1/food/orders`, verify payment, track over the socket, then rate.
 
 ### 2.4 Quick commerce
 
-See [Quick commerce (to be completed)](#quick-commerce-to-be-completed).
+See [section 6](#6-quick-commerce). Home sections "Popular near you" and "Goes well with" come from the recommendation endpoints in [6.8](#68-platform-endpoints-recommendations-and-global-settings) (food and QC).
 
 ### 2.5 Taxi
 
@@ -407,7 +412,13 @@ Details: [flutter-sp-api.md §2–§4](./flutter-sp-api.md#2-booking-customer-ap
 - A **taxi driver** is a `Driver` (taxi token, role `driver`).
 - A **food/QC delivery partner** is a `FoodDeliveryPartner` (core token, role `DELIVERY_PARTNER`).
 - When the unification backfill has linked the two (`partner.driverId`) and the partner is approved, the server accepts the **delivery-partner token on `/v1/taxi/*` and on the taxi socket**, and treats it as the linked driver. A partner token for an unlinked partner is refused by taxi as before.
-- The unified dispatch flag (`UNIFIED_DISPATCH_ENABLED`) is still **off**. A merged job feed with a `jobType` field is planned (SOW plan §8) but not built. Until then, build the app with two modes ("Rides" and "Deliveries") and keep both sockets live when the person has both roles.
+- **One driver, one job feed (SOW plan §8) is built, behind the `UNIFIED_DISPATCH_ENABLED` flag (off by default).** The full contract is in [flutter-taxi-api.md, "Unified jobs"](./flutter-taxi-api.md#13-unified-jobs-one-driver-for-rides-and-deliveries-sow-plan-8). In short:
+  - Sign the driver in once with the **taxi** login. Listen on the taxi socket (root namespace, room `driver:<id>`) for `job:offer` and `job:cancelled`. Each carries `jobType`: `taxi`, `food` or `quick_commerce`, and one normalised shape (pickup, drop, earning, cash to collect, distance, expiry, and how to accept).
+  - Rides are accepted as today (socket `acceptRide`). For a food or grocery job, call `POST /api/v1/taxi/drivers/jobs/delivery-session` once to get a delivery-partner token for the driver's own linked delivery record, then run the job with the delivery endpoints in [3.3](#33-delivery-partner-flow-food-qc-mirrors-it-under-v1qcdelivery) (`PATCH /v1/food/delivery/orders/:id/accept`, and so on; QC orders use the same paths).
+  - `GET /api/v1/taxi/drivers/jobs/active` lists every job the driver holds (rides and deliveries). Call it on start-up and after a reconnect to restore the screen.
+  - A driver holds **one job at a time** across all three. `PATCH /work-mode` (`all`, `taxi`, `delivery`) decides which streams they are offered.
+  - Keep handling the old per-vertical events (`rideRequest`, and `new_order` on the delivery socket) while the flag is off, and for delivery-only partners, who keep using the delivery app flow in 3.3 unchanged.
+- Until the flag is on for the driver's zone, `job:offer` never arrives. Build the app so it works both ways: the unified card when `job:offer` arrives, the two existing modes otherwise.
 
 ### 3.2 Taxi driver flow
 
@@ -450,7 +461,7 @@ All under `/api/v1/food/delivery` unless stated.
 | Profile | `PATCH /profile` (`vehicleRcPhoto` can be updated here too), `PATCH /profile/bank-details`, `DELETE /profile/account` |
 | Help | `GET/POST /support-tickets`, `GET/POST /order-emergency-requests`, `GET /emergency-help` |
 
-**Proof-of-delivery photo** (QC 5.4, `dropProof { photoUrl, lat, lng, at }` at completion, required when there is no OTP) is being built now. See the QC placeholder.
+**Proof-of-delivery photo** (QC 5.4, `dropProof { photoUrl, lat, lng, at }` at completion, required when there is no OTP) applies to quick-commerce orders only. See [6.5](#65-proof-of-delivery-delivery-app).
 
 ---
 
@@ -490,14 +501,14 @@ The React web panel covers restaurants and stores today. The existing Flutter pa
 
 | Area | Food (`/api/v1/food/restaurant`) | QC store (`/api/v1/qc/restaurant`) |
 |---|---|---|
-| Sign in | `POST /v1/auth/restaurant/request-otp`, then `/verify-otp` (core tokens). Email OTP sign-in for existing outlets (`/v1/auth/restaurant/email/request-otp` and `/verify-otp`) is **in progress** (SOW 6.5). | `POST /v1/qc/auth/restaurant/request-otp`, then `/verify-otp`. Seller sign-up and onboarding at `/v1/qc/partner/...`. |
-| Register | `POST /register`, `POST /upload-attachment`, GST check `POST /gst/verify` (in progress, SOW 6.4) | QC partner flow |
+| Sign in | `POST /v1/auth/restaurant/request-otp`, then `/verify-otp` (core tokens). Email OTP sign-in for existing outlets: `/v1/auth/restaurant/email/request-otp` and `/verify-otp` (SOW 6.5, see [7.2](#72-restaurant-partner-app)). | `POST /v1/qc/auth/restaurant/request-otp`, then `/verify-otp`. Seller sign-up and onboarding at `/v1/qc/partner/...`. |
+| Register | `POST /register`, `POST /upload-attachment`, GST check `POST /gst/verify` (public, SOW 6.4); optional `firstItems` / `menuSheet` menu step (SOW 6.6) | QC partner flow |
 | Profile and hours | `GET /current`, `PATCH /profile`, `PATCH /availability`, `GET/PUT /outlet-timings`, `GET/PUT /service-radius`, `GET/PUT /tax-settings`, media `/media/...` | same paths |
 | Menu | `GET/PATCH /menu`, categories `/categories`, items `POST /foods` and `PATCH /foods/:id`, add-ons `/item-extras` (alias of `/addons`), combos `/combos`, bulk `/bulk-upload` (template `/bulk-upload/template`) | same, plus **stock**: `GET/PATCH /stock`, `POST /stock/bulk`, `GET /stock/history` ([stock guide](./flutter-stock-and-cancel-guide.md)) |
-| Orders | `GET /orders`, `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/resend-notification`. Socket `new_order`, `order_status_update`. | same on `/qc` |
+| Orders | `GET /orders`, `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/resend-notification`. Socket `new_order`, `order_status_update`. | same on `/qc`, plus `GET /orders?fulfilmentType=pickup` and pickup hand-over `POST /orders/:orderId/pickup/verify { otp }` ([6.3](#63-self-pickup)) |
 | Offers | `/my-offers` (alias `/my-deals`), `/freebie-offer`, `/bogo-offer` | |
 | Money | `GET /finance`, `POST /withdraw`, `GET /withdrawals`, `GET /commission`, settlements `GET /settlements`, `/settlements/:cycleId`, `/settlements/:cycleId/download` (SOW 6.3) | subscription `GET /subscription/overview`, `/subscription/invoices`, `/subscription-history` |
-| Reports | `GET /analytics/sales?from&to&groupBy` (alias `/insights/sales`), `GET /reports` (SOW 6.1–6.2, in progress) | |
+| Reports | `GET /analytics/sales?from&to&groupBy` (alias `/insights/sales`), `GET /reports?type&format&from&to` (CSV/PDF file) (SOW 6.1–6.2) | `GET /analytics` (now with new/returning/repeat and top customers, SOW 5.9). No `/reports`, `/analytics/sales` or `/settlements` yet: they return 404 on `/qc`. |
 | Support | `GET /complaints`, `POST/GET /support/tickets` | |
 | Push | `POST /v1/fcm-tokens/mobile/save` (QC: `/v1/qc/fcm-tokens/mobile/save`). Handle `new_order`, `order_cancelled`, `stock_low` and `stock_out` taps. | |
 
@@ -505,106 +516,194 @@ Dining and table reservations are removed. Drop any dining tab or settings scree
 
 ---
 
-## Quick commerce (to be completed)
+## 6. Quick commerce
 
-> **Placeholder.** Another agent is writing the full QC document for SOW §5 now. Do not build the new QC features (multi-seller cart, pickup, slots, loyalty and the rest) until that document lands. What is known today follows.
+Full payloads and error messages: [flutter-qc-api.md](./flutter-qc-api.md). Everything in SOW §5 is committed (commit `6b31463`) and backward compatible: old request bodies still work and new response fields are only added.
+
+### 6.1 Basics and build order
 
 **Prefix and identity.**
 
-- Everything is under `/api/v1/qc`. It is a fork of the food module, so the sub-paths mirror food: `/qc/restaurant` (stores), `/qc/orders`, `/qc/user`, `/qc/delivery`, `/qc/search`, `/qc/uploads`, `/qc/payments`, `/qc/notifications`, `/qc/chat`.
-- QC-only paths are `/qc/partner` (seller onboarding) and `/qc/returns` (customer returns).
+- Everything is under `/api/v1/qc`. It is a fork of the food module, so the sub-paths mirror food: `/qc/restaurant` (stores), `/qc/orders`, `/qc/user`, `/qc/delivery`, `/qc/search`, `/qc/uploads`, `/qc/payments`, `/qc/notifications`, `/qc/chat`. QC-only paths are `/qc/partner` (seller onboarding), `/qc/returns` (customer returns), `/qc/loyalty` and `/qc/products/by-barcode/:code`.
 - Public settings: `/qc/admin/business-settings/public`, `/power-scanning/public`, `/feature-settings/public`, `/fee-settings/public`, `/cashback-settings/public`, `/restaurant-subscription-settings/public`.
-- The customer uses the **core** token. QC links its own profile on first use.
-- Sockets are on the `/qc` namespace, with the same event names as food.
+- The customer uses the **core** token. QC links its own profile on first use. Sockets are on the `/qc` namespace, with the same event names as food.
+- Shared features live under `/api/v1/platform`: FAQs, delivery slots, loyalty for food customers, recommendations and global settings.
 
-**Ordering today (the same contract as food).**
+**Ordering contract (unchanged from food).** `POST /qc/orders/calculate`, then `POST /qc/orders` (10-second idempotency window), then `POST /qc/orders/verify-payment`. Call `DELETE /qc/orders/:orderId/pending-payment` when the Razorpay sheet is dismissed. Also `GET /qc/orders`, `GET /qc/orders/:orderId`, `/drop-otp`, `/route`, `/payments`, `PATCH /:orderId/cancel`, `/ratings`, `/instructions`. Returns are at `/qc/returns` and are refunded through the gateway (`payment.refund.status`). Pricing is shared with food: render `pricing.bill`, never sum it.
 
-- `POST /qc/orders/calculate`, then `POST /qc/orders` (with an idempotency window), then `POST /qc/orders/verify-payment`.
-- `DELETE /qc/orders/:orderId/pending-payment` abandons an online payment the customer did not finish. Call it when the Razorpay sheet is dismissed.
-- `GET /qc/orders`, `GET /qc/orders/:id`, `GET /qc/orders/:id/drop-otp`, `GET /qc/orders/:id/route`, `PATCH /qc/orders/:id/cancel`, `/ratings`, `/instructions`.
-- Returns: `/qc/returns`. Approved returns are refunded through the gateway refund service (`payment.refund.status`).
-- The per-size quantity limits, itemised `pricing.bill` and free-delivery breakdown described for food in [flutter-integration.md](./flutter-integration.md) come from shared pricing logic. Treat QC pricing responses the same way. Render `bill`. Never sum it.
+**Stock (stores).** Live. `stockQty: null` means not counted, `0` means sold out and hides the product. Pushes `stock_low` and `stock_out`. See [flutter-stock-and-cancel-guide.md](./flutter-stock-and-cancel-guide.md).
 
-**Stock (stores).** This is live. See [flutter-stock-and-cancel-guide.md](./flutter-stock-and-cancel-guide.md).
+**Removed: medical/pharmacy (D2).** Prescription orders, uploads, requests and broadcasts; drug-licence and pharmacy verification; the medical tile and medical partner sign-up. Pharmacy stores are hidden and refuse orders. No order is numbered `MED-` again.
 
-- `stockQty: null` means not counted.
-- `0` means sold out and hides the product.
-- Low-stock pushes are `stock_low` and `stock_out`.
+**Customer app screens, in build order** (paths under `/api/v1/qc` unless they start with `/v1/platform`):
 
-**Removed.** Medical/pharmacy is gone (D2):
-
-- prescription orders and uploads, prescription requests and broadcasts;
-- drug-licence and pharmacy verification;
-- the medical app service tile and medical partner sign-up.
-
-Existing pharmacy stores are hidden from customers and refuse new orders. No order is ever numbered `MED-` again. Remove every medical or prescription screen.
-
-**In progress on the backend (SOW §5). Shapes are not final:**
-
-| SOW | Feature | Known so far |
+| # | Screen | Endpoints |
 |---|---|---|
-| 5.1 | Multi-seller cart | Cart `items[]` each carry `storeId`. Checkout creates one **parent order** (one payment, one coupon) and one child order per store, each with its own acceptance, rider and tracking. Fees and discounts are split pro rata. Refunds and cancels are per child. |
-| 5.2 | Self-pickup | `fulfilmentType: "delivery" \| "pickup"`. Pickup skips dispatch and the delivery fee, and shows a pickup OTP the store checks. |
-| 5.3 | Scheduled delivery | `scheduledAt` against admin-defined slots with capacity. Shared slot routes are being added at `/api/v1/platform/delivery-slots`. |
-| 5.4 | Proof-of-delivery photo | `dropProof { photoUrl, lat, lng, at }` at rider completion. Required when there is no OTP. |
-| 5.5 | Search suggestions | `GET /search/suggest?q=` and recent searches |
-| 5.6 | Voice search and barcode scan | Done on the device. Backend adds `barcode`/`ean` and `GET /products/by-barcode/:code`. |
-| 5.7 | Loyalty points | Earn on delivery, redeem at checkout. Shared routes at `/api/v1/platform/loyalty`. |
-| 5.8 | FAQs | `GET /api/v1/platform/faqs?vertical=` |
-| 5.10 | QC orders in the delivery-partner app | Riders pick up QC orders as well as food |
+| 1 | Home | `GET /v1/platform/recommendations/popular?vertical=quickCommerce&lat=&lng=` ([6.8](#68-platform-endpoints-recommendations-and-global-settings)) |
+| 2 | Search box | `GET /search/suggest?q=`, `GET/POST/DELETE /search/recent`, then `GET /search/products?q=` ([6.6](#66-search-suggestions-recent-searches-and-barcode)) |
+| 3 | Barcode scan | Scan on the device, then `GET /products/by-barcode/:code?zoneId=` |
+| 4 | Product sheet and cart | `GET /v1/platform/recommendations/together?vertical=quickCommerce&itemId=` ("Goes well with"); cart lines carry `storeId` ([6.2](#62-multi-store-cart-and-parent-orders-mso-)) |
+| 5 | Checkout: delivery or pickup | `fulfilmentType: "delivery" \| "pickup"` ([6.3](#63-self-pickup)) |
+| 6 | Checkout: slot picker | `GET /v1/platform/delivery-slots/available?vertical=quickCommerce&zoneId=&days=3`, then `scheduledAt` + `slotId` ([6.4](#64-delivery-slots-and-scheduledat)) |
+| 7 | Checkout: points | `GET /loyalty/me`, `GET /loyalty/quote?points=&orderValue=`, then `loyaltyPoints` on calculate and place ([6.7](#67-loyalty-points-and-faqs)) |
+| 8 | Pay and place | `POST /orders/calculate`, `POST /orders`, `POST /orders/verify-payment` (parent id for multi-store) |
+| 9 | Orders list and detail | `GET /orders?groupByParent=true`, `GET /orders/parent/:parentId`, `GET /orders/:orderId` (shows `pickupOtp`, `deliverySlot`, `dropProof`) |
+| 10 | Help | `GET /v1/platform/faqs?vertical=quickCommerce` |
+
+### 6.2 Multi-store cart and parent orders (`MSO-`)
+
+- A basket may hold items from **up to 5 stores**. Put `storeId` on every line. A single-store basket is placed exactly as before (one order, no parent; `restaurantId` still works).
+- Two or more stores create one **parent order** (`MSO-…`) that holds the single payment and the single coupon, plus one **child order** (`FOD-…`) per store. Each child has its own store acceptance, rider, tracking, OTP, cancellation and refund. Track, cancel and rate children with the normal `/orders/:orderId/...` routes.
+- **Delivery fee:** the customer pays **one** fee, the highest fee any single store would charge (0 for pickup), split between the stores by item value. The platform fee is charged once and split the same way. The coupon is checked once against the whole basket. Loyalty points are redeemed once and split after the coupon.
+- **Express is not offered on multi-store baskets.** Every child is priced as `basic`; hide the `quick` option when the cart has more than one store.
+- Quote: `POST /orders/calculate` returns `isMultiStore: true`, `stores[]` (each with its own `pricing`) and a combined `pricing`.
+- Place: `POST /orders` returns `order` (the parent view, with `children[]` and each child's `parentSplit`), `orders` (the children) and one `razorpay` object. Cash: each rider collects that child's total. Wallet: debited once for the parent total.
+- Verify with the **parent** id (Mongo id or `MSO-` number): `POST /orders/verify-payment`. Abandon with `DELETE /orders/<parentId or MSO->/pending-payment`.
+- If one store cannot take its part, the whole checkout is refused with that store's message and nothing is charged.
+- Lists: `GET /orders?groupByParent=true` returns one entry per checkout; `GET /orders/parent/:parentId` returns the parent with all children; a child's `GET /orders/:orderId` adds `parentOrder { …, siblings[] }`.
+- Cancel per child with `PATCH /orders/:childId/cancel`. The refund is that child's total only.
+
+```http
+POST /api/v1/qc/orders/calculate
+{ "items": [ { "itemId": "66f…a1", "name": "Rice 5kg", "price": 300, "quantity": 1, "storeId": "66e…01" },
+             { "itemId": "66f…b2", "name": "Milk 1L",  "price": 100, "quantity": 1, "storeId": "66e…02" } ],
+  "deliveryAddress": { "location": { "coordinates": [75.88, 22.73] } },
+  "couponCode": "SAVE40", "fulfilmentType": "delivery" }
+
+200 { "success": true, "data": { "isMultiStore": true, "stores": [ { "storeId": "66e…01", "pricing": { "deliveryFee": 22.5, "…": "…" } }, { "…": "…" } ],
+      "pricing": { "subtotal": 400, "deliveryFee": 30, "discount": 40, "total": 401, "splitBasis": "subtotal" } } }
+```
+
+### 6.3 Self-pickup
+
+- Send `"fulfilmentType": "pickup"` to `/orders/calculate` and `/orders`. No delivery fee and no rider; `address` is optional.
+- The place-order response and the customer's `GET /orders/:orderId` carry a 4-digit `pickupOtp` until the order is collected. Show it on the order screen. It is never sent to the store or riders.
+- **Store app:** list with `GET /qc/restaurant/orders?fulfilmentType=pickup`. After accepting and packing, the store enters the customer's code with `POST /qc/restaurant/orders/:orderId/pickup/verify { "otp": "4821" }`, and the order becomes `delivered` (cash is marked paid at the counter). Five wrong codes lock it; support can still close the order.
+
+### 6.4 Delivery slots and `scheduledAt`
+
+- Admins configure slots per zone with a daily capacity. `GET /api/v1/platform/delivery-slots/available?vertical=quickCommerce&zoneId=<zone>&days=3` (public) returns `slotsEnabled` and `days[].slots[]` with `slotId`, `label`, `startTime`, `endTime`, `scheduledAt`, `capacity`, `remaining`, `available`.
+- `slotsEnabled: false` means the zone has no slots: let the customer pick any time, as before. Otherwise only offer slots with `available: true`.
+- Place with `"scheduledAt": "<slot.scheduledAt>"` and, optionally, `"slotId"`. A full or closed slot returns 400 with a message to show. The order carries `scheduledAt` and `deliverySlot { slotId, date, startTime, endTime, label }`; a cancel frees the place.
+- Rider search starts `orders.scheduledDispatchLeadMinutes` (default 30) before the slot.
+
+### 6.5 Proof of delivery (delivery app)
+
+The delivery app keeps using the **food** rider endpoints (`/api/v1/food/delivery/...`); QC orders appear in the same lists with `vertical: "quickCommerce"`, `storeName`, `pickList[]`, `scheduledAt`, `deliverySlot`, `contactlessDelivery` and `parentOrderId`. Show "Store" instead of "Restaurant" and the pick list at pickup. Pickup orders are never offered to riders, and scheduled orders only from the rider-search time.
+
+The drop photo is **required** when the handover code is not used: the admin turned `delivery.dropOtpRequired` off, or the customer chose `contactlessDelivery: true` at checkout. Otherwise it is optional.
+
+1. Upload: `POST /api/v1/uploads/image` (multipart `file`, optional `folder=delivery/drop-proof`, rider token). Returns `data.url`.
+2. Complete: `PATCH /api/v1/food/delivery/orders/:orderId/complete`.
+
+```http
+PATCH /api/v1/food/delivery/orders/FOD-…/complete
+{ "dropProof": { "photoUrl": "https://…/drop-proof/abc.webp", "lat": 22.7201, "lng": 75.8801 }, "otp": "1234" }
+
+400 { "success": false, "message": "Take a photo of the delivery to complete it (no handover code on this order)." }
+```
+
+The order then carries `dropProof { photoUrl, lat, lng, at }`, which the customer sees in `GET /qc/orders/:orderId`.
+
+### 6.6 Search suggestions, recent searches and barcode
+
+| Purpose | Endpoint | Token |
+|---|---|---|
+| Type-ahead | `GET /qc/search/suggest?q=mil&limit=10&zoneId=` returns `suggestions[]` (`type`: `product`, `category` or `brand`) and, when signed in, `recent[]` | optional |
+| Full search | `GET /qc/search/products?q=` | none |
+| Recent searches | `GET /qc/search/recent`; `POST /qc/search/recent { "q": "atta" }` when the customer submits; `DELETE /qc/search/recent?term=atta` (no `term` clears all) | customer |
+| Barcode | `GET /qc/products/by-barcode/:code?zoneId=` returns `products[]`, one per store, in stock first. `404` when nothing matches. | none |
+
+Voice search and the camera scan run on the device. Store apps can send `barcode` (or `ean`) on product create and update; a wrong check digit returns 400.
+
+### 6.7 Loyalty points and FAQs
+
+**Loyalty** is **off by default** (Master setting `loyalty.enabled`). When on, customers earn points on delivered orders and redeem them at checkout. Points belong to the one platform account, so points earned on QC can be spent on food and the other way round.
+
+| | QC customer | Food customer |
+|---|---|---|
+| Balance, rules, history | `GET /api/v1/qc/loyalty/me` | `GET /api/v1/platform/loyalty/me` |
+| What a basket may redeem | `GET /api/v1/qc/loyalty/quote?points=200&orderValue=450` | `GET /api/v1/platform/loyalty/quote?…` |
+| Redeem | `"loyaltyPoints": <n>` on `/qc/orders/calculate` and `/qc/orders`. The server caps it at the balance and `maxRedeemPercent`; read the applied `pricing.loyaltyPoints` and `pricing.loyaltyDiscount`. | **Not yet**: food checkout ignores `loyaltyPoints` ([section 11](#11-known-gaps-and-doccode-mismatches)). Show the balance only. |
+
+When `enabled` is false in `/loyalty/me`, hide the points row at checkout. Cancelling an order that used points returns them.
+
+**FAQs.** `GET /api/v1/platform/faqs?vertical=quickCommerce&category=&includeGeneral=true` (public). `vertical` is `quickCommerce` (or `quick`), `food`, `taxi`, `serviceProvider`, `delivery`, `store` or `general`. The response has a flat `faqs[]` and grouped `categories[]`. Every app's Help screen can use it with its own `vertical`.
+
+### 6.8 Platform endpoints: recommendations and global settings
+
+Full payloads: [flutter-platform-api.md](./flutter-platform-api.md). All under `/api/v1/platform`.
+
+| Endpoint | Token | Where the apps use it |
+|---|---|---|
+| `GET /recommendations/popular?vertical=food\|quickCommerce&lat=&lng=&limit=10` | public | Customer app home: a "Popular near you" row for food and QC. `scope: "all"` means no local data, so the list is service-wide. |
+| `GET /recommendations/together?vertical=food\|quickCommerce&itemId=&limit=10` | public | Customer app item sheet and cart: "Goes well with". `itemId` is the order line's `itemId`. |
+| `GET /recommendations/demand?vertical=food\|quickCommerce\|taxi&zoneId=&hours=12` | any signed-in role | Driver app: suggest where to wait (busiest zone first). |
+| `GET /global-settings` | public | Every app at start-up, before sign-in: `currencySymbol`, `currencyCode`, `phoneCode`, `countryCode`, `timezone`. `null` delivery and schedule values mean "use the service default". |
+
+The recommendation data is computed nightly (after 02:00 IST). Until the first run the lists are empty: **hide the row, do not show an error.** Admin broadcasts now also reach taxi drivers and SP vendors and workers (push `data.type = "admin_broadcast"` and an inbox row with `source: ADMIN_BROADCAST`).
 
 ---
 
-## Food ordering updates (to be completed)
+## 7. Food ordering updates
 
-> **Placeholder.** Another agent is writing the food updates document for SOW §6 now. What is known today follows.
+Full payloads: [flutter-food-api.md](./flutter-food-api.md) (SOW §6) and [flutter-integration.md](./flutter-integration.md) (menu and checkout). Everything below is committed.
 
-**Endpoints** (all under `/api/v1/food`, customer token):
+### 7.1 Customer app
+
+All under `/api/v1/food`, customer token unless marked public. Build in this order:
 
 | Purpose | Endpoint |
 |---|---|
 | Landing settings (includes `ninetyNineStoreMaxPrice`, never null) | `GET /landing/settings/public` |
 | Banners | `GET /hero-banners/public`, `/hero-banners/under-250/public`, `/hero-banners/home-promotion/public`, `/hero-banners/gourmet/public`, `/explore-icons/public` |
 | Zone detection | `GET /zones/detect` |
+| Home recommendations | `GET /api/v1/platform/recommendations/popular?vertical=food&lat=&lng=` ([6.8](#68-platform-endpoints-recommendations-and-global-settings)) |
 | Restaurant list and detail | `GET /restaurant/restaurants`, `GET /restaurant/restaurants/:id` (both carry `freeDeliveryRule`, `freeDeliverySource`, `freeDeliveryOffer`) |
 | Menu | `GET /restaurant/restaurants/:id/menu`, `/restaurants/:id/addons`, `/restaurants/:id/reviews`, `/restaurants/:id/outlet-timings` |
 | Cross-restaurant dish feed | `GET /restaurant/public/foods` (`promo=switch99` for the ₹99 shelf, which the server filters) |
 | Offers and categories | `GET /restaurant/offers`, `GET /restaurant/categories/public` |
 | Search | `GET /search/unified?q=` |
 | Fees | `GET /admin/fee-settings/public`, `/admin/business-settings/public`, `/admin/cashback-settings/public` |
+| "Goes well with" | `GET /api/v1/platform/recommendations/together?vertical=food&itemId=` |
 | Price the cart | `POST /orders/calculate` returns `pricing` with `bill`, `deliveryFeeBreakdown` and `adjustments[]` |
-| Place | `POST /orders` (`paymentMethod`, `tip`, `couponCode`, `zoneId`, …). An implicit 10-second idempotency window covers double taps. |
+| Place | `POST /orders` (`paymentMethod`, `tip`, `couponCode`, `zoneId`, …). A 10-second idempotency window covers double taps. |
 | Verify payment | `POST /orders/verify-payment` |
-| List and detail | `GET /orders`, `GET /orders/:id` (includes `cancellation { allowed, until, secondsLeft, reason }`) |
-| Track | Socket `join-tracking`, `order_status_update`, `location-update`; `GET /orders/:id/route`; `GET /orders/:id/drop-otp` |
-| Cancel | `PATCH /orders/:id/cancel`. This is subject to the admin cancel window; show the 400 message as-is. |
-| Rate and instructions | `PATCH /orders/:id/ratings`, `PATCH /orders/:id/instructions` |
-| Invoice PDF | `GET /orders/:id/invoice` (SOW 6.7). **In progress**: the route is in the working tree, not yet released. |
+| List and detail | `GET /orders`, `GET /orders/:orderId` (includes `cancellation { allowed, until, secondsLeft, reason }`) |
+| Track | Socket `join-tracking`, `order_status_update`, `location-update`; `GET /orders/:orderId/route`; `GET /orders/:orderId/drop-otp` |
+| Cancel | `PATCH /orders/:orderId/cancel`, subject to the admin cancel window; show the 400 message as-is |
+| Rate and instructions | `PATCH /orders/:orderId/ratings`, `PATCH /orders/:orderId/instructions` |
+| **Invoice PDF** (SOW 6.7) | `GET /orders/:orderId/invoice` (`FOD-…` or Mongo id) returns `application/pdf`, filename `invoice-<orderId>.pdf`. Only once delivered: before that it returns **409** "The invoice is available once the order has been delivered". Show the button only on delivered orders. |
+| Loyalty balance | `GET /api/v1/platform/loyalty/me` (redeem at food checkout is not wired yet) |
+| Help | `GET /api/v1/platform/faqs?vertical=food` |
 | Favourites | `GET /user/favorites`, `POST /user/favorites/restaurants/:id`, `POST /user/favorites/foods/:id` |
 | Refund history | `GET /user/refunds` |
 
-**Already required by [flutter-integration.md](./flutter-integration.md)** (the customer app must ship these):
+Already required by [flutter-integration.md](./flutter-integration.md): per-size `minOrderQuantity` / `maxOrderQuantity` (each inherits on its own; `0` max means no cap), combos (`isCombo`, `comboComponents[]`), free delivery by distance (`deliveryFeeBreakdown.freeDeliveryReason`, `waivedDeliveryFee`), the live `ninetyNineStoreMaxPrice` (never hard-code 99), and the itemised `pricing.bill` with platform-fee GST, `tip` and `roundOff` (show `grandTotal` as given). That document's examples use the old host `https://quickdropsindia.com/api/v1`; use the hosts in [1.2](#12-hosts-and-base-urls).
 
-- Per-size `minOrderQuantity` and `maxOrderQuantity`. Each bound inherits on its own, and `0` on max means "no cap".
-- Combos (`isCombo`, `comboComponents[]`).
-- Free delivery by distance (`deliveryFeeBreakdown.freeDeliveryReason`, `waivedDeliveryFee`).
-- The live `ninetyNineStoreMaxPrice`. Never hard-code 99.
-- The itemised `pricing.bill`, including platform-fee GST, `tip` and `roundOff`. Tax now has decimals. Show `grandTotal` exactly as given.
+**Removed:** dining and table reservations (module, banners, public routes and screens).
 
-That document's examples use the old host (`https://quickdropsindia.com/api/v1`). Replace it with the hosts in [1.2](#12-hosts-and-base-urls).
+### 7.2 Restaurant partner app
 
-**Removed:** dining and table reservations. The dining module, dining banners, the public dining routes and every dining screen are gone.
+All under `/api/v1/food`. These exist **only for food**: on `/qc/restaurant` the reports, sales analytics and settlement routes return 404, so show "not available" for stores.
 
-**Backend work in progress (SOW §6):**
+| Feature | Endpoint | Notes |
+|---|---|---|
+| Email sign-in (SOW 6.5) | `POST /auth/restaurant/email/request-otp { email }`, then `POST /auth/restaurant/email/verify-otp { email, otp, fcmToken?, platform? }` (also on `/api/v1/auth/...`) | Existing outlets only; new outlets register by phone. Same response as phone verify-otp (tokens, or `pendingApproval`). `409 EMAIL_MULTIPLE_OUTLETS`: ask for the phone number. The request answer is the same whether or not the email exists. |
+| GSTIN check (SOW 6.4) | `POST /restaurant/gst/verify { gstin, legalName?, panNumber?, state? }` (public, rate limited) | Call when the GSTIN reaches 15 characters. `status`: `verified`, `offline_valid`, `invalid` (registration refuses it), `not_found`, `inactive`, `error` (does not block). Fill blank legal name and address from the result; never overwrite typed values. |
+| Menu step at onboarding (SOW 6.6) | `GET /restaurant/bulk-upload/template/blank` (public `.xlsx`); `POST /restaurant/register` with optional `firstItems` (JSON, up to 25) and `menuSheet` (.xlsx) | A bad sheet never fails registration; read `data.menuImport`. |
+| Sales analytics (SOW 6.2) | `GET /restaurant/analytics/sales?from&to&groupBy=day\|week\|month` | `series[]` has every bucket, zeros included. `empty: true`: show an empty state, never sample data. |
+| Reports (SOW 6.1) | `GET /restaurant/reports?type=orders\|sales\|commission\|gst\|payouts&format=csv\|pdf&from&to` | Returns the file, not JSON. Up to 366 days. |
+| Settlements (SOW 6.3) | `GET /restaurant/settlements?limit=6`, `GET /restaurant/settlements/:cycleId`, `GET /restaurant/settlements/:cycleId/download?format=pdf\|csv` | Cycles run from the 15th to the 14th (IST), named by start month (`2026-09`). |
 
-- vendor reports and analytics on the server;
-- settlement statements;
-- GST verification at onboarding;
-- restaurant email sign-in;
-- a menu step during onboarding (`onboardingMenu`);
-- the server-side invoice PDF.
+File endpoints set `Content-Type` and `Content-Disposition`; download the bytes, then save or share. On an error they return the usual JSON envelope.
 
-These mostly affect the restaurant panel and app ([section 5](#5-restaurant-and-store-partner-app)).
+```http
+POST /api/v1/food/auth/restaurant/email/request-otp
+{ "email": "owner@restaurant.com" }
+
+200 { "success": true, "data": { "message": "If a restaurant uses this email, a sign-in code is on its way.", "codeLength": 6 } }
+```
 
 ---
 
@@ -647,6 +746,16 @@ Old enum values (`pooling`, `bus`, parcel fields) are still accepted when old do
 | Food cancel | Admin-set cancel window. `GET /food/orders/:id` carries `cancellation`. | stock and cancel guide |
 | Food bill | `pricing.bill` with platform-fee GST, tip and round-off. Tax has decimals. | flutter-integration.md |
 | FCM (core) | The unauthenticated `/fcm-tokens/test-set-token` and `/test-get-token` routes are gone. Use `/mobile/save` signed in. | `fcm.routes.js` |
+| QC multi-store | Cart lines carry `storeId`. Baskets from 2–5 stores create a parent `MSO-…` order with one payment and one child `FOD-…` order per store. Delivery fee = the **highest single-store fee**, split by item value. No `quick` (express) mode on multi-store. Verify payment with the parent id. | `7d89993`, [6.2](#62-multi-store-cart-and-parent-orders-mso-) |
+| QC orders | New optional request fields `fulfilmentType`, `slotId`, `loyaltyPoints`, `contactlessDelivery`, top-level `couponCode`. New response fields `pickupOtp`, `deliverySlot`, `dropProof`, `parentOrderId`, `parentOrder`, `fulfilmentType`. `address` is optional for pickup. | `7d89993` |
+| QC scheduled orders | Where a zone has slots, `scheduledAt` must match an open slot with room, or the order is refused (400) | `7d89993`, [6.4](#64-delivery-slots-and-scheduledat) |
+| Rider completion | `PATCH /food/delivery/orders/:orderId/complete` takes `dropProof` for QC orders. It is **required** when the handover code is not used (`dropOtpRequired` off, or contactless). QC orders reach riders through the food rider endpoints with `vertical`, `pickList` and `storeName`. | `7d89993`, [6.5](#65-proof-of-delivery-delivery-app) |
+| QC products | `barcode` / `ean` accepted on create and update, check digit validated | `7d89993` |
+| QC store analytics | `GET /qc/restaurant/analytics` adds new, returning and repeat customers and `topCustomers` (phones masked) | `7d89993` |
+| Food restaurant registration | Runs the GSTIN check and refuses an `invalid` GSTIN with 400. Optional `firstItems` / `menuSheet`. | `e106ce3`, [7.2](#72-restaurant-partner-app) |
+| Food invoice | `GET /food/orders/:orderId/invoice` (PDF, 409 until delivered) | `e106ce3` |
+| Restaurant sign-in | Email OTP for existing outlets | `e106ce3` |
+| Admin broadcasts | Now also reach taxi drivers and SP vendors and workers (push `admin_broadcast`, inbox `source: ADMIN_BROADCAST`) | `76d434b` |
 
 ### 8.3 New required fields (summary)
 
@@ -660,6 +769,10 @@ Old enum values (`pooling`, `bus`, parcel fields) are still accepted when old do
 | `POST /taxi/rides` (round trip) | `tripType: "round_trip"`. `returnAt` is optional but must be after arrival and within 7 days. | round trip |
 | SP quote accept | `paymentMethod` | always |
 | SP `PUT /bank-details` | account + IFSC + holder name, or `upiId` | always |
+| `PATCH /food/delivery/orders/:orderId/complete` | `dropProof { photoUrl, lat, lng }` | a QC order where the handover code is not used (`delivery.dropOtpRequired` off, or the customer chose contactless) |
+| `POST /qc/orders` (multi-store) | `storeId` on every item | the basket has items from more than one store |
+| `POST /qc/orders` (slots) | `scheduledAt` equal to an available slot's `scheduledAt` | scheduling in a zone that has slots |
+| `POST /qc/restaurant/orders/:orderId/pickup/verify` | `otp` (the customer's 4-digit code) | always |
 
 ---
 
@@ -675,7 +788,10 @@ Old enum values (`pooling`, `bus`, parcel fields) are still accepted when old do
 | **App ids and package names** | Flutter team and client | One per app. Decide them before creating the Firebase and OAuth clients. | Listed in Firebase, the OAuth clients and Maps key restrictions |
 | **Deep links / web host** | Client (DNS) | `https://quickdoo.in/track-trip/:token` for trip share. Add App Links and Universal Links if the app should open them. | The web host the server uses when building `url` |
 | **SMS / OTP** | Client (SMS provider and DLT templates in India) | — | The server SMS provider. Phone OTP, SOS texts and trusted-contact links depend on it. |
-| **Email** | Client (SMTP or provider) | — | Email OTP, password reset, invoices. Sent through the email queue. |
+| **Email** | Client (SMTP or provider) | — | Email OTP (including restaurant email sign-in), password reset, invoices. Sent through the email queue. |
+| **GST verification provider** (optional) | Client (a GSTIN lookup API account) | — | `GST_VERIFY_PROVIDER` (`http`), `GST_VERIFY_URL` (`{gstin}` is replaced), `GST_VERIFY_API_KEY`, optional `GST_VERIFY_AUTH_HEADER`, `GST_VERIFY_TIMEOUT_MS` (default 8000). Without a provider, `POST /food/restaurant/gst/verify` only checks the format and check character and returns `offline_valid`. |
+| **Hosts** | Client (DNS, domain hold) | Build flavour or remote config | Live preview `http://187.126.119.13` (API same-origin at `/api`). Production `https://quickdoo.in` and `https://api.quickdoo.in` once the domain hold is lifted; `api.quickdoo.in` proxies the whole path, so the API base is `https://api.quickdoo.in/api`. |
+| **Country, currency, time zone** | Admin (Master settings → Global platform) | Read at start-up from `GET /v1/platform/global-settings` | Nothing to embed in the app |
 
 ---
 
@@ -694,7 +810,8 @@ Each switch defaults to today's behaviour. The app must handle both states.
 | `preferredProviderTimeoutSec` | SP settings | 120 | How long a chosen provider has to accept before the normal waves start |
 | Required verification items | SP settings | Vendor: aadhaar, pan, address. Worker: aadhaar, address. | What `verification.missing` lists |
 | `FINANCE_PERMISSIONS_ENFORCED` | Server env | Off (log only) | Admin-only. The apps are not affected. |
-| `UNIFIED_DISPATCH_ENABLED` | Server env | Off | When on, food and QC deliveries are dispatched to unified drivers (section 3.1) |
+| `UNIFIED_DISPATCH_ENABLED` | Server env | Off | When on, one driver is offered rides, food and grocery jobs on one `job:offer` feed and holds one job at a time (section 3.1) |
+| `dispatch.unifiedZones` | Master settings | `[]` (every zone, once the flag is on) | Zone ids where unified dispatch is piloted. Outside them the driver gets the old per-vertical offers only. |
 | Taxi toll auto-approve limit | Taxi admin (`toll_auto_approve_limit`) | 0 (review every toll) | A toll shows `pending` until reviewed |
 | Night charge and extra-km charge | Taxi set prices | Off | The fare lines appear only when on |
 | Round-trip factors | Taxi set prices | factor 1, 60 minutes free wait, ₹0/hour | Fare only |
@@ -703,6 +820,11 @@ Each switch defaults to today's behaviour. The app must handle both states.
 | SOS enabled | Taxi admin | On | 403 when off. Hide the SOS button on 403. |
 | App services | Master → App services (per zone) | — | `GET /v1/platform/app-services` decides which tiles show |
 | Module kill switch | Master → Platform modules | Enabled | 503 on writes |
+| `loyalty.enabled` (and `pointsPerRupee` 0.1, `rupeesPerPoint` 0.25, `maxRedeemPercent` 20, `expiryDays` 365) | Master settings → Loyalty (global or per service) | **Off** | Nothing is earned or redeemed. `GET …/loyalty/me` returns `enabled: false`: hide the points row and wallet card. |
+| Delivery slots | Admin → Delivery slots (`/v1/platform/delivery-slots/admin`, per zone) | None configured | `slotsEnabled: false`: any `scheduledAt` works as before. Once slots exist, only open slots with room are accepted. |
+| `orders.scheduledDispatchLeadMinutes` | Master settings | 30 | How long before a slot rider search starts. Riders get `400 This is a scheduled order…` if they accept earlier. |
+| `delivery.dropOtpRequired` | Master settings (per service, can be set per zone) | **On** | When off (or when the customer chose contactless), riders complete without the handover code and **must** send a `dropProof` photo. The rider app should always offer the photo step and treat the 400 as "photo required". |
+| `GST_VERIFY_PROVIDER` | Server env | Unset (offline checks only) | `gst/verify` returns `offline_valid` instead of `verified`; treat both as acceptable in onboarding |
 
 ### 10.2 Checklist for the Flutter team
 
@@ -728,14 +850,23 @@ Each switch defaults to today's behaviour. The app must handle both states.
 - [ ] SP: provider choice, add-ons, quotes, before and after photos in booking detail, invoice PDF download.
 - [ ] Food: everything in the [flutter-integration.md checklist](./flutter-integration.md#before-you-ship) and the cancel countdown.
 - [ ] Refund status shown from `payment.refund.status`.
+- [ ] Currency symbol, phone code and time zone come from `GET /v1/platform/global-settings`, not hard-coded.
+- [ ] Home "Popular near you" and cart "Goes well with" rows from `/v1/platform/recommendations/...`; the rows hide when the lists are empty.
+- [ ] QC: multi-store cart with `storeId` per line (up to 5 stores); one delivery fee (the highest single-store fee); express hidden on multi-store; verify with the parent id; `groupByParent=true` order list with per-child tracking and cancel.
+- [ ] QC: delivery or pickup toggle; pickup code shown on the order; slot picker that falls back to free time when `slotsEnabled` is false; contactless option.
+- [ ] QC: search suggestions and recent searches; barcode scan; FAQs screen.
+- [ ] Loyalty: balance and redeem row on QC checkout, hidden when `enabled` is false (the default). Food shows the balance only until food checkout accepts points.
+- [ ] Food: invoice PDF download on delivered orders (handle 409 before delivery).
 
 **Driver app**
 
 - [ ] Taxi: pending-approval screen; stops and waypoint navigation; tolls with a receipt upload; continuous `ride:driver-location:update` during trips; SOS.
 - [ ] The driver taps Arrived at the destination on a round trip, then completes on return.
 - [ ] Delivery partner: `vehicleRcPhoto` and `vehicleRcNumber` at signup for motorised vehicles; directions-style Maps links.
-- [ ] People who are both taxi drivers and delivery partners: two modes, until unified dispatch ships.
+- [ ] People who are both taxi drivers and delivery partners: one card for `job:offer` (rides, food and grocery), the delivery session for food/QC accepts, `GET /taxi/drivers/jobs/active` on start-up; the two existing modes still work while `job:offer` does not arrive.
 - [ ] The taxi refresh token rotates: save the new `refreshToken` after every refresh, and never run two refreshes with the same token.
+- [ ] Delivery partner: QC orders in the same lists ("Store" label, pick list at pickup); proof-of-delivery photo step (upload to `/v1/uploads/image`, then `dropProof` on complete), required when there is no handover code.
+- [ ] Optional: "where to wait" hints from `GET /v1/platform/recommendations/demand`.
 
 **Service Provider app**
 
@@ -750,6 +881,8 @@ Each switch defaults to today's behaviour. The app must handle both states.
 
 - [ ] Stock screen and low-stock push taps (stores only).
 - [ ] No dining screens. No pharmacy sign-up.
+- [ ] Stores: pickup-orders filter and the pickup-code hand-over screen; `barcode` field on products; customer analytics on the analytics screen.
+- [ ] Restaurants: email OTP sign-in (handle `409 EMAIL_MULTIPLE_OUTLETS`); GSTIN check at 15 characters during onboarding; optional menu step; sales analytics chart, report downloads (CSV/PDF) and settlement statements. Show "not available" for reports and settlements on store accounts.
 
 **Release**
 
@@ -770,15 +903,14 @@ These were found while writing this guide. Raise them with the backend team befo
 5. **Pagination differs by module** (section 1.6).
 6. **FCM registration differs.** Core `/fcm-tokens/mobile/save` takes `{ token }` and **refuses** a `platform` field. SP `/fcm-tokens/save` takes `fcmToken` (plus several aliases) and `platform`. The core FCM role map does not include SP `VENDOR` or `WORKER`; they must use the SP routes.
 7. **Old host in `flutter-integration.md`.** It uses `https://quickdropsindia.com/api/v1`. Use the hosts in 1.2.
-8. **The nginx config in the repo names the old host.** `deploy/nginx/superapp.appzeto.com.conf` is the only server block. The `quickdoo.in` and `api.quickdoo.in` blocks (and whether `api.` keeps the `/api` prefix) are not in the repo yet.
+8. **The nginx config in the repo names the old host.** `deploy/nginx/superapp.appzeto.com.conf` is the only server block. The `quickdoo.in` and `api.quickdoo.in` blocks are not in the repo yet. Decided: `api.quickdoo.in` proxies the whole path to the backend, so the `/api` prefix stays. The domains go live once the domain hold is lifted; until then use `http://187.126.119.13`.
 9. **`flutter-taxi-api.md` toll step 1** says to use "the existing upload endpoint" without saying it now needs the driver's token (commit `3972719`). It does, and pending drivers are allowed.
 10. **Intercity leftovers.** The intercity screens were removed (D3), but `GET /taxi/users/intercity-packages` and the `transport_type: "intercity"` / `rideType: "outstation"` pricing still exist. Treat "outstation" as a pricing flag on a normal one-way or round-trip ride, not as a separate flow.
 11. **The SP doc says "the legacy `/api/...` prefixes still work".** That is true (`SP_LEGACY_PREFIXES` in `routes/index.js`), but they exist only for shipped builds. New apps should not use them.
-12. **Work in progress in the working tree** (not yet committed when this was written):
-    - restaurant email OTP sign-in;
-    - the food invoice PDF route;
-    - `/v1/platform/faqs`, `/v1/platform/loyalty` and `/v1/platform/delivery-slots`;
-    - restaurant reports, settlements and GST verification;
-    - QC parent orders and drop proof.
-
-    Treat their shapes as provisional until the module documents land.
+12. **Committed: SOW §5–§7.** Restaurant email sign-in, the food invoice PDF, `/v1/platform/faqs`, `/v1/platform/loyalty`, `/v1/platform/delivery-slots`, restaurant reports, settlements and GST verification, QC parent orders, pickup, slots and drop proof, recommendations and global settings are all committed (up to `6b31463`). Their module documents ([flutter-qc-api.md](./flutter-qc-api.md), [flutter-food-api.md](./flutter-food-api.md), [flutter-platform-api.md](./flutter-platform-api.md)) are authoritative.
+13. **Loyalty cannot be redeemed at food checkout yet.** Food customers can read `GET /v1/platform/loyalty/me` and `/quote`, and food deliveries earn points, but `POST /food/orders/calculate` and `POST /food/orders` ignore `loyaltyPoints`. Only QC checkout redeems. Loyalty is also off by default (`loyalty.enabled`).
+14. **QC stores have no reports or settlements yet.** `/restaurant/reports`, `/restaurant/analytics/sales` and `/restaurant/settlements…` exist only under `/food`; on `/qc/restaurant` they return 404. Stores get only the extended `GET /qc/restaurant/analytics` (customer analytics).
+15. **Multi-store limits.** At most 5 stores per basket; the `quick` (express) mode is not offered (every child is `basic`); the customer pays the highest single-store delivery fee, split by item value. If one store cannot accept, the whole checkout is refused.
+16. **Pickup, slots and drop proof are QC only.** Food orders do not take `fulfilmentType: "pickup"` or slot validation, and food completion ignores `dropProof` (the photo is stored and enforced only for QC orders, even though both go through the same rider completion route).
+17. **GST lookup needs a provider.** With `GST_VERIFY_PROVIDER` unset the check is offline only (`offline_valid`); `verified`, `not_found` and `inactive` appear only once a provider is configured.
+18. **Recommendations start empty.** The nightly job fills them after 02:00 IST; until the first run every list is empty.
