@@ -1272,8 +1272,9 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
               </button>
               )}
               {/* Medical: the quick-commerce panel narrowed to pharmacies. Its own
-                  switch in admin accounts, so a pharmacy team need not see groceries. */}
-              {serviceAccess.medical && (
+                  switch in admin accounts, so a pharmacy team need not see groceries.
+                  Hidden from the switcher for now; /admin/medical still routes. */}
+              {/* {serviceAccess.medical && (
               <button
                 type="button"
                 onClick={() => navigate("/admin/medical")}
@@ -1292,7 +1293,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                 />
                 Medical
               </button>
-              )}
+              )} */}
             </div>
           )}
 

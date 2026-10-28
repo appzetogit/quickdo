@@ -535,6 +535,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
             <ShoppingBasket className="w-3.5 h-3.5 text-neutral-500" />
             Quick
           </button>
+          {/* Medical hidden from the switcher for now; /admin/medical still routes.
           <button
             type="button"
             onClick={() => navigate("/admin/medical")}
@@ -542,6 +543,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
             <Pill className="w-3.5 h-3.5 text-neutral-500" />
             Medical
           </button>
+          */}
         </div>
       </div>
 

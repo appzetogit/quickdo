@@ -1577,8 +1577,9 @@ const AdminLayout = () => {
                   Quick
                 </button>}
                 {/* Medical sits beside Quick in every panel's switcher; it was only
-                    added to the food one, so it vanished on the way here. */}
-                {showPanel("medical") && <button
+                    added to the food one, so it vanished on the way here.
+                    Hidden from the switcher for now; /admin/medical still routes. */}
+                {/* {showPanel("medical") && <button
                   type="button"
                   onClick={() => navigate("/admin/medical")}
                   className={cn(
@@ -1588,7 +1589,7 @@ const AdminLayout = () => {
                 >
                   <Pill className="w-3.5 h-3.5 text-[var(--sb-ink-faint)]" />
                   Medical
-                </button>}
+                </button>} */}
               </div>
             )}
           </div>
