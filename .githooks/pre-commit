@@ -1,0 +1,58 @@
+#!/bin/sh
+#
+# Refuse to commit source carrying an injected payload.
+#
+# Frontend/scripts/check-source-integrity.mjs already exists and is already wired
+# into `npm run build`, and it catches this payload reliably -- a 32,000-character
+# line behind a wall of trailing whitespace trips it immediately.
+#
+# It did not stop the last seven injections because of WHEN it runs, not what it
+# looks for. The payload is written to a developer's working tree, and then swept
+# up by the next ordinary feature commit:
+#
+#   eec8f23  fix(payout): the percentage beside the tax is read off the tax
+#   4a78bad  feat(cart): the priced trip distance travels with the bill
+#   47b1f0c  fix(food): finish the Cloudinary migration
+#   e83d169  fix(pricing): revert reset the menu
+#   ...
+#
+# None of those authors was building the frontend, so the build guard never ran.
+# By the time anyone did build, the payload was on main -- and main is what the
+# deploy builds from. Cumulatively `main` carried executable malware for around
+# NINE DAYS across seven windows, the longest being ~17 hours overnight.
+#
+# So this runs the same check one step earlier, where the payload actually
+# enters the repository.
+#
+# ENABLE (once per clone -- hooks are not cloned):
+#
+#   git config core.hooksPath .githooks
+#
+# Deliberately not enabled by this commit: core.hooksPath is repository-wide and
+# shared between worktrees, so switching it on would change the behaviour of
+# anyone else's checkout without their say-so.
+#
+# BYPASS, if you genuinely must: git commit --no-verify
+# If you find yourself reaching for that on a vite.config.js change you did not
+# make, the answer is not --no-verify.
+
+set -e
+
+if [ ! -f Frontend/scripts/check-source-integrity.mjs ]; then
+  # Nothing to run; a missing guard must not block an unrelated commit.
+  exit 0
+fi
+
+cd Frontend
+
+if ! node scripts/check-source-integrity.mjs; then
+  echo ""
+  echo "  Commit refused: the integrity check failed (see above)."
+  echo ""
+  echo "  If you did not write the flagged line, do NOT just delete it and commit."
+  echo "  That has been done seven times and it has come back every time. Treat the"
+  echo "  machine as compromised: audit editor extensions and global npm packages,"
+  echo "  and rotate any credential this machine can read -- Backend/.env included."
+  echo ""
+  exit 1
+fi

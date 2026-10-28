@@ -1,0 +1,183 @@
+name: Deploy master super-app
+
+# Manual only, for now.
+#
+# The existing deploy path is a webhook on the server that shells out to ~/deploy.sh
+# and reports success as soon as pm2 has been signalled -- so a server that crashes on
+# boot still reads as a successful deploy. This workflow replaces that with a run that
+# fails when the API does not actually come back healthy.
+#
+# It is workflow_dispatch rather than push-triggered on purpose: this box also runs the
+# live pre-integration build and eleven other pm2 apps, so the first few deploys should
+# be somebody pressing a button and watching. Add:
+#
+#   push:
+#     branches: [main]
+#
+# once it has run clean a few times.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or tag to deploy
+        required: false
+        default: main
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Backend/package-lock.json
+
+      # npm ci installs exactly what the lockfile pins, so a deploy cannot silently
+      # pick up a new transitive version.
+      - name: Install
+        working-directory: Backend
+        run: npm ci
+
+      # The suite boots the real Express app against an in-memory MongoDB replica set.
+      # It is the gate: nothing reaches the server unless the security bypass guards,
+      # the driver-assignment concurrency tests and the quick-commerce refund
+      # arithmetic all pass.
+      - name: Test
+        working-directory: Backend
+        # Dummy values, not secrets. The suite signs and verifies its own tokens
+        # within the run, so any stable string works -- but it has to be a stable
+        # one. `.env` is gitignored, so on a runner JWT_ACCESS_SECRET is unset;
+        # master's config quietly generates a random fallback while the
+        # serviceProvider module reads process.env directly and gets undefined.
+        # The two halves then sign and verify with different keys, and seven
+        # cross-module access checks fail with 401 where they assert 403. Pinning
+        # them here makes both halves agree, which is all the suite needs.
+        env:
+          JWT_ACCESS_SECRET: ci-test-access-secret
+          JWT_REFRESH_SECRET: ci-test-refresh-secret
+          # Same reason, different fallback. With neither SOCKET_CORS_ORIGIN nor
+          # FRONTEND_URL set, resolvedCorsOrigin becomes '*' (src/config/env.js:33)
+          # and isOriginAllowed then returns true for EVERY origin -- so the check
+          # asserting an unrelated origin is rejected fails. Any concrete origin
+          # restores a real allow-list.
+          SOCKET_CORS_ORIGIN: https://superapp.appzeto.com
+        run: npm test
+
+  deploy:
+    name: Deploy
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+
+    # Two deploys racing on the same working tree leaves it in an undefined state.
+    concurrency:
+      group: deploy-master
+      cancel-in-progress: false
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            APP_PATH=/opt/master
+            echo "========== DEPLOY START -> ${APP_PATH} =========="
+
+            export PATH="/usr/local/bin:/usr/bin:$PATH"
+            echo "Node: $(node -v)  npm: $(npm -v)"
+
+            cd "${APP_PATH}"
+            git fetch origin
+            git reset --hard "origin/${{ inputs.ref || 'main' }}"
+
+            echo "--- Backend dependencies ---"
+            cd Backend
+            npm ci --omit=dev
+
+            echo "--- Frontend build ---"
+            cd ../Frontend
+            # node_modules is removed first because npm can leave stale
+            # platform-specific optional deps (e.g. @rollup/rollup-linux-x64-gnu)
+            # behind. Falls back to npm install if the committed lockfile lacks this
+            # platform's optional binaries, so a deploy still completes -- then
+            # regenerate the lockfile on Linux and commit it.
+            rm -rf node_modules
+            npm ci || {
+              echo "WARNING: npm ci failed, falling back to npm install (regenerate the lockfile on Linux)"
+              npm install
+            }
+            npm run build
+
+            echo "--- Reload API + workers ---"
+            # startOrReload, not reload: master-workers does not exist yet on a box
+            # that has only ever run master-api, and `pm2 reload` on an unknown app
+            # fails rather than creating it.
+            #
+            # This config names ONLY master-api and master-workers, so the eleven
+            # other pm2 apps on this box are untouched. Never `pm2 restart all` here.
+            cd ../Backend
+            pm2 startOrReload ../deploy/ecosystem.config.cjs --env production --update-env
+            pm2 save
+
+            echo "--- Health gate ---"
+            # pm2 exits 0 as soon as it has signalled the process, so a server that
+            # crashes on boot (bad env var, failed DB connect) would still report
+            # success. Poll /health until it answers 200.
+            #
+            # The port is read from the server's .env: it is loaded by dotenv inside
+            # Node, not exported to this shell, and the SSH_PORT secret above is the
+            # SSH port, not the app port.
+            APP_PORT=$(grep -E '^[[:space:]]*PORT[[:space:]]*=' "${APP_PATH}/Backend/.env" 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '[:space:]')
+            APP_PORT="${APP_PORT:-5007}"
+            echo "Waiting for backend health on port ${APP_PORT}..."
+
+            HEALTHY=0
+            for i in $(seq 1 20); do
+              CODE=$(curl -s -o /tmp/master_health.json -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/health" || echo 000)
+              if [ "$CODE" = "200" ]; then
+                echo "Health OK: $(cat /tmp/master_health.json)"
+                HEALTHY=1
+                break
+              fi
+              echo "  attempt ${i}/20 -> HTTP ${CODE}"
+              sleep 3
+            done
+
+            if [ "$HEALTHY" != "1" ]; then
+              echo "========== DEPLOY FAILED: backend did not become healthy =========="
+              pm2 status || true
+              echo "--- master-api logs ---"
+              pm2 logs master-api --lines 60 --nostream || true
+              echo "--- master-workers logs ---"
+              pm2 logs master-workers --lines 40 --nostream || true
+              exit 1
+            fi
+
+            # Workers have no HTTP surface, so check pm2 considers the process online.
+            # A crash-looping worker means queued jobs are silently piling up.
+            if ! pm2 describe master-workers | grep -q "status.*online"; then
+              echo "========== DEPLOY FAILED: master-workers is not online =========="
+              pm2 logs master-workers --lines 60 --nostream || true
+              exit 1
+            fi
+            echo "Workers online."
+
+            echo "--- nginx ---"
+            # Test before reload: a bad config that reloads takes down every site on
+            # the box, not just this one.
+            nginx -t
+            systemctl reload nginx
+
+            echo "========== DEPLOY SUCCESS =========="
